@@ -7155,7 +7155,7 @@ function initNeuralPredictionMatrix(opportunities) {
 async function addPortfolioPositionFromName(sym, price) {
     try {
         const baseSymbol = String(sym || '').toUpperCase();
-        const res = await api.post('/api/portfolio', { symbol: baseSymbol, qty: 1, avg_price: price });
+        const res = await api.post('/portfolio', { symbol: baseSymbol, qty: 1, avg_price: price });
         if (res.status === "ok") {
             showToast("Sent to AI engine", 'success');
         } else {
@@ -10679,7 +10679,7 @@ async function loadCockpitData(symbol) {
     console.log(`🔬 Loading Research Cockpit for: ${symbol} `);
 
     try {
-        const response = await api.fetch(`/ evolved - prediction / ${symbol} `);
+        const response = await api.fetch(`/evolved-prediction/${encodeURIComponent(symbol)}`);
 
         if (response && response.prediction) {
             populateCockpit(response.prediction, response);

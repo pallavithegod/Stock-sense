@@ -29,6 +29,7 @@ server_stderr.log
 *.sqlite-*
 *.bak
 TEMP_PROJECT_ANALYSIS.md
+API_KEYS_README.md
 prediction_audit.jsonl
 data/*.db
 data/*.db-shm

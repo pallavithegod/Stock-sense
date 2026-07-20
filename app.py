@@ -7884,7 +7884,143 @@ def api_portfolio_scorecard():
 def api_chart_data():
     """Generate live chart data for portfolio performance"""
     labels, values, predictions = generate_chart_datasets()
-    return jsonify({'labels': labels, 'values': values, 'predictions': predictions})
+    return jsonify({'success': True, 'data': {'labels': labels, 'values': values, 'predictions': predictions}})
+
+
+@app.route('/api/chart/<chart_type>', methods=['GET'])
+def api_chart_by_type(chart_type):
+    """Compatibility endpoint for generic chart.js fallbacks."""
+    labels, values, predictions = generate_chart_datasets()
+    data = {"labels": labels, "values": predictions if chart_type == "line" and predictions else values}
+    return jsonify({"success": True, "data": data})
+
+
+@app.route('/api/portfolio/allocation', methods=['GET'])
+def api_portfolio_allocation_chart():
+    """Portfolio allocation chart data."""
+    try:
+        holdings = quantum_ai.db.get_portfolio() if getattr(quantum_ai, "db", None) else []
+        labels = []
+        values = []
+        for h in holdings or []:
+            symbol = normalize_symbol(h.get("symbol") if isinstance(h, dict) else h["symbol"])
+            qty = _safe_float((h.get("quantity") if isinstance(h, dict) else h["quantity"]), 0.0)
+            avg_price = _safe_float((h.get("avg_price") if isinstance(h, dict) else h["avg_price"]), 0.0)
+            price = MARKET.get_cached_price(symbol) or avg_price
+            if symbol and qty > 0 and price > 0:
+                labels.append(symbol)
+                values.append(round(qty * price, 2))
+        return jsonify({"success": True, "data": {"labels": labels, "values": values}})
+    except Exception as e:
+        logger.error(f"Portfolio allocation chart error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/analytics/sectors', methods=['GET'])
+def api_sector_chart_data():
+    """Sector performance chart data derived from cached analytics."""
+    try:
+        with cache_lock:
+            cached = STATE_CACHE.get("SECTOR_STATE", {}).get("analytics_snapshot") or {}
+        sector_data = ((cached.get("data") or {}).get("sectoranalysis") or {})
+        labels = []
+        values = []
+        for sector, metrics in sector_data.items():
+            labels.append(sector)
+            values.append(_safe_float((metrics or {}).get("avgchange", (metrics or {}).get("avgscore", 0)), 0.0))
+        return jsonify({"success": True, "data": {"labels": labels, "values": values}})
+    except Exception as e:
+        logger.error(f"Sector chart error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/stock/<symbol>/history', methods=['GET'])
+def api_stock_history_chart(symbol):
+    """Stock price history chart endpoint expected by chart.js."""
+    try:
+        period = request.args.get("period", "6mo")
+        if not str(symbol).upper().endswith((".NS", ".BO")):
+            symbol = f"{symbol}.NS"
+        df = quantum_ai.get_live_stock_data(symbol, period=period)
+        if df is None or df.empty or "Close" not in df:
+            return jsonify({"success": True, "data": {"labels": [], "values": []}})
+        tail = df.tail(120)
+        labels = [idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx) for idx in tail.index]
+        values = [round(_safe_float(v, 0.0), 2) for v in tail["Close"].tolist()]
+        return jsonify({"success": True, "data": {"labels": labels, "values": values}})
+    except Exception as e:
+        logger.error(f"Stock history chart error for {symbol}: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/predictions/confidence-distribution', methods=['GET'])
+def api_confidence_distribution_chart():
+    """Prediction confidence histogram for chart.js."""
+    try:
+        rows = _get_prediction_rows()
+        bins = {"0-20": 0, "20-40": 0, "40-60": 0, "60-80": 0, "80-100": 0}
+        for row in rows:
+            conf = _safe_float(row.get("confidence", row.get("confidence_score", 0)), 0.0)
+            if conf <= 20:
+                bins["0-20"] += 1
+            elif conf <= 40:
+                bins["20-40"] += 1
+            elif conf <= 60:
+                bins["40-60"] += 1
+            elif conf <= 80:
+                bins["60-80"] += 1
+            else:
+                bins["80-100"] += 1
+        return jsonify({"success": True, "data": {"labels": list(bins.keys()), "values": list(bins.values())}})
+    except Exception as e:
+        logger.error(f"Confidence distribution chart error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/analytics/risk-return', methods=['GET'])
+def api_risk_return_chart():
+    """Risk/return scatter data for chart.js."""
+    try:
+        rows = _get_prediction_rows()
+        points = []
+        for row in rows:
+            expected_return = _safe_float(row.get("predicted_return", row.get("return_percent", row.get("expected_return", 0))), 0.0)
+            risk_raw = row.get("risk", row.get("risk_level", 0))
+            if isinstance(risk_raw, str):
+                risk = {"LOW": 1, "MEDIUM": 2, "NORMAL": 2, "HIGH": 3}.get(risk_raw.upper(), 2)
+            else:
+                risk = _safe_float(risk_raw, 0.0)
+            points.append({"x": risk, "y": expected_return})
+        return jsonify({"success": True, "data": {"points": points}})
+    except Exception as e:
+        logger.error(f"Risk-return chart error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/analytics/market-trends', methods=['GET'])
+def api_market_trends_chart():
+    """Index trend data for the multi-line market trend chart."""
+    try:
+        index_map = {
+            "nifty": "^NSEI",
+            "sensex": "^BSESN",
+            "banknifty": "^NSEBANK",
+        }
+        series = {}
+        labels = []
+        for key, symbol in index_map.items():
+            df = quantum_ai.get_live_stock_data(symbol, period=request.args.get("period", "1mo"))
+            if df is None or df.empty or "Close" not in df:
+                series[key] = []
+                continue
+            tail = df.tail(60)
+            if not labels:
+                labels = [idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx) for idx in tail.index]
+            series[key] = [round(_safe_float(v, 0.0), 2) for v in tail["Close"].tolist()]
+        return jsonify({"success": True, "data": {"labels": labels, **series}})
+    except Exception as e:
+        logger.error(f"Market trends chart error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/alerts')
 def api_alerts():
@@ -8021,7 +8157,7 @@ def get_model_confidences(self, symbol, features):
     
     return confidences
 
-@app.route('/api/news')
+@app.route('/api/news/rss-fallback')
 def get_market_news():
     """
     Get live market news using Google News RSS + Sentiment Analysis.
@@ -8125,7 +8261,7 @@ def get_market_news():
         logger.error(f"News critical error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/predictions/live/<symbol>')
+@app.route('/api/predictions/quick/<symbol>')
 def get_live_symbol_prediction(symbol):
     """
     Get live condensed prediction for stock list.
@@ -9408,7 +9544,7 @@ def get_news_unified():
         fs = app.foresight_system
 
         if not hasattr(fs, "news_ai") or fs.news_ai is None:
-            return jsonify({"success": False, "available": False}), 503
+            return get_market_news()
 
         bundle = fs.news_ai.get_aggregated_news()
         sentiment = fs.news_ai.get_market_sentiment_analysis()
@@ -9425,7 +9561,10 @@ def get_news_unified():
 
     except Exception as e:
         logger.error(f"/api/news failed: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        try:
+            return get_market_news()
+        except Exception:
+            return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/news/market')
 def api_market_news_intelligence():
@@ -9717,14 +9856,29 @@ def get_performance_analytics():
             'size': len(stock_bundle_cache.cache),
             'ttl': stock_bundle_cache.ttl
         }
+        labels = []
+        values = []
+        try:
+            rows = _get_prediction_rows()
+            recent = rows[-30:] if isinstance(rows, list) else []
+            for i, row in enumerate(recent, 1):
+                labels.append(str(row.get("symbol") or i))
+                values.append(round(_safe_float(row.get("confidence", row.get("confidence_score", 0)), 0.0), 2))
+        except Exception:
+            pass
         return jsonify({
-            'timestamp': datetime.now(ZoneInfo("UTC")).isoformat(),
-            'slow_endpoints': [{'endpoint': e, 'avg_ms': round(e, 2), 'calls': e} for e in slow_endpoints],
-            'cache_stats': cache_stats
+            'success': True,
+            'data': {
+                'labels': labels,
+                'values': values,
+                'slow_endpoints': [{'endpoint': e, 'avg_ms': round(e, 2), 'calls': e} for e in slow_endpoints],
+                'cache_stats': cache_stats,
+                'timestamp': datetime.now(ZoneInfo("UTC")).isoformat()
+            }
         })
     except Exception as e:
         logger.error(f"Error in performance endpoint: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/symbol/accuracy/<symbol>', methods=['GET'])
 def get_symbol_accuracy(symbol):
@@ -10045,6 +10199,12 @@ def get_realtime_cognitive_state(predictions=None):
         logger.error(f"Failed to build cognitive state: {e}")
         return {"status": "error", "error": str(e)}
 
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory('.', path)
+
+
 if __name__ == '__main__':
     ensure_runtime_services_started()
     flask_host = os.getenv("FLASK_HOST", "0.0.0.0")
@@ -10071,12 +10231,4 @@ if __name__ == '__main__':
         threading.Thread(target=open_browser, daemon=True).start()
     
     socketio.run(app, debug=flask_debug, host=flask_host, port=flask_port)
-
-@app.route('/<path:path>')
-def serve_static(path):
-    return send_from_directory('.', path)
-
-
-
-
 

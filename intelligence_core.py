@@ -31,7 +31,7 @@ import pandas as pd
 import logging
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 from database import dynamic_db # Import database connection for MarketMemory
 
 logger = logging.getLogger(__name__)
