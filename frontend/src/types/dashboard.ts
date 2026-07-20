@@ -12,3 +12,37 @@ export type DashboardData = {
   predictions?: unknown[]
   [key: string]: unknown
 }
+
+export type MarketIndex = {
+  name: string
+  symbol?: string
+  price?: number
+  change?: number
+  changePercent?: number
+}
+
+export type DashboardSignal = {
+  symbol: string
+  price?: number
+  changePercent?: number
+  signal?: string
+  confidence?: number
+}
+
+export type DashboardAlert = {
+  title: string
+  detail?: string
+  severity?: string
+  symbol?: string
+}
+
+export type NormalizedDashboard = {
+  metrics: DashboardMetric[]
+  indices: MarketIndex[]
+  signals: DashboardSignal[]
+  alerts: DashboardAlert[]
+  news: DashboardAlert[]
+  lastUpdate?: string
+  source?: string
+  raw: Record<string, unknown>
+}

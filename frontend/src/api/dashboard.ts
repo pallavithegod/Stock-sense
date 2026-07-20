@@ -12,3 +12,11 @@ export function getDashboard() {
 export function getSystemStatus() {
   return apiClient.get<Record<string, unknown>>('/system/status')
 }
+
+export async function getDashboardSnapshot() {
+  try {
+    return await getLiveDashboard()
+  } catch {
+    return getDashboard()
+  }
+}

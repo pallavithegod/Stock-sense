@@ -1,10 +1,10 @@
 import { AppShell } from './layouts/AppShell'
-import { DashboardPreview } from './pages/DashboardPreview'
+import { DashboardPage } from './pages/DashboardPage'
 
 function App() {
   return (
     <AppShell>
-      <DashboardPreview />
+      <DashboardPage />
     </AppShell>
   )
 }
