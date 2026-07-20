@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 # ============================================================
 # NEXUS AI — CONFIDENCE MEMORY (UNIFIED & PERSISTENT)
 # ============================================================
+from utils import encoding
 
 import json
 import numpy as np

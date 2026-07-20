@@ -1,4 +1,6 @@
+# -*- coding: utf-8 -*-
 
+from utils import encoding  # trigger UTF-8 bootstrap early
 import sqlite3
 import logging
 from datetime import datetime
@@ -15,7 +17,7 @@ class PerformanceMonitor:
     def init_database(self):
         """Create metrics table."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
             c = conn.cursor()
             c.execute('''
                 CREATE TABLE IF NOT EXISTS metrics (
@@ -35,7 +37,7 @@ class PerformanceMonitor:
     def record_metric(self, endpoint, response_time_ms, status_code=200):
         """Record API metric."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
             c = conn.cursor()
             c.execute('''
                 INSERT INTO metrics (endpoint, response_time_ms, status_code)
@@ -49,7 +51,7 @@ class PerformanceMonitor:
     def get_slow_endpoints(self, hours=24):
         """Find slow endpoints."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
             c = conn.cursor()
             c.execute('''
                 SELECT endpoint, AVG(response_time_ms), COUNT(*)

@@ -10,6 +10,9 @@ Unified Dynamic Architecture:
 No hardcoding, placeholders, or duplicates.
 """
 
+# ensure global UTF-8
+from utils import encoding
+
 # ADD THESE IMPORTS
 from pathlib import Path
 import json
@@ -24,7 +27,13 @@ logger = logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from flask import jsonify
+from flask import jsonify as _flask_jsonify
+from utils import encoding
+
+def jsonify(data=None, *args, **kwargs):
+    if data is not None:
+        data = encoding.sanitize_json(data)
+    return _flask_jsonify(data, *args, **kwargs)
 from typing import Dict, List
 
 import schedule
@@ -42,11 +51,11 @@ def daily_accuracy_update():
             if df is not None:
                 current_price = float(df['Close'].iloc[-1])
                 quantum_ai.prediction_logger.update_accuracy(symbol, current_price)
-                logger.info(f"✅ Updated {symbol}")
+                logger.info(f"[DATA] Updated {symbol}")
         except Exception as e:
             logger.debug(f"Update failed for {symbol}: {e}")
     
-    logger.info("✅ Daily accuracy check complete")
+    logger.info("[SYS] Daily accuracy check complete")
 
 # Schedule it
 schedule.every().day.at("16:00").do(daily_accuracy_update)  # 4 PM daily
@@ -60,46 +69,13 @@ schedule.every().day.at("16:00").do(daily_accuracy_update)  # 4 PM daily
 # 1. DYNAMIC STOCK SEARCH (AUTO MARKET DISCOVERY)
 # ============================================================
 
-def get_dynamic_stock_search(query: str, limit: int = 20) -> List[Dict]:
-    """Fully dynamic, zero-hardcoding stock search."""
-    results = []
-    seen = set()
-
-    possible_suffixes = ['.NS', '.BO', '']  # clean, dynamic
-
-    for suffix in possible_suffixes:
-        symbol = query.upper() + suffix
-
-        if symbol in seen:
-            continue
-
-        try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-
-            if not info.get("symbol") or info.get("regularMarketPrice") is None:
-                continue
-
-            hist = ticker.history(period="1d")
-            price = float(hist['Close'].iloc[-1]) if not hist.empty else info.get("regularMarketPrice")
-
-            results.append({
-                "symbol": info.get("symbol"),
-                "name": info.get("longName", symbol),
-                "sector": info.get("sector", "Unknown"),
-                "exchange": suffix.replace(".", "") or "Unknown",
-                "market_cap": info.get("marketCap"),
-                "current_price": round(float(price), 2)
-            })
-
-            seen.add(symbol)
-            if len(results) >= limit:
-                break
-
-        except Exception as e:
-            logger.warning(f"Skipping {symbol}: {e}")
-
-    return results
+def get_dynamic_stock_search(query: str, limit: int = 15) -> List[Dict]:
+    """Optimized discovery using mirrored universe logic."""
+    try:
+        from app import MARKET
+        return MARKET.search(query, limit=limit)
+    except Exception:
+        return []
 
 
 
@@ -195,4 +171,4 @@ def register_enhanced_routes(app, quantum_ai):
 
 
 
-    logger.info("✅ Enhanced AI routes registered successfully!")
+    logger.info("[SYS] Enhanced AI routes registered successfully!")

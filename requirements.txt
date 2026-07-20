@@ -116,7 +116,7 @@ vaderSentiment
 # ==================================================
 # Deep learning (LSTM, Risk Agent)
 # ==================================================
-tensorflow
+
 
 transformers>=4.36.0
 torch>=2.0.0

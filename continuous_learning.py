@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+from utils import encoding
 import numpy as np
 from collections import defaultdict, deque
 import logging

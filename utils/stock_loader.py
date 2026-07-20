@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 import time
 
 import pandas as pd
 import requests
+
+logger = logging.getLogger(__name__)
 
 CACHE_TTL = int(os.getenv("NEXUS_SYMBOL_CACHE_TTL", "86400"))
 CACHE_FILE = os.path.join("data", "active_symbols_cache.json")
@@ -12,10 +15,23 @@ FALLBACK_SYMBOLS = [
     {"symbol": "RELIANCE.NS", "name": "Reliance Industries Limited", "exchange": "NSE"},
     {"symbol": "TCS.NS", "name": "Tata Consultancy Services Limited", "exchange": "NSE"},
     {"symbol": "HDFCBANK.NS", "name": "HDFC Bank Limited", "exchange": "NSE"},
-    {"symbol": "INFY.NS", "name": "Infosys Limited", "exchange": "NSE"},
     {"symbol": "ICICIBANK.NS", "name": "ICICI Bank Limited", "exchange": "NSE"},
+    {"symbol": "INFY.NS", "name": "Infosys Limited", "exchange": "NSE"},
     {"symbol": "SBIN.NS", "name": "State Bank of India", "exchange": "NSE"},
+    {"symbol": "BHARTIARTL.NS", "name": "Bharti Airtel Limited", "exchange": "NSE"},
+    {"symbol": "LICI.NS", "name": "Life Insurance Corporation of India", "exchange": "NSE"},
+    {"symbol": "HINDUNILVR.NS", "name": "Hindustan Unilever Limited", "exchange": "NSE"},
     {"symbol": "ITC.NS", "name": "ITC Limited", "exchange": "NSE"},
+    {"symbol": "ADANIENT.NS", "name": "Adani Enterprises Limited", "exchange": "NSE"},
+    {"symbol": "ZOMATO.NS", "name": "Zomato Limited", "exchange": "NSE"},
+    {"symbol": "TATAMOTORS.NS", "name": "Tata Motors Limited", "exchange": "NSE"},
+    {"symbol": "BAJFINANCE.NS", "name": "Bajaj Finance Limited", "exchange": "NSE"},
+    {"symbol": "KOTAKBANK.NS", "name": "Kotak Mahindra Bank Limited", "exchange": "NSE"},
+    {"symbol": "AXISBANK.NS", "name": "Axis Bank Limited", "exchange": "NSE"},
+    {"symbol": "SUNPHARMA.NS", "name": "Sun Pharmaceutical Industries Limited", "exchange": "NSE"},
+    {"symbol": "ONGC.NS", "name": "Oil & Natural Gas Corporation Limited", "exchange": "NSE"},
+    {"symbol": "COALINDIA.NS", "name": "Coal India Limited", "exchange": "NSE"},
+    {"symbol": "TITAN.NS", "name": "Titan Company Limited", "exchange": "NSE"},
 ]
 
 
@@ -27,6 +43,14 @@ def _load_cache():
             ts = float(data.get("timestamp", 0) or 0)
             symbols = data.get("symbols", [])
             if time.time() - ts < CACHE_TTL and isinstance(symbols, list):
+                has_bse = any(
+                    str(row.get("exchange", "")).upper() == "BSE"
+                    or str(row.get("symbol", "")).upper().endswith(".BO")
+                    for row in symbols
+                    if isinstance(row, dict)
+                )
+                if not has_bse:
+                    logger.warning("[STOCK_LOADER] Symbol cache missing BSE coverage; using available universe cache until BSE refresh completes")
                 return symbols
         except Exception:
             pass
@@ -75,28 +99,33 @@ def _dedupe_symbols(rows):
     return list(seen.values())
 
 
-def _fetch_live_nse_active_symbols(limit=3000):
-    """Fetch NSE equity list from official NSE CSV."""
+def _fetch_live_nse_active_symbols(limit=50000):
+    """Fetch NSE equity list from official NSE CSVs (Main + SME)."""
+    out = []
+    # 1. Main Board
     try:
         url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
         df = pd.read_csv(url)
-
-        out = []
         for _, row in df.iterrows():
-            item = _normalize_row(
-                symbol=row.get("SYMBOL", ""),
-                name=row.get("NAME OF COMPANY", ""),
-                exchange="NSE",
-            )
-            if item:
-                out.append(item)
+            item = _normalize_row(symbol=row.get("SYMBOL", ""), name=row.get("NAME OF COMPANY", ""), exchange="NSE")
+            if item: out.append(item)
+    except Exception as e:
+        logger.debug(f"[STOCK_LOADER] NSE Main fetch failed: {e}")
 
-        return out[:limit]
-    except Exception:
-        return []
+    # 2. SME Board
+    try:
+        url_sme = "https://archives.nseindia.com/content/equities/EQUITY_SME_L.csv"
+        df_sme = pd.read_csv(url_sme)
+        for _, row in df_sme.iterrows():
+            item = _normalize_row(symbol=row.get("SYMBOL", ""), name=row.get("NAME OF COMPANY", ""), exchange="NSE")
+            if item: out.append(item)
+    except Exception as e:
+        logger.debug(f"[STOCK_LOADER] NSE SME fetch failed: {e}")
+
+    return out[:limit]
 
 
-def _fetch_live_bse_active_symbols(limit=3000):
+def _fetch_live_bse_active_symbols(limit=50000):
     """Fetch BSE symbol list from BSE API with resilient field parsing."""
     try:
         url = "https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w"
@@ -126,16 +155,31 @@ def _fetch_live_bse_active_symbols(limit=3000):
             symbol = (
                 row.get("SecurityId")
                 or row.get("securityId")
+                or row.get("Security Code")
+                or row.get("SecurityCode")
                 or row.get("scrip_id")
+                or row.get("SCRIP_ID")
+                or row.get("ScripId")
+                or row.get("Scrip ID")
                 or row.get("ScripID")
+                or row.get("ScripCode")
+                or row.get("SCRIP_CODE")
                 or row.get("SC_NAME")
                 or row.get("scrip_cd")
                 or row.get("SCRIP_CD")
+                or row.get("BSECode")
             )
             name = (
                 row.get("SecurityName")
                 or row.get("securityName")
                 or row.get("IssuerName")
+                or row.get("CompanyName")
+                or row.get("Company Name")
+                or row.get("ScripName")
+                or row.get("Scrip_Name")
+                or row.get("scrip_name")
+                or row.get("SHORT_NAME")
+                or row.get("ShortName")
                 or row.get("SC_NAME")
                 or row.get("SecurityDesc")
             )
@@ -144,7 +188,23 @@ def _fetch_live_bse_active_symbols(limit=3000):
                 out.append(item)
 
         return out[:limit]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[STOCK_LOADER] BSE fetch failed: {e}")
+        # Try secondary endpoint for BSE
+        try:
+            url2 = "https://api.bseindia.com/BseIndiaAPI/api/EquityTicker/w?status=A"
+            resp = requests.get(url2, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                out = []
+                for row in data:
+                    item = _normalize_row(symbol=row.get("scrip_id") or row.get("SCRIP_ID") or row.get("ScripId") or row.get("SecurityId") or row.get("SecurityCode"), 
+                                          name=row.get("scrip_nm") or row.get("scrip_name") or row.get("ScripName") or row.get("SecurityName") or row.get("CompanyName"), 
+                                          exchange="BSE")
+                    if item: out.append(item)
+                return out[:limit]
+        except Exception:
+            pass
         return []
 
 
@@ -170,8 +230,9 @@ def load_all_stock_symbols(limit=None):
     3) Dedupe, cap, cache
     4) Fallback to curated resilient list if both feeds fail
     """
-    default_limit = int(os.getenv("NEXUS_SYMBOL_UNIVERSE_LIMIT", "5000"))
-    limit = max(200, int(limit or default_limit))
+    # allow configuration for very large universes; default to 50k to cover NSE+BSE
+    default_limit = int(os.getenv("NEXUS_SYMBOL_UNIVERSE_LIMIT", "50000"))
+    limit = max(500, int(limit or default_limit))
 
     cached = _load_cache()
     if cached:

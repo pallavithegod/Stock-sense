@@ -1,4 +1,6 @@
+# -*- coding: utf-8 -*-
 
+from utils import encoding
 import time
 import logging
 import threading
@@ -37,7 +39,7 @@ class SystemMonitor:
         self.monitor_thread.start()
         
         self.initialized = True
-        logger.info("🛡️ System Monitor ACTIVATED")
+        logger.info("[SYS] System Monitor ACTIVATED")
 
     def heartbeat(self, component_name):
         """Register a heartbeat from a component"""

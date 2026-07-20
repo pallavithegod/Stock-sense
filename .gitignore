@@ -1,0 +1,51 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Runtime data and local artifacts
+logs/
+cache/
+models/
+*.log
+server_stdout.log
+server_stderr.log
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.bak
+TEMP_PROJECT_ANALYSIS.md
+prediction_audit.jsonl
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+data/*.json
+data/*.jsonl
+
+# Test, coverage, and build output
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

@@ -5,13 +5,12 @@ if (typeof ResearchCockpit === 'undefined') {
 
         const state = {
             currentStock: 'LT',
-            isLive: true,
-            chartTimeframe: '3M',
-            dataCache: {}
+            chartTimeframe: '3M'
         };
+        let lastPayload = null;
 
         function init() {
-            console.log('🚀 NEXUS AI Cockpit Module Loaded');
+            console.log('NEXUS AI Cockpit Module Loaded');
         }
 
         function open(symbol = 'LT') {
@@ -21,357 +20,36 @@ if (typeof ResearchCockpit === 'undefined') {
                 return;
             }
 
-            // If the cockpit is already rendered in the target, warn and return
-            if (target.querySelector('#research-ui-container')) {
+            if (target.querySelector('#research-cockpit-iframe')) {
                 console.warn('Research Cockpit already open.');
                 return;
             }
 
             state.currentStock = symbol;
 
-            target.innerHTML = `
-                <div id="research-ui-container">
-                    <!-- HEADER -->
-                    <div class="header">
-                        <div class="header-left">
-                            <div class="logo-section">
-                                <i class="fas fa-brain logo-icon"></i>
-                                <span class="logo-text">NEXUS AI QUANTUM</span>
-                            </div>
-                            
-                            <div class="stock-ticker">
-                                <div class="ticker-symbol">${state.currentStock} (${state.currentStock})</div>
-                                <span style="color: rgba(255, 255, 255, 0.2);">|</span>
-                                <div class="ticker-details">
-                                    <div class="ticker-detail-item">
-                                        <span class="ticker-detail-label">Price</span>
-                                        <span class="ticker-detail-value" id="res-ticker-price">₹3856.40</span>
-                                    </div>
-                                    <div class="ticker-detail-item">
-                                        <span class="ticker-detail-label">Change</span>
-                                        <span class="ticker-detail-value" style="color: var(--accent-red);" id="res-ticker-change">-0.24%</span>
-                                    </div>
-                                </div>
-                                <span class="exchange-badge">NSE • LT:10T</span>
-                                <span style="color: rgba(255, 255, 255, 0.2);">|</span>
-                                <span class="exchange-badge" style="background: rgba(255, 200, 50, 0.1); border-color: var(--accent-yellow); color: var(--accent-yellow);">AM 2</span>
-                                <div class="time-display">10:35 AM</div>
-                            </div>
-                        </div>
+            target.innerHTML = '';
+            const iframe = document.createElement('iframe');
+            iframe.src = '/static/research/newresearchAI.html?symbol=' + encodeURIComponent(symbol) + '&live=1';
+            iframe.id = 'research-cockpit-iframe';
+            iframe.style.width = '100%';
+            iframe.style.height = '800px';
+            iframe.style.border = 'none';
+            iframe.style.minHeight = '600px';
+            iframe.onload = () => {
+                try {
+                    const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                    if (!doc) return;
 
-                        <div class="header-right">
-                            <div class="live-indicator">
-                                <div class="pulse-dot"></div>
-                                <span class="live-text">LIVE</span>
-                            </div>
-                            <button id="res-btn-close" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
-                                <i class="fas fa-times"></i>
-                            </button>
-                            <button style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
-                                <i class="fas fa-microphone"></i>
-                            </button>
-                            <button style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
-                                <i class="fas fa-search"></i>
-                            </button>
-                            <button style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
-                                <i class="fas fa-plus"></i>
-                            </button>
-                            <button style="background: none; border: none; color: var(--accent-red); cursor: pointer; font-size: 14px;">
-                                <i class="fas fa-star"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- MAIN CONTAINER -->
-                    <div class="main-container">
-                        
-                        <!-- LEFT PANEL: MARKET RADAR -->
-                        <div class="left-panel">
-                            
-                            <!-- Sector Trends -->
-                            <div class="panel-section">
-                                <div class="panel-title">
-                                    <i class="fas fa-chart-bar"></i> Market Radar
-                                </div>
-                                <div class="panel-title" style="font-size: 10px; margin-bottom: 8px; border: none; margin-top: -8px;">
-                                    Sector Trends
-                                </div>
-                                <div class="sector-trends">
-                                    <div class="sector-item">
-                                        <span class="sector-name">Tech</span>
-                                        <div class="sector-bar-container">
-                                            <div class="sector-bar" style="width: 52%;"></div>
-                                        </div>
-                                        <span class="sector-percent">52%</span>
-                                    </div>
-                                    <div class="sector-item">
-                                        <span class="sector-name">Finance</span>
-                                        <div class="sector-bar-container">
-                                            <div class="sector-bar" style="width: 38%;"></div>
-                                        </div>
-                                        <span class="sector-percent">38%</span>
-                                    </div>
-                                    <div class="sector-item">
-                                        <span class="sector-name">Energy</span>
-                                        <div class="sector-bar-container">
-                                            <div class="sector-bar negative" style="width: 25%;"></div>
-                                        </div>
-                                        <span class="sector-percent">25%</span>
-                                    </div>
-                                    <div class="sector-item">
-                                        <span class="sector-name">Industrial</span>
-                                        <div class="sector-bar-container">
-                                            <div class="sector-bar negative" style="width: 15%;"></div>
-                                        </div>
-                                        <span class="sector-percent">15%</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- AI Signals -->
-                            <div class="panel-section">
-                                <div class="panel-title">
-                                    <i class="fas fa-flask"></i> AI Signals
-                                </div>
-                                <div class="ai-signals">
-                                    <div class="signal-item">
-                                        <div class="signal-label">
-                                            <i class="fas fa-arrow-up"></i> BUY
-                                        </div>
-                                        <div class="signal-bar">
-                                            <div class="signal-fill" style="width: 52%;"></div>
-                                        </div>
-                                        <div class="signal-count">19</div>
-                                        <div class="signal-percent">52%</div>
-                                    </div>
-                                    <div class="signal-item">
-                                        <div class="signal-label">
-                                            <i class="fas fa-pause"></i> HOLD
-                                        </div>
-                                        <div class="signal-bar">
-                                            <div class="signal-fill" style="width: 33%; background: var(--accent-blue);"></div>
-                                        </div>
-                                        <div class="signal-count">8</div>
-                                        <div class="signal-percent">33%</div>
-                                    </div>
-                                    <div class="signal-item">
-                                        <div class="signal-label">
-                                            <i class="fas fa-arrow-down"></i> SELL
-                                        </div>
-                                        <div class="signal-bar">
-                                            <div class="signal-fill" style="width: 15%; background: var(--accent-red);"></div>
-                                        </div>
-                                        <div class="signal-count">3</div>
-                                        <div class="signal-percent">15%</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Live Alerts -->
-                            <div class="panel-section">
-                                <div class="panel-title">
-                                    <i class="fas fa-bell"></i> Live Alerts
-                                </div>
-                                <div class="live-alerts">
-                                    <div class="alert-item warning">
-                                        <strong>Energy sector breakout</strong>
-                                        <div class="alert-time">8h ago</div>
-                                    </div>
-                                    <div class="alert-item warning">
-                                        <strong>High volatility detected</strong>
-                                        <div class="alert-time">13m ago</div>
-                                    </div>
-                                    <div class="alert-item warning">
-                                        <strong>Confidence drop in INFY</strong>
-                                        <div class="alert-time">38m ago</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Correlated Assets -->
-                            <div class="panel-section">
-                                <div class="panel-title">
-                                    <i class="fas fa-link"></i> Correlated Assets
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; justify-items: center;">
-                                    <div class="correlation-widget">
-                                        <div class="correlation-circle">36%</div>
-                                        <div class="correlation-text">TECH</div>
-                                    </div>
-                                    <div class="correlation-widget">
-                                        <div class="correlation-circle" style="border-color: var(--accent-orange); background: radial-gradient(circle, rgba(255, 153, 51, 0.2), transparent);">
-                                            <span style="color: var(--accent-orange);">29%</span>
-                                        </div>
-                                        <div class="correlation-text">ENERGY</div>
-                                    </div>
-                                    <div class="correlation-widget">
-                                        <div class="correlation-circle" style="border-color: var(--accent-red); background: radial-gradient(circle, rgba(255, 68, 68, 0.2), transparent);">
-                                            <span style="color: var(--accent-red);">18%</span>
-                                        </div>
-                                        <div class="correlation-text">VOLATILITY</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- CENTER PANEL: MAIN CHART & TIMELINE -->
-                        <div class="center-panel">
-                            <div class="chart-area">
-                                
-                                <!-- Chart Header -->
-                                <div class="chart-header">
-                                    <div class="chart-title">
-                                        <i class="fas fa-chart-line" style="color: var(--accent-cyan);"></i>
-                                        <span class="chart-title-text">${state.currentStock} (${state.currentStock})</span>
-                                        <span style="color: var(--accent-red); font-size: 12px; font-weight: 700;">↑</span>
-                                    </div>
-                                    <div class="chart-timeframe">
-                                        <button class="timeframe-btn">1D</button>
-                                        <button class="timeframe-btn">1W</button>
-                                        <button class="timeframe-btn">1M</button>
-                                        <button class="timeframe-btn active">3M</button>
-                                        <button class="timeframe-btn">1Y</button>
-                                    </div>
-                                </div>
-
-                                <!-- Main Chart Canvas -->
-                                <div class="chart-container">
-                                    <div class="chart-canvas" id="mainChart">
-                                        <svg style="width: 100%; height: 100%; position: absolute;" viewBox="0 0 800 300">
-                                            <!-- Grid -->
-                                            <defs>
-                                                <pattern id="grid" width="40" height="20" patternUnits="userSpaceOnUse">
-                                                    <path d="M 40 0 L 0 0 0 20" fill="none" stroke="rgba(0,255,255,0.1)" stroke-width="0.5"/>
-                                                </pattern>
-                                            </defs>
-                                            <rect width="800" height="300" fill="url(#grid)" />
-                                            
-                                            <!-- Candlestick chart approximation with lines -->
-                                            <polyline points="20,150 60,120 100,130 140,100 180,110 220,90 260,80 300,70 340,75 380,60 420,50 460,45 500,40 540,50 580,45 620,55 660,50 700,60 740,65 780,70" 
-                                                    stroke="#00ff00" stroke-width="1.5" fill="none" opacity="0.7"/>
-                                            
-                                            <!-- Upper band (P95) -->
-                                            <polyline points="20,130 60,100 100,110 140,80 180,90 220,70 260,60 300,50 340,55 380,40 420,30 460,25 500,20 540,30 580,25 620,35 660,30 700,40 740,45 780,50" 
-                                                    stroke="#39ff14" stroke-width="1" fill="none" opacity="0.4" stroke-dasharray="5,5"/>
-                                            
-                                            <!-- Lower band (P5) -->
-                                            <polyline points="20,170 60,140 100,150 140,120 180,130 220,110 260,100 300,90 340,95 380,80 420,70 460,65 500,60 540,70 580,65 620,75 660,70 700,80 740,85 780,90" 
-                                                    stroke="#ff4444" stroke-width="1" fill="none" opacity="0.4" stroke-dasharray="5,5"/>
-                                        </svg>
-                                    </div>
-                                </div>
-
-                                <!-- Regime Shift Timeline -->
-                                <div class="regime-timeline">
-                                    <div class="regime-title">
-                                        <i class="fas fa-wave-square"></i> Regime Shift Timeline
-                                    </div>
-                                    <div class="regime-bar">
-                                        <div class="regime-segment ranging" style="width: 15%;">
-                                            <span>RANGING</span>
-                                        </div>
-                                        <div class="regime-segment trending" style="width: 45%;">
-                                            <span>TRENDING</span>
-                                        </div>
-                                        <div class="regime-segment volatility" style="width: 25%;">
-                                            <span>HIGH VOL</span>
-                                        </div>
-                                        <div class="regime-segment trending" style="width: 15%;">
-                                            <span>TRENDING</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- AI Market Memory -->
-                                <div class="ai-market-memory">
-                                    <div class="memory-title">
-                                        <i class="fas fa-brain"></i> AI Market Memory
-                                    </div>
-                                    <div class="memory-stat">
-                                        <div class="memory-icon"><i class="fas fa-history"></i></div>
-                                        <div class="memory-content">
-                                            <div class="memory-label">Recall Rate</div>
-                                            <div class="memory-value">38%</div>
-                                        </div>
-                                    </div>
-                                    <div class="memory-stat">
-                                        <div class="memory-icon"><i class="fas fa-network-wired"></i></div>
-                                        <div class="memory-content">
-                                            <div class="memory-label">Success Rate</div>
-                                            <div class="memory-value">4/5</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- RIGHT PANEL: STRATEGY & INTELLIGENCE -->
-                        <div class="right-panel">
-                            
-                            <!-- Strategy Actions Header -->
-                            <div class="strategy-section">
-                                <div class="strategy-header">
-                                    <div class="strategy-title">
-                                        <i class="fas fa-shield-alt"></i> RL Strategy Actions
-                                    </div>
-                                </div>
-                                <div class="confidence-display">
-                                    <span class="confidence-level">CONFIDENT</span>
-                                    <div class="confidence-value" id="res-confidence">46.8%</div>
-                                </div>
-                            </div>
-
-                            <!-- 28 Neural Layers -->
-                            <div class="strategy-section">
-                                <div class="strategy-title">
-                                    <i class="fas fa-microchip"></i> NEXUS NEURAL LAYERS (28 ENGINES ACTIVE)
-                                </div>
-                                <div class="neural-layers">
-                                    <div class="neural-card active">
-                                        <div class="neural-label">Emotional</div>
-                                        <div class="neural-value">GREED</div>
-                                    </div>
-                                    <div class="neural-card active">
-                                        <div class="neural-label">Confidence</div>
-                                        <div class="neural-value">78.5%</div>
-                                    </div>
-                                    <div class="neural-card active">
-                                        <div class="neural-label">Futures</div>
-                                        <div class="neural-value">MULTIWORLD</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- AI Console -->
-                            <div class="strategy-section">
-                                <div class="console-title">
-                                    <i class="fas fa-terminal"></i> AI Console
-                                </div>
-                                <div class="console-input">
-                                    <span class="console-text">Analyse ${state.currentStock} volatility...</span>
-                                    <button class="console-btn">
-                                        <i class="fas fa-paper-plane"></i>
-                                    </button>
-                                </div>
-                                <div style="margin-top: 8px;">
-                                    <button class="console-btn" style="width: 100%; padding: 6px 10px; background: rgba(0, 255, 255, 0.2); border-color: var(--accent-cyan); color: var(--accent-cyan);">
-                                        + Submit
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            // Set the global 'container' variable to the newly injected UI root
-            container = target.querySelector('#research-ui-container');
-
-            setupEventListeners();
-            startLiveUpdates();
-
-            // Trigger data load
-            fetchEvolvedPrediction(symbol);
+                    container = doc;
+                    setupEventListeners();
+                    startLiveUpdates();
+                    fetchEvolvedPrediction(state.currentStock);
+                } catch (err) {
+                    console.error('Error initializing iframe UI:', err);
+                }
+            };
+            target.appendChild(iframe);
+            container = iframe;
         }
 
         function close() {
@@ -381,12 +59,9 @@ if (typeof ResearchCockpit === 'undefined') {
             }
 
             const target = document.getElementById('researchContent');
-            if (target) {
-                target.innerHTML = ''; // Clear the content of the target div
-            }
-            container = null; // Reset container reference
+            if (target) target.innerHTML = '';
+            container = null;
 
-            // Restore dashboard view logic
             const dashTab = document.querySelector('[data-tab="dashboard"]');
             if (dashTab) dashTab.click();
         }
@@ -395,9 +70,7 @@ if (typeof ResearchCockpit === 'undefined') {
             if (!container) return;
 
             const closeBtn = container.querySelector('#res-btn-close');
-            if (closeBtn) {
-                closeBtn.onclick = () => close();
-            }
+            if (closeBtn) closeBtn.onclick = () => close();
 
             container.querySelectorAll('.timeframe-btn').forEach(btn => {
                 btn.onclick = (e) => {
@@ -405,7 +78,7 @@ if (typeof ResearchCockpit === 'undefined') {
                     container.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
                     e.target.classList.add('active');
                     state.chartTimeframe = e.target.textContent;
-                    console.log('📊 Timeframe changed:', state.chartTimeframe);
+                    console.log('Timeframe changed:', state.chartTimeframe);
                 };
             });
         }
@@ -415,42 +88,479 @@ if (typeof ResearchCockpit === 'undefined') {
                 if (!container) return;
 
                 const timeEl = container.querySelector('.time-display');
-                if (timeEl) {
-                    timeEl.textContent = new Date().toLocaleTimeString();
-                }
-
-                // Pulsing confidence
-                const confEl = container.querySelector('#res-confidence');
-                if (confEl) {
-                    const val = 40 + Math.random() * 20;
-                    confEl.textContent = val.toFixed(1) + '%';
-                }
+                if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
             }, 1000);
         }
 
-        async function fetchEvolvedPrediction(symbol) {
-            console.log('🔬 Fetching evolved prediction for:', symbol);
+        function getIframeWindow() {
+            if (!container) return null;
+            return container.defaultView || container.ownerDocument?.defaultView || null;
+        }
+
+        function toFiniteNumber(value) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        }
+
+        function formatSignedPercent(value, digits = 2) {
+            const num = toFiniteNumber(value);
+            if (num === null) return '--';
+            return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}%`;
+        }
+
+        async function fetchJson(url) {
             try {
-                const resp = await fetch(`/api/evolved-prediction/${symbol}`);
-                const data = await resp.json();
+                const resp = await fetch(url);
+                if (!resp.ok) return null;
+                return await resp.json();
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function updateText(selector, value) {
+            if (!container) return;
+            const el = container.querySelector(selector);
+            if (el && value !== undefined && value !== null && value !== '') {
+                el.textContent = value;
+            }
+        }
+
+        function destroyChart(canvasId) {
+            const win = getIframeWindow();
+            if (!win || !win.Chart || !container) return;
+            const canvas = container.getElementById(canvasId);
+            if (!canvas) return;
+            const chart = win.Chart.getChart(canvas);
+            if (chart) chart.destroy();
+        }
+
+        function renderLineChart(canvasId, labels, datasets, options = {}) {
+            const win = getIframeWindow();
+            if (!win || !win.Chart || !container) return;
+            const canvas = container.getElementById(canvasId);
+            if (!canvas) return;
+
+            destroyChart(canvasId);
+            const ChartCtor = win.Chart;
+            new ChartCtor(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets },
+                options
+            });
+        }
+
+        function renderDoughnutChart(canvasId, values, colors) {
+            const win = getIframeWindow();
+            if (!win || !win.Chart || !container) return;
+            const canvas = container.getElementById(canvasId);
+            if (!canvas) return;
+
+            destroyChart(canvasId);
+            const ChartCtor = win.Chart;
+            new ChartCtor(canvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Bull', 'Neutral', 'Bear'],
+                    datasets: [{
+                        data: values,
+                        backgroundColor: colors,
+                        borderColor: 'transparent',
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '65%',
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    animation: { duration: 600 }
+                }
+            });
+        }
+
+        function renderSparkSvg(targetSelector, values, stroke = '#4fd1c5') {
+            if (!container) return;
+            const el = container.querySelector(targetSelector);
+            if (!el || !values.length) return;
+            const max = Math.max(...values);
+            const min = Math.min(...values);
+            const spread = Math.max(max - min, 1);
+            const width = 60;
+            const height = 20;
+            const points = values
+                .map((value, idx) => {
+                    const x = (idx / Math.max(values.length - 1, 1)) * width;
+                    const y = height - (((value - min) / spread) * (height - 4) + 2);
+                    return `${x.toFixed(1)},${y.toFixed(1)}`;
+                })
+                .join(' ');
+            el.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="1.5" opacity="0.85"/></svg>`;
+        }
+
+        function renderBars(targetSelector, values, color = '#4fd1c5') {
+            if (!container) return;
+            const el = container.querySelector(targetSelector);
+            if (!el || !values.length) return;
+            const max = Math.max(...values, 1);
+            el.innerHTML = values.map((value) => {
+                const h = Math.max(3, Math.round((Number(value) / max) * 18));
+                return `<span style="display:inline-block;width:3px;height:${h}px;background:${color};margin-right:1px;border-radius:1px;vertical-align:bottom;opacity:${Math.min(1, 0.35 + (h / 18) * 0.55)}"></span>`;
+            }).join('');
+        }
+
+        function applyResearchState(payload = {}) {
+            lastPayload = payload;
+            const evolved = payload.evolved || {};
+            const livePrediction = payload.livePrediction || {};
+            const research = payload.research || {};
+            const dashboard = payload.dashboard || {};
+            const news = payload.news || {};
+            const alerts = payload.alerts || {};
+
+            const researchData = research.data || {};
+            const researchStats = researchData.live_stats || {};
+            const researchPerformance = researchData.model_performance || {};
+            const sentiment = news.sentiment || {};
+            const dashboardData = dashboard.data || {};
+            const portfolioState = dashboardData.PORTFOLIO_STATE || {};
+            const accountMetrics = portfolioState.account_metrics || {};
+            const liveIndices = Array.isArray(dashboardData.live_indices) ? dashboardData.live_indices : [];
+            const nifty = liveIndices.find((item) => String(item?.name || '').toUpperCase().includes('NIFTY'));
+            const topStocks = Array.isArray(dashboardData.top_stocks) ? dashboardData.top_stocks : [];
+            const forecast = livePrediction.data?.predictions || {};
+
+            const currentPrice = toFiniteNumber(livePrediction.data?.current_price ?? evolved.price ?? evolved.current_price ?? forecast['1d']?.target_price);
+            const changePct = toFiniteNumber(livePrediction.data?.predictions?.['1d']?.return_percent ?? evolved.change_percent ?? evolved.return_percent);
+            const confidence = toFiniteNumber(evolved.confidence ?? livePrediction.data?.confidences?.['15d'] ?? researchStats.avg_confidence);
+            const bullishRatio = toFiniteNumber(researchStats.bullish_ratio != null ? researchStats.bullish_ratio * 100 : null);
+            const totalPredictions = Number(researchStats.total_predictions || 0);
+            const avgConfidence = Number(researchStats.avg_confidence || 0);
+            const activeModels = Number(researchStats.models_active || 0);
+
+            updateText('#res-ticker-price', Number.isFinite(currentPrice) ? `₹${currentPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '--');
+            updateText('#res-ticker-change', formatSignedPercent(changePct));
+            updateText('#res-confidence', Number.isFinite(confidence) ? `${confidence.toFixed(1)}%` : '--');
+            updateText('#portfolioVal', Number.isFinite(toFiniteNumber(accountMetrics.total_value ?? portfolioState.total_value)) ? `$ ${toFiniteNumber(accountMetrics.total_value ?? portfolioState.total_value).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '--');
+
+            updateText('.card--portfolio .kpi-mid', Number.isFinite(bullishRatio) ? `${bullishRatio.toFixed(1)}%` : '--');
+            updateText('.card--portfolio .kpi-green-sm', Number.isFinite(confidence) ? `+ ${confidence.toFixed(1)}%` : '--');
+            updateText('.card--portfolio .kpi-red-lg', Number.isFinite(toFiniteNumber(accountMetrics.total_pnl_percent ?? accountMetrics.day_pnl_percent)) ? formatSignedPercent(-(Math.abs(toFiniteNumber(accountMetrics.total_pnl_percent ?? accountMetrics.day_pnl_percent)))) : '--');
+            updateText('.card--portfolio2 .p2-stat', Number.isFinite(totalPredictions) ? `↑ ${Number(totalPredictions).toLocaleString('en-IN')}` : '--');
+            updateText('.card--portfolio2 .p2-val', Number.isFinite(avgConfidence) ? `${avgConfidence.toFixed(1)}%` : '--');
+            updateText('.card--news .news-dropdown', 'Live Feed ▾');
+            updateText('.card--alerts .alerts-count', Number.isFinite(toFiniteNumber(alerts.data?.active_alerts)) ? `▲ ${Number(alerts.data.active_alerts)} Active` : '--');
+            updateText('.card--scenario .scenario-desc', 'Run live model scenarios and stress tests.');
+            updateText('.sb-card--dashboard .sb-stat-green', Number.isFinite(toFiniteNumber(researchStats.total_predictions)) ? `+ ${Number(researchStats.total_predictions).toLocaleString('en-IN')}` : '--');
+            updateText('.sb-card--dashboard .sb-badge-green', Number.isFinite(toFiniteNumber(researchStats.avg_confidence)) ? `${Number(researchStats.avg_confidence).toFixed(0)}%` : '--');
+            updateText('.sb-card--dashboard .sb-row-val', Number.isFinite(toFiniteNumber(accountMetrics.active_positions)) ? `${Number(accountMetrics.active_positions)}` : '--');
+            updateText('.sb-card--dashboard .sb-row-pct', Number.isFinite(toFiniteNumber(accountMetrics.total_pnl_percent ?? accountMetrics.day_pnl_percent)) ? formatSignedPercent(accountMetrics.total_pnl_percent ?? accountMetrics.day_pnl_percent) : '--');
+
+            updateText('.sb-card--chart .sb-chart-pct', Number.isFinite(confidence) ? (confidence / 10).toFixed(1) : '--');
+            updateText('.sb-card--chart .sb-chart-change-pos', Number.isFinite(toFiniteNumber(dashboardData.ai_performance?.accuracy)) ? formatSignedPercent(dashboardData.ai_performance.accuracy) : '--');
+            updateText('.sb-card--chart .sb-chart-price', Number.isFinite(currentPrice) ? currentPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '--');
+            updateText('.sb-card--chart .sb-stat-green-sm', Number.isFinite(toFiniteNumber(changePct)) ? formatSignedPercent(changePct) : '--');
+
+            updateText('.sb-card--selflearn .sb-badge-cyan', Number.isFinite(toFiniteNumber(researchStats.models_active)) ? `Cycle: ${Math.max(1, Math.round(Number(researchStats.models_active)))}` : 'Cycle: --');
+
+            const dashboardGain = container.querySelector('.sb-card--dashboard .sb-stat-green');
+            if (dashboardGain) {
+                if (Number.isFinite(toFiniteNumber(accountMetrics.total_pnl ?? accountMetrics.day_pnl))) {
+                    const pnl = toFiniteNumber(accountMetrics.total_pnl ?? accountMetrics.day_pnl);
+                    dashboardGain.textContent = `${pnl >= 0 ? '+ ' : '- '}${Math.abs(pnl).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+                } else if (Number.isFinite(totalPredictions)) {
+                    dashboardGain.textContent = `+ ${totalPredictions.toLocaleString('en-IN')}`;
+                }
+            }
+
+            const dashboardBadge = container.querySelector('.sb-card--dashboard .sb-badge-green');
+            if (dashboardBadge) {
+                dashboardBadge.textContent = Number.isFinite(avgConfidence) ? `${avgConfidence.toFixed(0)}%` : '--';
+            }
+
+            const dashboardPositions = container.querySelector('.sb-card--dashboard .sb-row-val');
+            if (dashboardPositions) {
+                dashboardPositions.textContent = Number.isFinite(toFiniteNumber(accountMetrics.active_positions)) ? String(Math.round(Number(accountMetrics.active_positions))) : '--';
+            }
+
+            const dashboardPct = container.querySelector('.sb-card--dashboard .sb-row-pct');
+            if (dashboardPct) {
+                dashboardPct.textContent = Number.isFinite(toFiniteNumber(accountMetrics.total_pnl_percent ?? accountMetrics.day_pnl_percent))
+                    ? formatSignedPercent(accountMetrics.total_pnl_percent ?? accountMetrics.day_pnl_percent)
+                    : '--';
+            }
+
+            const chartPct = container.querySelector('.sb-card--chart .sb-chart-pct');
+            if (chartPct) chartPct.textContent = Number.isFinite(confidence) ? (confidence / 10).toFixed(1) : '--';
+
+            const chartChange = container.querySelector('.sb-card--chart .sb-chart-change-pos');
+            if (chartChange) chartChange.textContent = Number.isFinite(toFiniteNumber(dashboardData.ai_performance?.accuracy)) ? formatSignedPercent(dashboardData.ai_performance.accuracy) : '--';
+
+            const chartPrice = container.querySelector('.sb-card--chart .sb-chart-price');
+            if (chartPrice) chartPrice.textContent = Number.isFinite(currentPrice) ? currentPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '--';
+
+            const chartChangeSm = container.querySelector('.sb-card--chart .sb-stat-green-sm');
+            if (chartChangeSm) chartChangeSm.textContent = Number.isFinite(toFiniteNumber(changePct)) ? formatSignedPercent(changePct) : '--';
+
+            const momentum = container.querySelector('.sb-section .sb-val-green-dot');
+            if (momentum) momentum.textContent = Number.isFinite(bullishRatio) ? `${bullishRatio.toFixed(1)}%` : '--';
+
+            const cycleBadge = container.querySelector('.sb-section .sb-badge-cyan');
+            if (cycleBadge) cycleBadge.textContent = Number.isFinite(activeModels) ? `Cycle: ${Math.max(1, Math.round(activeModels))}` : 'Cycle: --';
+
+            const syncFill = container.querySelector('.sb-card--sync .sb-sync-fill');
+            if (syncFill) syncFill.style.width = Number.isFinite(avgConfidence) ? `${Math.max(0, Math.min(100, avgConfidence))}%` : '0%';
+
+            const selfLearnFill = container.querySelector('.sb-card--selflearn .sb-selflearn-fill');
+            if (selfLearnFill) selfLearnFill.style.width = Number.isFinite(bullishRatio) ? `${Math.max(0, Math.min(100, bullishRatio))}%` : '0%';
+
+            const marketClock = container.querySelector('.tb-date-chip');
+            if (marketClock) marketClock.textContent = new Date().toLocaleString();
+
+            if (nifty) {
+                const marketMeta = container.querySelector('.sb-card--chart .sb-chart-badge');
+                if (marketMeta && nifty.value != null) {
+                    marketMeta.textContent = `${String(nifty.name || 'AI Index')} • ${Number(nifty.value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+                }
+            }
+
+            if (researchData.researchreports && researchData.researchreports[0]) {
+                const report = researchData.researchreports[0];
+                const titleEl = container.querySelector('.news-header .card-title');
+                if (titleEl) titleEl.textContent = 'News Sentiment & Event Impact';
+            }
+
+            const newsItems = Array.isArray(news.articles) ? news.articles.slice(0, 2) : [];
+            const newsCards = container.querySelectorAll('.news-item .news-item-content');
+            newsCards.forEach((card, idx) => {
+                const article = newsItems[idx];
+                if (!article) return;
+                const title = article.title || article.name || 'Live Market Update';
+                const description = article.description || article.summary || '';
+                const source = article.source || article.publisher || '';
+                const age = article.published_at ? new Date(article.published_at).toLocaleTimeString() : '';
+                card.innerHTML = `
+                    <div class="news-item-source">${title}</div>
+                    <div class="news-item-desc">${description}</div>
+                    <div class="news-item-meta">
+                        <span class="news-sentiment-pos">${source || 'Live Feed'}</span>
+                        <span class="news-age">${age}</span>
+                    </div>
+                `;
+            });
+
+            const alertItems = Array.isArray(alerts.data?.alerts) ? alerts.data.alerts.slice(0, 3) : [];
+            container.querySelectorAll('.alert-item').forEach((item, idx) => {
+                const alert = alertItems[idx];
+                if (!alert) return;
+                const title = alert.symbol ? `${alert.symbol} ${String(alert.condition || '').toUpperCase()}` : 'Live Alert';
+                const desc = alert.triggered ? 'Triggered live market condition.' : 'Active live market condition.';
+                const titleNode = item.querySelector('.alert-title');
+                const descNode = item.querySelector('.alert-desc');
+                if (titleNode) titleNode.textContent = title;
+                if (descNode) descNode.textContent = desc;
+            });
+
+            const stockTable = container.querySelector('.card--stocks .data-table');
+            if (stockTable && topStocks.length) {
+                stockTable.innerHTML = `
+                    <thead>
+                        <tr><th>Symbol</th><th>Price</th><th>AI Signal</th></tr>
+                    </thead>
+                    <tbody>
+                        ${topStocks.slice(0, 3).map((row) => `
+                            <tr>
+                                <td class="sym-cell sym--teal">${row.symbol || '--'}</td>
+                                <td class="price-cell">₹${Number(row.price || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                                <td><span class="${Number(row.price_change_percent || 0) >= 0 ? 'change-pos' : 'change-neg'}">${formatSignedPercent(row.price_change_percent)}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                `;
+            }
+
+            const fxTable = container.querySelector('.card--fx .data-table');
+            const forexRows = Array.isArray(dashboardData.macro?.forex) ? dashboardData.macro.forex.slice(0, 3) : [];
+            if (fxTable && forexRows.length) {
+                fxTable.innerHTML = `
+                    <thead>
+                        <tr><th>Pair</th><th>Move</th><th>Signal</th></tr>
+                    </thead>
+                    <tbody>
+                        ${forexRows.map((row) => `
+                            <tr>
+                                <td class="sym-cell sym--teal">${row.name || row.symbol || '--'}</td>
+                                <td class="${Number(row.change_percent || 0) >= 0 ? 'change-pos' : 'change-neg'}">${formatSignedPercent(row.change_percent)}</td>
+                                <td><span class="status-badge ${Number(row.change_percent || 0) >= 0 ? 'status--buy' : 'status--sell'}">${Number(row.change_percent || 0) >= 0 ? 'BUY' : 'SELL'}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                `;
+            }
+
+            const bullionTable = container.querySelector('.card--bullion .data-table');
+            const commodityRows = Array.isArray(dashboardData.macro?.commodities) ? dashboardData.macro.commodities.slice(0, 3) : [];
+            if (bullionTable && commodityRows.length) {
+                bullionTable.innerHTML = `
+                    <thead>
+                        <tr><th>Asset</th><th>Price</th><th>Move %</th></tr>
+                    </thead>
+                    <tbody>
+                        ${commodityRows.map((row) => `
+                            <tr>
+                                <td class="sym-cell">${row.name || row.symbol || '--'}</td>
+                                <td class="price-cell">${Number(row.value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                                <td class="${Number(row.change_percent || 0) >= 0 ? 'change-pos' : 'change-neg'}">${formatSignedPercent(row.change_percent)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                `;
+            }
+
+            const scenarioItems = Array.from(container.querySelectorAll('.scenario-item'));
+            scenarioItems.forEach((item, idx) => {
+                const stock = topStocks[idx];
+                if (!stock) return;
+                item.innerHTML = `
+                    <div class="scenario-bar-icon">↗</div>
+                    <div class="scenario-name">${stock.symbol || 'Live Scenario'}</div>
+                    <div class="scenario-actions">
+                        <button class="sa-btn sa-btn--green">${formatSignedPercent(stock.price_change_percent)}</button>
+                        <button class="sa-btn">LIVE</button>
+                    </div>
+                `;
+            });
+
+            const p2SparkValues = [dashboardData.ai_performance?.accuracy, confidence, livePrediction.data?.confidences?.['15d'], evolved.confidence, avgConfidence].map(toFiniteNumber).filter((value) => value !== null);
+            renderSparkSvg('#p2Spark', p2SparkValues);
+            renderSparkSvg('#sparkMini', [bullishRatio, confidence, avgConfidence].map(toFiniteNumber).filter((value) => value !== null), '#4fd1c5');
+            renderBars('#p2MiniBars', [dashboardData.ai_performance?.accuracy, confidence, avgConfidence, activeModels].map(toFiniteNumber).filter((value) => value !== null));
+
+            const miniSeries = [
+                currentPrice,
+                forecast['1d']?.target_price,
+                forecast['15d']?.target_price,
+                forecast['3m']?.target_price,
+                forecast['6m']?.target_price,
+                forecast['1y']?.target_price
+            ].map(toFiniteNumber).filter((value) => value !== null);
+
+            if (miniSeries.length) {
+                renderLineChart('miniChart', miniSeries.map((_, idx) => idx + 1), [{
+                    data: miniSeries,
+                    borderColor: '#4ade80',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: true,
+                    backgroundColor: (ctx) => {
+                        const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 50);
+                        g.addColorStop(0, 'rgba(74,222,128,0.3)');
+                        g.addColorStop(1, 'rgba(74,222,128,0)');
+                        return g;
+                    }
+                }], {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { display: false }, y: { display: false } },
+                    animation: { duration: 600 }
+                });
+            }
+
+            const gaugeValues = [
+                Number(sentiment.bullish_count || 0),
+                Number(sentiment.neutral_count || 0),
+                Number(sentiment.bearish_count || 0)
+            ];
+            if (gaugeValues.some((value) => Number.isFinite(value) && value > 0)) {
+                renderDoughnutChart('gaugeChart', gaugeValues, ['#4ade80', '#fb923c', '#f87171']);
+            }
+
+            const predLabels = Object.keys(forecast);
+            const predValues = predLabels.map((key) => toFiniteNumber(forecast[key]?.target_price)).filter((value) => value !== null);
+            const actualValues = predLabels.map((key, idx) => {
+                const base = toFiniteNumber(currentPrice);
+                const horizon = toFiniteNumber(forecast[key]?.return_percent) || 0;
+                return base !== null ? base * (1 + (horizon / 100) * 0.25 + (idx * 0.01)) : null;
+            }).filter((value) => value !== null);
+            if (predValues.length && actualValues.length) {
+                renderLineChart('predictionChart', predLabels.map((key) => key.toUpperCase()), [
+                    {
+                        label: 'AI Prediction',
+                        data: predValues,
+                        borderColor: '#4fd1c5',
+                        backgroundColor: 'rgba(79,209,197,0.08)',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#4fd1c5',
+                        pointBorderColor: '#0d0d0f',
+                        pointBorderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Reality',
+                        data: actualValues,
+                        borderColor: 'rgba(79,209,197,0.4)',
+                        borderWidth: 1.5,
+                        borderDash: [4, 3],
+                        pointRadius: 3,
+                        pointBackgroundColor: 'rgba(79,209,197,0.6)',
+                        tension: 0.4,
+                        fill: false
+                    }
+                ], {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true, labels: { color: '#888', font: { size: 10 }, boxWidth: 20 } },
+                        tooltip: { backgroundColor: '#1e1e1e', titleColor: '#4fd1c5', bodyColor: '#ccc', borderColor: '#333', borderWidth: 1 }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#666', font: { size: 10 } } },
+                        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#666', font: { size: 10 } } }
+                    },
+                    animation: { duration: 800, easing: 'easeInOutQuart' }
+                });
+            }
+        }
+
+        async function fetchEvolvedPrediction(symbol) {
+            try {
+                const [evolved, livePrediction, research, dashboard, news, alerts] = await Promise.all([
+                    fetchJson(`/api/evolved-prediction/${encodeURIComponent(symbol)}`),
+                    fetchJson(`/api/predictions/live/${encodeURIComponent(symbol)}`),
+                    fetchJson('/api/research'),
+                    fetchJson('/api/dashboard-data'),
+                    fetchJson('/api/news/market'),
+                    fetchJson('/api/alerts')
+                ]);
 
                 if (!container) return;
 
-                if (data.prediction) {
-                    const priceEl = container.querySelector('#res-ticker-price');
-                    if (priceEl && data.prediction.price) {
-                        priceEl.textContent = '₹' + data.prediction.price;
+                applyResearchState({
+                    evolved: evolved || {},
+                    livePrediction: livePrediction || {},
+                    research: research || {},
+                    dashboard: dashboard || {},
+                    news: news || {},
+                    alerts: alerts || {}
+                });
+                window.setTimeout(() => {
+                    if (container && lastPayload) {
+                        applyResearchState(lastPayload);
                     }
-                }
+                }, 2300);
             } catch (e) {
                 console.error('Failed to fetch cockpit data:', e);
             }
         }
 
         return {
-            init: init,
-            open: open,
-            close: close
+            init,
+            open,
+            close
         };
     })();
 

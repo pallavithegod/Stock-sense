@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
 # ============================================================
 # NEXUS AI QUANTUM - REAL-TIME STREAM ENGINE
 # ============================================================
 
+from utils import encoding
 import hashlib
 import json
 import logging

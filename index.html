@@ -38,6 +38,39 @@
         </div>
     </div>
 
+    <script>
+        (function () {
+            function hideGlobalLoader() {
+                const loader = document.getElementById('globalLoader');
+                if (!loader || loader.dataset.forceHidden === '1') return;
+                loader.dataset.forceHidden = '1';
+                loader.style.transition = 'opacity 0.35s ease, visibility 0.35s ease';
+                loader.style.opacity = '0';
+                loader.style.visibility = 'hidden';
+                loader.style.display = 'none';
+            }
+
+            function tryHideGlobalLoader() {
+                if (window.__DASHBOARD_BOOTSTRAP_READY) {
+                    hideGlobalLoader();
+                    return;
+                }
+                window.setTimeout(tryHideGlobalLoader, 120);
+            }
+
+            window.addEventListener('DOMContentLoaded', () => {
+                window.requestAnimationFrame(tryHideGlobalLoader);
+            }, { once: true });
+
+            window.addEventListener('load', tryHideGlobalLoader, { once: true });
+
+            window.setTimeout(() => {
+                window.__DASHBOARD_BOOTSTRAP_READY = true;
+                hideGlobalLoader();
+            }, 8000);
+        })();
+    </script>
+
     <!-- Header with Working Search -->
     <header class="header">
         <div class="header-content">
@@ -83,173 +116,166 @@
     <!-- Main Content -->
     <div class="main-content">
         <!-- Sidebar with Live Data -->
-        <aside class="sidebar">
-            <!-- Key Indices Section - Live Updates -->
-            <section class="sidebar-section indices-section">
-                <h3>Key Indices</h3>
-                <div class="index-item">
-                    <div class="index-name">NIFTY 50</div>
-                    <div class="index-value" id="nifty50">--</div>
-                    <div class="index-change" id="nifty50-change">--</div>
-                </div>
+    <aside class="sidebar">
 
-                <div class="index-item">
-                    <div class="index-name">SENSEX</div>
-                    <div class="index-value" id="sensex">--</div>
-                    <div class="index-change" id="sensex-change">--</div>
-                </div>
+      <div class="sidebar-header">
+        <div class="logo-mark">
+          <i class="fa-solid fa-atom"></i>
+        </div>
+        <div class="logo-text">
+          <span class="logo-name">NEXUS AI<span class="logo-quantum">QUANTUM</span></span>
+        </div>
+        <button class="logo-bell" title="Notifications">
+          <i class="fa-solid fa-bell" style="font-size:13px;"></i>
+        </button>
+      </div>
 
-                <div class="index-item">
-                    <div class="index-name">BANK NIFTY</div>
-                    <div class="index-value" id="banknifty">--</div>
-                    <div class="index-change" id="banknifty-change">--</div>
-                </div>
-            </section>
+      <div class="sb-card sb-card--dashboard">
+        <div class="sb-card-header">
+          <div class="sb-card-icon sb-card-icon--yellow">
+            <i class="fa-solid fa-gauge-high" style="font-size:13px;"></i>
+          </div>
+          <span class="sb-card-title">Dashboard</span>
+          <span class="sb-stat-green">--</span>
+          <span class="sb-badge-green">--</span>
+        </div>
+        <div class="sb-row">
+          <div class="sb-row-icon"><i class="fa-solid fa-chart-line" style="font-size:11px;"></i></div>
+          <span class="sb-row-label">Total Return</span>
+          <span class="sb-row-val" id="portVal">--</span>
+          <span class="sb-row-pct">--</span>
+        </div>
+        <div class="sb-row">
+          <div class="sb-row-icon"><i class="fa-solid fa-wave-square" style="font-size:11px;"></i></div>
+          <span class="sb-row-label">Model Accuracy</span>
+          <div class="sb-row-right">
+            <span class="sb-tag">Live</span>
+          </div>
+        </div>
+      </div>
 
-            <!-- Market Status - Live Updates -->
-            <section class="sidebar-section">
-                <h3>Market Status</h3>
-                <div class="market-status">
-                    <div class="status-item">
-                        <div class="status-indicator success" id="marketStatus"></div>
-                        <span id="marketStatusText">--</span>
-                    </div>
-                    <div class="metric-small">
-                        <span class="label">Session</span>
-                        <span class="value" id="marketSession">--</span>
-                    </div>
-                    <div class="metric-small">
-                        <span class="label">Next Open</span>
-                        <span class="value" id="nextOpen">--</span>
-                    </div>
-                </div>
-            </section>
+      <div class="sb-card sb-card--chart">
+        <div class="sb-chart-header">
+          <div class="sb-chart-badge">AI Index</div>
+          <div class="sb-chart-stats">
+            <span class="sb-chart-pct">--</span>
+            <span class="sb-chart-change-pos">--</span>
+          </div>
+        </div>
+        <div class="sb-chart-wrap"><canvas id="miniChart" height="50"></canvas></div>
+        <div class="sb-chart-footer">
+          <span class="sb-chart-price">--</span>
+          <div class="sb-chart-tags">
+            <span class="sb-tag-sm">D1</span>
+            <span class="sb-stat-green-sm">--</span>
+          </div>
+        </div>
+      </div>
 
-            <!-- AI Performance - Live Updates -->
-            <section class="sidebar-section">
-                <h3>AI Performance</h3>
-                <div class="metric-small">
-                    <span class="label">Prediction Accuracy</span>
-                    <span class="value success" id="predictionAccuracy"></span>
-                </div>
-                <div class="metric-small">
-                    <span class="label">Models Active</span>
-                    <span class="value" id="modelsActive">--</span>
-                </div>
-                <div class="metric-small">
-                    <span class="label">Data Points/Min</span>
-                    <span class="value" id="dataPoints">--</span>
-                </div>
-            </section>
+      <div class="sb-section">
+        <div class="sb-section-header">
+          <div class="sb-section-icon"><i class="fa-solid fa-brain" style="font-size:13px;color:#4fd1c5"></i></div>
+          <span class="sb-section-title">AI Performance</span>
+          <button class="sb-section-minus" title="Collapse">-</button>
+        </div>
+        <div class="sb-section-row">
+          <div class="sb-row-icon-colored"><i class="fa-solid fa-circle-dot" style="font-size:10px;color:#a78bfa"></i></div>
+          <span class="sb-section-label">Total Predictions</span>
+          <strong id="sbTotalPred" class="sb-row-val">--</strong>
+        </div>
+        <div class="sb-section-row">
+          <div class="sb-row-icon-colored"><i class="fa-solid fa-bullseye" style="font-size:10px;color:#4fd1c5"></i></div>
+          <span class="sb-section-label">Model Accuracy</span>
+          <span class="sb-val-cyan" id="sbAccuracy">--</span>
+          <span class="sb-badge-gray">(48%)</span>
+          <span class="sb-arrow-up">^</span>
+        </div>
+        <div class="sb-section-row">
+          <div class="sb-row-icon-colored"><i class="fa-solid fa-wheat-awn" style="font-size:10px;color:#f0c040"></i></div>
+          <span class="sb-section-label">Commodities Signal</span>
+          <span class="sb-val-green">--</span>
+        </div>
+      </div>
 
-            <!-- System Health - Live Updates -->
-            <section class="sidebar-section">
-                <h3>System Health</h3>
-                <div class="metric-small">
-                    <span class="label">API Status</span>
-                    <span class="value success" id="apiStatus">--</span>
-                </div>
-                <div class="metric-small">
-                    <span class="label">News Feed</span>
-                    <span class="value success" id="newsFeed">--</span>
-                </div>
-                <div class="metric-small">
-                    <span class="label">Response Time</span>
-                    <span class="value" id="responseTime">--</span>
-                </div>
-            </section>
-        </aside>
+      <div class="sb-section">
+        <div class="sb-section-header">
+          <div class="sb-section-icon"><i class="fa-solid fa-satellite-dish" style="font-size:13px;color:#4fd1c5"></i></div>
+          <span class="sb-section-title">Market Snapshot</span>
+          <button class="sb-btn-how">NOW</button>
+        </div>
+        <div class="sb-section-row">
+          <div class="sb-row-icon-colored"><i class="fa-solid fa-arrow-trend-up" style="font-size:10px;color:#4ade80"></i></div>
+          <span class="sb-section-label">Momentum Score</span>
+          <span class="sb-val-green-dot">--</span>
+          <span class="sb-arrow-down-sm">.</span>
+        </div>
+        <div class="sb-section-row">
+          <div class="sb-row-icon-colored"><i class="fa-solid fa-code-branch" style="font-size:10px;color:#4fd1c5"></i></div>
+          <span class="sb-section-label">Trend Divergence</span>
+          <div id="sparkMini"></div>
+        </div>
+        <div class="sb-section-row">
+          <div class="sb-row-icon-colored"><i class="fa-solid fa-microchip" style="font-size:10px;color:#a78bfa"></i></div>
+          <span class="sb-section-label">AI Self-Learning</span>
+          <span class="sb-badge-cyan">Cycle: --</span>
+          <div class="sb-progress-dots">
+            <span class="dot dot--green"></span><span class="dot dot--green"></span>
+            <span class="dot dot--green"></span><span class="dot dot--gray"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-card sb-card--sync">
+        <div class="sb-sync-row">
+          <div class="sb-sync-icon"><i class="fa-solid fa-rotate" style="font-size:11px;"></i></div>
+          <span class="sb-sync-label">System Sync</span>
+          <div class="sb-sync-bar"><div class="sb-sync-fill" style="width:0%"></div></div>
+          <div class="sb-sync-check"><i class="fa-solid fa-circle-check" style="font-size:11px;"></i></div>
+        </div>
+      </div>
+
+      <div class="sb-card sb-card--selflearn">
+        <div class="sb-selflearn-row">
+          <div class="sb-check-icon"><i class="fa-solid fa-dna" style="font-size:13px;"></i></div>
+          <span class="sb-section-title">AI Self-Learning</span>
+          <div class="sb-selflearn-bar"><div class="sb-selflearn-fill" style="width:0%"></div></div>
+          <button class="sb-refresh-btn" title="Refresh"><i class="fa-solid fa-arrows-rotate" style="font-size:11px;"></i></button>
+        </div>
+      </div>
+
+      <div class="sb-card sb-card--roverve">
+        <div class="sb-roverve-row">
+          <div class="sb-roverve-icon"><i class="fa-solid fa-sliders" style="font-size:13px;"></i></div>
+          <span class="sb-roverve-label">Auto-Rebalance <span class="sb-new-badge">NEW</span></span>
+          <div class="sb-checkmark"><i class="fa-solid fa-check" style="font-size:11px;"></i></div>
+        </div>
+      </div>
+
+      <div class="sb-bottom-btns">
+        <button class="sb-bottom-btn sb-bottom-btn--active">
+          <i class="fa-solid fa-rotate" style="font-size:9px;"></i> Live Auto-Sync
+        </button>
+        <button class="sb-bottom-btn">
+          <i class="fa-solid fa-graduation-cap" style="font-size:9px;"></i> AI Self-Learning
+        </button>
+      </div>
+
+    </aside>
 
         <!-- Dashboard Area -->
         <main class="dashboard-area">
             <!-- Dashboard Tab -->
-            <div class="tab-content active" id="dashboard">
-                <div class="metrics-grid">
-                    <article class="metric-card" data-metric="portfolioValue">
-                        <h3>Portfolio Value</h3>
-                        <div class="main-value" id="portfolioValue">Loading…</div>
-                        <div class="change" id="portfolioChange">--</div>
-                        <div class="additional-metrics">
-                            <span>Day P&L: <strong class="text-success" id="dayPnl">--</strong></span>
-                            <span>Risk: <strong class="risk-low" id="riskLevel">--</strong></span>
-                        </div>
-                    </article>
-
-                    <article class="metric-card" data-metric="activePositions">
-                        <h3>Active Positions</h3>
-                        <div class="main-value" id="activePositions">Loading…</div>
-                        <div class="change positive" id="positionsChange">--</div>
-                        <div class="additional-metrics">
-                            <span>Winners: <strong id="winners">--</strong></span>
-                            <span>Losers: <strong id="losers">--</strong></span>
-                        </div>
-                    </article>
-
-                    <article class="metric-card" data-metric="aiPredictions">
-                        <h3>AI Predictions</h3>
-                        <div class="main-value" id="aiPredictions">Loading…</div>
-                        <div class="change positive" id="accuracyRate">--</div>
-                        <div class="additional-metrics">
-                            <span>Models: <strong id="totalModels">--</strong></span>
-                            <span>Updates: <strong>Live</strong></span>
-                        </div>
-                    </article>
+            <div class="tab-content active" id="dashboard" style="height:100%;overflow:hidden;background:#0d0d0f;">
+                <iframe
+                    src="/dashboard/nexus-ai.html"
+                    title="Nexus AI Quantum Dashboard"
+                    style="width:100%;height:100%;border:0;display:block;background:#0d0d0f;"
+                ></iframe>
+                <div style="display:none;" aria-hidden="true">
+                    <table id="stocksTable">
+                        <tbody id="stocksTableBody"></tbody>
+                    </table>
                 </div>
-
-                <div class="charts-grid">
-                    <section class="chart-card">
-                        <h3>AI Predictions vs Reality (1D, 3M, 6M)</h3>
-                        <canvas id="predictionChart"></canvas>
-                    </section>
-                    <section class="chart-card">
-                        <h3>Portfolio Allocation</h3>
-                        <canvas id="allocationChart"></canvas>
-                    </section>
-                </div>
-
-                <section class="table-card">
-                    <div class="table-header">
-                        <h3>AI Stock Recommendations</h3>
-                        <div class="table-controls">
-                            <select id="exchangeFilter">
-                                <option value="">All Exchanges</option>
-                                <option value="NSE">NSE</option>
-                                <option value="BSE">BSE</option>
-                            </select>
-                            <select id="sectorFilter">
-                                <option value="">All Sectors</option>
-                                <option value="Banking">Banking</option>
-                                <option value="IT Services">IT Services</option>
-                                <option value="FMCG">FMCG</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="table-container">
-                        <table id="stocksTable">
-                            <thead>
-                                <tr>
-                                    <th>Symbol</th>
-                                    <th>Name</th>
-                                    <th>Price</th>
-                                    <th>Change</th>
-                                    <th>Volume</th>
-                                    <th>AI Signal</th>
-                                    <th>Confidence</th>
-                                    <th>Target</th>
-                                    <th>AI Size %</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="stocksTableBody">
-                                <tr>
-                                    <td colspan="10" style="text-align:center; padding:2rem;">
-                                        Loading live AI predictions…
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
             </div>
 
             <!-- Analytics Tab -->
@@ -311,7 +337,7 @@
             <!-- Predictions Tab -->
             <div class="tab-content" id="predictions">
                 <div style="display:flex; align-items:center; gap:12px; margin-bottom:2rem;">
-                    <h2 style="color: var(--electric-pink); margin:0;">Multi-Timeframe Predictions</h2>
+                    <h2 style="color: var(--electric-pink); margin:0;">Multi-Horizon Predictions</h2>
                 </div>
                 <div class="metrics-row"
                     style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem;">
@@ -320,7 +346,7 @@
                         <div class="metric-label" style="color: #ffff00; font-weight: bold; font-size: 0.85rem;">Global
                             Accuracy</div>
                         <div class="metric-value" id="globalAccuracyValue"
-                            style="color: #39ff14; font-weight: bold; font-size: 1.8rem; margin: 0.4rem 0;">0.0%</div>
+                            style="color: #39ff14; font-weight: bold; font-size: 1.8rem; margin: 0.4rem 0;">—</div>
                         <div class="metric-trend" style="color: rgba(255, 255, 255, 0.7); font-size: 0.8rem;">Across all
                             timeframes</div>
                     </div>
@@ -330,7 +356,7 @@
                         <div class="metric-label" style="color: #ffff00; font-weight: bold; font-size: 0.85rem;">Active
                             Ensembles</div>
                         <div class="metric-value" id="activeEnsemblesValue"
-                            style="color: #00e5ff; font-weight: bold; font-size: 1.8rem; margin: 0.4rem 0;">--</div>
+                            style="color: #00e5ff; font-weight: bold; font-size: 1.8rem; margin: 0.4rem 0;">—</div>
                         <div class="metric-trend" style="color: rgba(255, 255, 255, 0.7); font-size: 0.8rem;">Deep
                             Learning Layers</div>
                     </div>
@@ -340,10 +366,10 @@
                         <div class="metric-label" style="color: #ffff00; font-weight: bold; font-size: 0.85rem;">Market
                             Regime</div>
                         <div class="metric-value" id="marketRegimeValue"
-                            style="color: #BF00FF; font-weight: bold; font-size: 1.8rem; margin: 0.4rem 0;">LOADING
+                            style="color: #BF00FF; font-weight: bold; font-size: 1.8rem; margin: 0.4rem 0;">—
                         </div>
                         <div class="metric-trend" style="color: rgba(255, 255, 255, 0.7); font-size: 0.8rem;">AI
-                            Strategy: <span id="aiStrategyValue">ADAPTIVE</span></div>
+                            Strategy: <span id="aiStrategyValue">--</span></div>
                     </div>
                 </div>
 
@@ -352,7 +378,7 @@
                     <div
                         style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
                         <h3 style="margin:0; color:var(--electric-cyan); font-size:13px; letter-spacing:0.4px;">
-                            World State Intelligence (Phase 1)
+                            Future Intelligence Layers
                         </h3>
                         <span id="worldStateUpdatedAt" style="font-size:10px; color:var(--text-muted);">Updating…</span>
                     </div>
@@ -391,17 +417,17 @@
                     <div class="metric-card"
                         style="border-left: 3px solid var(--electric-cyan); background: rgba(0, 229, 255, 0.03);">
                         <span class="label">Portfolio Edge</span>
-                        <span class="value" id="portfolioEdgeValue" style="color: var(--electric-cyan);">0.00%</span>
+                        <span class="value" id="portfolioEdgeValue" style="color: var(--electric-cyan);">--</span>
                     </div>
                     <div class="metric-card"
                         style="border-left: 3px solid var(--electric-red); background: rgba(255, 0, 85, 0.03);">
                         <span class="label">Portfolio Risk</span>
-                        <span class="value" id="portfolioRiskValue" style="color: var(--electric-red);">0.00</span>
+                        <span class="value" id="portfolioRiskValue" style="color: var(--electric-red);">--</span>
                     </div>
                     <div class="metric-card"
                         style="border-left: 3px solid var(--electric-purple); background: rgba(191, 0, 255, 0.03);">
                         <span class="label">Regime Fit</span>
-                        <span class="value" id="regimeFitValue" style="color: var(--electric-purple);">0.00%</span>
+                        <span class="value" id="regimeFitValue" style="color: var(--electric-purple);">--</span>
                     </div>
                 </div>
 
@@ -434,10 +460,10 @@
                     </div>
 
                     <div class="input-group">
-                        <label
-                            style="display: block; color: var(--text-muted); font-size: 10px; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.5px;">Date</label>
+                        <label style="display: block; color: var(--text-muted); font-size: 10px; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.5px;">Date</label>
                         <input type="date" id="pf_date"
                             style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.5rem; border-radius: 4px; outline: none; font-size: 12px;">
+                        <script>document.getElementById('pf_date').value = new Date().toISOString().split('T')[0];</script>
                     </div>
 
                     <button id="pf_add_btn" class="pf-add-btn" disabled
@@ -635,7 +661,7 @@
                         statusEl.className = `value ${data.market_status.status === 'OPEN' ? 'success' : 'warning'}`;
                     }
                     if (sessionEl) sessionEl.textContent = data.market_status.session_time;
-                    if (nextOpenEl) nextOpenEl.textContent = data.market_status.next_open || 'Live Trading';
+                    if (nextOpenEl) nextOpenEl.textContent = data.market_status.next_open || '--';
                 }
 
                 // Update AI performance
@@ -668,36 +694,31 @@
 
                     if (apiStatusEl) apiStatusEl.textContent = data.system_health.api_status || 'LIVE';
                     if (newsFeedEl) newsFeedEl.textContent = data.system_health.news_feed || 'ACTIVE';
-                    if (responseTimeEl) responseTimeEl.textContent = data.system_health.response_time || '23ms';
+                    if (responseTimeEl) responseTimeEl.textContent = data.system_health.response_time || '--';
                 }
             }
 
             // ENHANCED: Update dashboard metrics
             updateDashboardMetrics(data) {
-                if (data.portfolio_summary) {
-                    const portfolio = data.portfolio_summary;
-
-                    const valueEl = document.getElementById('portfolioValue');
-                    const changeEl = document.getElementById('portfolioChange');
-                    const dayPnlEl = document.getElementById('dayPnl');
-                    const riskEl = document.getElementById('riskLevel');
-                    const positionsEl = document.getElementById('activePositions');
-                    const winnersEl = document.getElementById('winners');
-                    const losersEl = document.getElementById('losers');
-
-                    if (valueEl) valueEl.textContent = `₹${portfolio.total_value.toLocaleString()}`;
-                    if (changeEl) {
-                        changeEl.textContent = `₹${portfolio.day_pnl.toLocaleString()} (${portfolio.day_pnl_percent.toFixed(2)}%)`;
-                        changeEl.className = `change ${portfolio.day_pnl >= 0 ? 'positive' : 'negative'}`;
-                    }
-                    if (dayPnlEl) dayPnlEl.textContent = `₹${portfolio.day_pnl.toLocaleString()}`;
-                    if (riskEl) riskEl.textContent = portfolio.risk_level;
-                    if (positionsEl) positionsEl.textContent = portfolio.active_positions;
-                    if (winnersEl) winnersEl.textContent = portfolio.winners;
-                    if (losersEl) losersEl.textContent = portfolio.losers;
+                // Update global data state
+                if (typeof dashState !== 'undefined') {
+                    dashState.data = data;
                 }
 
-                // Update AI predictions count
+                // Delegate to specialized rendering functions in app.js
+                if (typeof updateDashboardMarketIntelligenceCard === 'function') {
+                    updateDashboardMarketIntelligenceCard();
+                }
+                
+                if (typeof updateDashboardPortfolioSnapshotCard === 'function' && window.NEURAL_STATE?.portfolio_intelligence) {
+                    updateDashboardPortfolioSnapshotCard(window.NEURAL_STATE.portfolio_intelligence);
+                }
+
+                if (typeof updateDashboardMarketPulseCard === 'function') {
+                    updateDashboardMarketPulseCard();
+                }
+
+                // Update AI predictions count for legacy sidebar/top-bar elements
                 const aiPredictionsEl = document.getElementById('aiPredictions');
                 const accuracyRateEl = document.getElementById('accuracyRate');
                 const totalModelsEl = document.getElementById('totalModels');
@@ -758,15 +779,17 @@
                         tbody.appendChild(row);
                     }
 
+                    const displaySymbol = (stock.display || stock.symbol || '').toUpperCase();
+                    const changePct = Number(stock.change_percent || stock.changepercent || 0);
                     row.innerHTML = `
                         <td>
-                            <div class="stock-symbol">${stock.symbol.replace('.NS', '').replace('.BO', '')}</div>
-                            <div class="exchange">${stock.exchange}</div>
+                            <div class="stock-symbol">${displaySymbol.replace('.NS', '').replace('.BO', '')}</div>
+                            <div class="exchange">${stock.exchange || (displaySymbol.endsWith('.BO') ? 'BSE' : displaySymbol.endsWith('.NS') ? 'NSE' : '')}</div>
                         </td>
                         <td><div class="company-name">${stock.name}</div></td>
-                        <td class="price">₹${(stock.price || 0).toFixed(2)}</td>
-                        <td class="change ${(stock.changepercent || 0) >= 0 ? 'text-success' : 'text-danger'}">
-                            ${(stock.changepercent || 0) >= 0 ? '+' : ''}${(stock.changepercent || 0).toFixed(2)}%
+                        <td class="price">₹${(stock.price || stock.current_price || 0).toFixed(2)}</td>
+                        <td class="change ${changePct >= 0 ? 'text-success' : 'text-danger'}">
+                            ${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%
                         </td>
                         <td>${this.formatVolume(stock.volume || 0)}</td>
                         <td>
@@ -785,7 +808,7 @@
                             ${(function () {
                             const sym = stock.symbol.replace('.NS', '').replace('.BO', '');
                             const cog = window.AI_COGNITION?.opportunities?.find(o => o.symbol === sym || o.symbol === stock.symbol);
-                            return cog ? (cog.allocation * 100).toFixed(2) + '%' : '0.00%';
+                            return cog ? (cog.allocation * 100).toFixed(2) + '%' : '--';
                         })()}
                         </td>
                         <td>
@@ -800,9 +823,9 @@
 
             // ENHANCED STOCK DETAILS MODAL — Delegates to unified modal in app.js
             showStockDetails(symbol) {
-                const cleanSymbol = (symbol || '').replace('.NS', '').replace('.BO', '');
+                const selectedSymbol = String(symbol || '').trim();
                 if (typeof window.showStockDetails === 'function') {
-                    window.showStockDetails(cleanSymbol);
+                    window.showStockDetails(selectedSymbol);
                 } else {
                     console.error('Global showStockDetails not available');
                 }
@@ -1088,8 +1111,8 @@
                             </div>
                             <div class="detail-row">
                                 <span>Change:</span>
-                                <span class="${(stock.changepercent || 0) >= 0 ? 'positive' : 'negative'}">
-                                    ${(stock.changepercent || 0) >= 0 ? '+' : ''}${(stock.changepercent || 0).toFixed(2)}%
+                                <span class="${(stock.change_percent || stock.changepercent || 0) >= 0 ? 'positive' : 'negative'}">
+                                    ${(stock.change_percent || stock.changepercent || 0) >= 0 ? '+' : ''}${(stock.change_percent || stock.changepercent || 0).toFixed(2)}%
                                 </span>
                             </div>
                             <div class="detail-row">
@@ -1135,6 +1158,9 @@
                     link.classList.remove('active');
                 });
                 document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+                // Keep the parent tab chrome visible, but hide the legacy sidebar only on dashboard
+                document.body.classList.toggle('dashboard-embed-mode', tabName === 'dashboard');
 
                 // Update active content
                 document.querySelectorAll('.tab-content').forEach(content => {
@@ -1776,104 +1802,19 @@
             }
             // NEWS TAB - LIVE DATA
             async loadNews() {
-                try {
-                    const response = await fetch(`${this.baseURL}/news`);
-                    const data = await response.json();
-
-                    if (data.success) {
-                        this.displayNews(data.data);
-                    }
-                } catch (error) {
-                    console.error('News error:', error);
+                if (typeof window.loadNews === 'function') {
+                    return window.loadNews();
                 }
             }
 
             displayNews(newsData) {
-                const content = document.getElementById('newsContent');
-                const sentiment = newsData.overallsentiment || 50;
-                const label = newsData.sentimentlabel || 'NEUTRAL';
-                const sentimentColor = sentiment >= 60 ? 'var(--electric-green)' : (sentiment <= 40 ? 'var(--electric-red)' : 'var(--electric-yellow)');
-
-                content.innerHTML = `
-                    <!-- Market Sentiment & AI Analysis Section -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
-                        
-                        <!-- Sentiment Overview -->
-                        <div class="news-summary" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 8px;">
-                            <h3 style="color: var(--electric-cyan); margin-bottom: 1rem; font-size: 1.1rem;">
-                                <i class="fas fa-chart-pie"></i> Market Sentiment
-                            </h3>
-                            
-                            <div style="display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <div style="font-size: 2.5rem; font-weight: 700; color: ${sentimentColor}; line-height: 1;">
-                                    ${sentiment.toFixed(1)}%
-                                </div>
-                                <div style="text-align: right;">
-                                    <div style="font-size: 1rem; font-weight: 600; color: ${sentimentColor}; letter-spacing: 1px;">${label}</div>
-                                    <div style="font-size: 0.8rem; color: var(--text-muted);">Based on ${newsData.totalarticles || 0} Sources</div>
-                                </div>
-                            </div>
-                            
-                            <!-- Heat Bar -->
-                            <div style="height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 10px;">
-                                <div style="width: ${sentiment}%; height: 100%; background: linear-gradient(90deg, var(--electric-red) 0%, var(--electric-yellow) 50%, var(--electric-green) 100%); transition: width 1s ease;"></div>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">
-                                <span>Bearish</span>
-                                <span>Neutral</span>
-                                <span>Bullish</span>
-                            </div>
-                        </div>
-
-                        <!-- AI Analysis -->
-                        <div class="ai-news-analysis" style="background: rgba(0,0,0,0.4); border: 1px solid var(--electric-purple); padding: 1.5rem; border-radius: 8px; position: relative; overflow: hidden;">
-                            <div style="position: absolute; top: 0; right: 0; padding: 4px 8px; background: var(--electric-purple); color: white; font-size: 0.7rem; font-weight: bold;">AI INSIGHT</div>
-                            <h3 style="color: var(--electric-purple); margin-bottom: 1rem; font-size: 1.1rem;">
-                                <i class="fas fa-brain"></i> Quantum Analysis
-                            </h3>
-                            <p style="color: var(--text-primary); font-size: 0.9rem; line-height: 1.5; margin-bottom: 1rem;">
-                                ${label === 'BULLISH' ? 'Market breadth is expanding with strong institutional accumulation in key sectors. News sentiment indicates high confidence in upcoming earnings.' :
-                        (label === 'BEARISH' ? 'Volatility markers are elevated. AI detects distribution patterns in high-beta stocks amidst negative macro headwinds.' :
-                            'Market is consolidating as sentiment remains balanced. AI suggests a "Wait and Watch" approach until directional clarity emerges.')}
-                            </p>
-                            <div style="display: flex; gap: 10px;">
-                                <span class="prediction-badge" style="background: rgba(0,255,255,0.1); color: var(--electric-cyan); border: 1px solid var(--electric-cyan);">
-                                    Confidence: 87%
-                                </span>
-                                <span class="prediction-badge" style="background: rgba(255,0,255,0.1); color: var(--electric-purple); border: 1px solid var(--electric-purple);">
-                                    Impact: High
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- News Articles Feed -->
-                    <h3 style="color: var(--text-primary); margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
-                        <i class="fas fa-newspaper"></i> Latest Market Intelligence
-                    </h3>
-                                        <div class="news-list">
-                                ${(newsData.articles || newsData.news || []).slice(0, 20).map(article => `
-                            <div class="news-article" style="background: rgba(255,255,255,0.03); border-left: 3px solid ${article.sentiment === 'positive' ? 'var(--electric-green)' : (article.sentiment === 'negative' ? 'var(--electric-red)' : 'var(--text-muted)')}; padding: 1rem; border-radius: 0 4px 4px 0; transition: transform 0.2s;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                    <span style="font-size: 0.75rem; color: var(--electric-cyan); text-transform: uppercase; letter-spacing: 0.5px;">${article.publisher || article.source || 'Market News'}</span>
-                                    <span style="font-size: 0.75rem; color: var(--text-muted);">${new Date(article.providerPublishTime || Date.now()).toLocaleTimeString()}</span>
-                                </div>
-                                <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem;">
-                                    <a href="${article.link || '#'}" target="_blank" style="color: var(--text-primary); text-decoration: none; transition: color 0.2s;">
-                                        ${article.title}
-                                    </a>
-                                </h4>
-                                <div class="news-meta" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
-                                    <div style="font-size: 0.8rem; color: var(--text-secondary);">${article.related_symbol || 'Market'}</div>
-                                    <div class="news-sentiment" style="font-size: 0.75rem; font-weight: bold; color: ${article.sentiment === 'positive' ? 'var(--electric-green)' : (article.sentiment === 'negative' ? 'var(--electric-red)' : 'var(--text-muted)')};">
-                                        ${((article.sentiment_score || 0.5) * 100).toFixed(0)}% ${article.sentiment ? article.sentiment.toUpperCase() : 'NEUTRAL'}
-                                    </div>
-                                </div>
-                            </div>
-                        `).join('')}
-                        ${(!newsData.articles && !newsData.news) ? '<div style="text-align:center; padding: 2rem; color: var(--text-muted);">No recent news available</div>' : ''}
-                    </div>
-                `;
+                if (typeof window.renderNews === 'function') {
+                    if (newsData && Array.isArray(newsData.articles)) {
+                        window.dashState = window.dashState || {};
+                        window.dashState.news = newsData.articles;
+                    }
+                    return window.renderNews();
+                }
             }
 
 
@@ -2243,8 +2184,10 @@
         document.addEventListener('DOMContentLoaded', () => {
             dashboard = new NexusQuantumDashboard();
             window.dashboard = dashboard; // Expose globally for onclick handlers
+            document.body.classList.add('dashboard-embed-mode');
         });
     </script>
+    <script src="/static/research/research_ui.js"></script>
     <script src="/app.js?v=24.1"></script>
 </body>
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from utils import encoding
 """
 UPDATED API Configuration for STOCKSENSE VIP-EDGE™
 HuggingFace Edition with Your Specific APIs
@@ -335,7 +336,9 @@ def show_api_status():
     security_status = config.get_security_status()
     print(f"\n🔒 Security Health: {security_status['status']} ({security_status['health_score']:.0f}/100)")
     
-    print(f"\n🎯 System Status: {'🟢 Ready for Production' if summary['total_apis'] >= 5 else '🟡 Basic Setup'}")
+    # backend CLI/status output should be ASCII-safe
+    status_label = 'Ready for Production' if summary['total_apis'] >= 5 else 'Basic Setup'
+    print(f"\n[SYS] System Status: {status_label}")
 
 if __name__ == "__main__":
     show_api_status()

@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
 # ============================================================
 # NEXUS AI QUANTUM™ — MARKET INTELLIGENCE ENGINE
 # Single File | Self-Healing | Global | Production Ready
 # ============================================================
+from utils import encoding  # enforce global UTF-8 at import time
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -28,7 +30,7 @@ DB_PATH = os.path.join(DATA_DIR, "market_intelligence.db")
 class MarketDB:
     def __init__(self):
         os.makedirs(DATA_DIR, exist_ok=True)
-        self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        self.conn = sqlite3.connect(DB_PATH, check_same_thread=False, detect_types=sqlite3.PARSE_DECLTYPES)
         self.conn.row_factory = sqlite3.Row
         self._init_tables()
         self._auto_seed()
@@ -339,7 +341,7 @@ def _holiday_sync_loop():
                     name=h["name"]
                 )
 
-            logger.info("✅ NSE holidays synced (%d)", len(holidays))
+            logger.info("[DATA] NSE holidays synced (%d)", len(holidays))
 
             # Success → daily sync with small jitter
             sleep_seconds = 24 * 60 * 60 + random.randint(0, 900)

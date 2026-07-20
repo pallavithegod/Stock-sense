@@ -1,4 +1,6 @@
 
+# -*- coding: utf-8 -*-
+from utils import encoding
 import json
 import logging
 from pathlib import Path

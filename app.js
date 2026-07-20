@@ -1,4 +1,4 @@
-﻿// -*- coding: utf-8 -*-
+// -*- coding: utf-8 -*-
 // ============================================================================
 // NEXUS QUANTUM AI - COMPLETE PRODUCTION app.js
 // ============================================================================
@@ -66,6 +66,7 @@ window.__PF_RENDER_PENDING = null;
 window.__PF_WS_LAST_APPLY = 0;
 window.__PF_LAST_WINDOW_KEY = '';
 window.__PF_STATE_INFLIGHT = false;
+window.__STOCK_SORT = window.__STOCK_SORT || { key: 'symbol', direction: 'asc' };
 window.__WS_FALLBACK_INFLIGHT = false;
 window.__PRED_INFLIGHT = false;
 window.__DASH_INFLIGHT = false;
@@ -701,7 +702,7 @@ function ensurePredictionsWorldStateMount() {
     let section = document.getElementById('predictionsWorldState');
     if (section) {
         const title = section.querySelector('h3');
-        if (title) title.textContent = 'Future Intelligence Layers (Phase 1-3)';
+        if (title) title.textContent = 'Future Intelligence Layers';
         return section;
     }
 
@@ -713,7 +714,7 @@ function ensurePredictionsWorldStateMount() {
     section.style.cssText = 'margin-bottom:16px; border:1px solid rgba(0,255,255,0.2); border-radius:10px; background:linear-gradient(145deg, rgba(8,14,24,0.85), rgba(12,20,30,0.85)); padding:10px;';
     section.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
-            <h3 style="margin:0; color:var(--electric-cyan); font-size:13px; letter-spacing:0.4px;">Future Intelligence Layers (Phase 1-3)</h3>
+            <h3 style="margin:0; color:var(--electric-cyan); font-size:13px; letter-spacing:0.4px;">Future Intelligence Layers</h3>
             <span id="worldStateUpdatedAt" style="font-size:10px; color:var(--text-muted);">Updating...</span>
         </div>
         <div id="worldStateGrid" style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; font-size:11px;"></div>
@@ -741,7 +742,14 @@ function renderPredictionsWorldState(force = false) {
     const indices = Array.isArray(data.live_indices) ? data.live_indices : [];
     const perf = data.ai_performance || {};
     const sentiment = dashState.marketSentiment || {};
-    const regime = document.getElementById('marketRegimeValue')?.textContent?.trim() || perf.regime || 'UNKNOWN';
+    const newsIntel = dashState.newsIntelligence || {};
+    const predictionRows = Array.isArray(window.__INTEL_PRED_ROWS) && window.__INTEL_PRED_ROWS.length
+        ? window.__INTEL_PRED_ROWS
+        : (Array.isArray(dashState.predictions) ? dashState.predictions : []);
+    const regime = document.getElementById('marketRegimeValue')?.textContent?.trim()
+        || predictionRows[0]?.market_regime
+        || perf.regime
+        || 'UNKNOWN';
     const riskFromPortfolio = (() => {
         const ps = window.NEURAL_STATE?.portfolio_intelligence?.positions || [];
         if (!ps.length) return null;
@@ -756,66 +764,115 @@ function renderPredictionsWorldState(force = false) {
     const sentimentScore = Number(sentiment.overall_score ?? sentiment.sentiment_score ?? 0);
     const sentimentLabel = String(sentiment.label || 'NEUTRAL').toUpperCase();
     const marketStatus = String(market.status || 'UNKNOWN').toUpperCase();
-    const activeModels = Number(perf.active_models || perf.models_active || 0);
+    const activeModels = (() => {
+        const raw = perf.active_models ?? perf.models_active ?? [];
+        if (Array.isArray(raw)) return raw.length;
+        const count = Number(raw);
+        return Number.isFinite(count) ? count : 0;
+    })();
     const nextOpen = market.next_open || '--';
+    const percentileBand = (value, series, labels) => {
+        const clean = (series || []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        if (!clean.length) return { label: labels[1], pct: 50 };
+        const pct = (clean.filter(v => v <= value).length / clean.length) * 100;
+        if (pct >= 66.67) return { label: labels[2], pct };
+        if (pct <= 33.33) return { label: labels[0], pct };
+        return { label: labels[1], pct };
+    };
 
-    const macroPulse = idxAvgMove > 1.2 ? 'High' : idxAvgMove > 0.5 ? 'Normal' : 'Calm';
-    const stability = riskFromPortfolio == null ? 'Awaiting portfolio risk' : (riskFromPortfolio < 0.25 ? 'Stable' : riskFromPortfolio < 0.5 ? 'Watch' : 'Fragile');
+    const predictionMetrics = predictionRows.reduce((acc, row) => {
+        const confidence = Number(row?.confidence ?? row?.confidences15d ?? row?.prediction?.confidence ?? 0);
+        const reliability = Number(row?.reliability_score ?? 0);
+        const edge = Number(row?.predicted_return ?? row?.prediction?.predicted_return ?? 0);
+        const entropy = Number(row?.entropy ?? row?.prediction?.entropy ?? 0);
+        const sector = String(row?.sector || '').trim();
+        if (Number.isFinite(confidence)) acc.confidences.push(confidence);
+        if (Number.isFinite(reliability)) acc.reliabilities.push(reliability);
+        if (Number.isFinite(edge)) acc.edges.push(edge);
+        if (Number.isFinite(entropy)) acc.entropies.push(entropy);
+        if (sector) {
+            acc.sectors[sector] = (acc.sectors[sector] || 0) + Math.max(1, reliability || 0);
+        }
+        return acc;
+    }, { confidences: [], reliabilities: [], edges: [], entropies: [], sectors: {} });
+
+    const macroBand = percentileBand(idxAvgMove, indices.map((item) => Math.abs(Number(item?.change_percent || item?.change || 0))), ['Calm', 'Balanced', 'High']);
+    const reliabilityMean = predictionMetrics.reliabilities.length
+        ? predictionMetrics.reliabilities.reduce((sum, val) => sum + val, 0) / predictionMetrics.reliabilities.length
+        : 0;
+    const confidenceMean = predictionMetrics.confidences.length
+        ? predictionMetrics.confidences.reduce((sum, val) => sum + val, 0) / predictionMetrics.confidences.length
+        : 0;
+    const entropyMean = predictionMetrics.entropies.length
+        ? predictionMetrics.entropies.reduce((sum, val) => sum + val, 0) / predictionMetrics.entropies.length
+        : 0;
+    const edgeMean = predictionMetrics.edges.length
+        ? predictionMetrics.edges.reduce((sum, val) => sum + val, 0) / predictionMetrics.edges.length
+        : 0;
+    const stability = riskFromPortfolio == null
+        ? (reliabilityMean >= 60 ? 'Stable' : reliabilityMean >= 35 ? 'Watch' : 'Fragile')
+        : (riskFromPortfolio <= 0.25 ? 'Stable' : riskFromPortfolio <= 0.5 ? 'Watch' : 'Fragile');
     const allocationStance = (() => {
-        const reg = String(regime || '').toUpperCase();
-        if (riskFromPortfolio == null) return 'Neutral';
-        if (riskFromPortfolio > 0.55 || sentimentScore < 35) return 'Defensive';
-        if ((/TREND|BULL|RISK/.test(reg) && sentimentScore >= 55 && idxAvgMove >= 0.5)) return 'Pro-Growth';
+        const regimeText = String(regime || '').toUpperCase();
+        const postureScore = ((confidenceMean * 0.35) + (reliabilityMean * 0.35) + ((100 - entropyMean) * 0.15) + (Math.max(edgeMean, 0) * 5));
+        if (/CRISIS|BEAR|RISK|PANIC/.test(regimeText) || postureScore < 40) return 'Defensive';
+        if (/TREND|BULL|MOMENTUM/.test(regimeText) && postureScore >= 60) return 'Pro-Growth';
         return 'Balanced';
     })();
 
     const topSectors = (() => {
-        const sectorwise = data?.news?.sectorwise || dashState?.newsSectorwise || {};
-        const entries = Object.entries(sectorwise || {});
-        if (!entries.length) return 'No sector map';
-        return entries.slice(0, 2).map(([k, v]) => {
-            const scoreRaw = Number(v?.score ?? v ?? 0);
-            const score = Number.isFinite(scoreRaw) ? scoreRaw : 0;
-            return `${k}: ${score.toFixed(1)}`;
-        }).join(' | ');
+        const sectorwise = dashState?.newsSectorwise || {};
+        const entries = Object.entries(sectorwise || {}).map(([key, rows]) => {
+            const list = Array.isArray(rows) ? rows : [];
+            const score = list.length
+                ? list.reduce((sum, item) => sum + Number(item?.impact_score ?? item?.impact_strength ?? 0), 0) / list.length
+                : 0;
+            return [key, Number.isFinite(score) ? score * 100 : 0];
+        });
+        const fallbackEntries = Object.entries(predictionMetrics.sectors || {}).map(([key, value]) => [key, Number(value)]);
+        const source = entries.length ? entries : fallbackEntries;
+        if (!source.length) return 'Building sector map';
+        return source
+            .filter(([, value]) => Number.isFinite(value))
+            .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+            .slice(0, 2)
+            .map(([key, value]) => `${String(key).toUpperCase()}: ${Number(value).toFixed(1)}`)
+            .join(' | ');
     })();
 
-    const geoMacroPressure = (() => {
-        const reg = String(regime || '').toUpperCase();
-        const stress = (100 - sentimentScore) * 0.35 + (idxAvgMove * 20) * 0.25 + ((/VOL|RISK|BEAR|PANIC/.test(reg) ? 100 : 35) * 0.4);
-        return Math.max(0, Math.min(100, stress));
-    })();
-    const geoMacroLabel = geoMacroPressure >= 65 ? 'Elevated' : geoMacroPressure >= 45 ? 'Moderate' : 'Contained';
+    const mpi = Number(newsIntel.market_pressure_index);
+    const mpiAbs = Number.isFinite(mpi) ? Math.abs(mpi) * 100 : null;
+    const geoMacroPressure = Number.isFinite(mpiAbs)
+        ? Math.max(0, Math.min(100, ((100 - reliabilityMean) * 0.35) + (macroBand.pct * 0.25) + ((100 - sentimentScore) * 0.15) + (mpiAbs * 0.25)))
+        : Math.max(0, Math.min(100, ((100 - reliabilityMean) * 0.45) + (macroBand.pct * 0.35) + ((100 - sentimentScore) * 0.20)));
+    const geoMacroLabel = percentileBand(geoMacroPressure, [0, geoMacroPressure, 100], ['Contained', 'Moderate', 'Elevated']).label;
     const positions = window.NEURAL_STATE?.portfolio_intelligence?.positions || [];
-    const avgConfidence = positions.length ? positions.reduce((s, p) => s + Number(p.confidence || 0), 0) / positions.length : 0;
-    const avgEdge = positions.length ? positions.reduce((s, p) => s + Number(p.edge || 0), 0) / positions.length : 0;
-    const avgEntropy = positions.length ? positions.reduce((s, p) => s + Number(p.entropy || 0), 0) / positions.length : 0;
-    const avgRisk = positions.length ? positions.reduce((s, p) => s + Number(p.risk || 0), 0) / positions.length : 0;
+    const avgConfidence = positions.length ? positions.reduce((s, p) => s + Number(p.confidence || 0), 0) / positions.length : confidenceMean;
+    const avgEdge = positions.length ? positions.reduce((s, p) => s + Number(p.edge || 0), 0) / positions.length : edgeMean;
+    const avgEntropy = positions.length ? positions.reduce((s, p) => s + Number(p.entropy || 0), 0) / positions.length : entropyMean;
+    const avgRisk = positions.length ? positions.reduce((s, p) => s + Number(p.risk || 0), 0) / positions.length : Math.max(0, 1 - (reliabilityMean / 100));
 
-    const sessionHeat = marketStatus === 'OPEN' ? 85 : 45;
-    const regimeHeat = /BULL|TREND|MOMENTUM/.test(String(regime).toUpperCase()) ? 72 : /BEAR|RISK/.test(String(regime).toUpperCase()) ? 35 : 55;
-    const macroHeat = Math.max(0, Math.min(100, idxAvgMove * 60));
-    const riskHeat = riskFromPortfolio == null ? 40 : Math.max(0, Math.min(100, (1 - Number(riskFromPortfolio)) * 100));
-    const allocHeat = allocationStance === 'Pro-Growth' ? 75 : allocationStance === 'Balanced' ? 55 : 30;
+    const sessionHeat = marketStatus === 'OPEN' ? 85 : reliabilityMean || 45;
+    const regimeHeat = reliabilityMean || confidenceMean || 50;
+    const macroHeat = macroBand.pct;
+    const riskHeat = Math.max(0, Math.min(100, (1 - Number(avgRisk || 0)) * 100));
+    const allocHeat = allocationStance === 'Pro-Growth' ? Math.max(confidenceMean, reliabilityMean) : allocationStance === 'Balanced' ? 55 : Math.max(20, 100 - reliabilityMean);
     const sectorHeat = (() => {
-        const entries = Object.entries(data?.news?.sectorwise || dashState?.newsSectorwise || {});
-        if (!entries.length) return 30;
-        const vals = entries.map(([, v]) => Number(v?.score ?? v ?? 0)).filter(v => Number.isFinite(v));
-        if (!vals.length) return 30;
-        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-        return Math.max(0, Math.min(100, Math.abs(avg)));
+        const values = Object.values(predictionMetrics.sectors).map(Number).filter(Number.isFinite);
+        if (!values.length) return 30;
+        return Math.max(0, Math.min(100, values.reduce((a, b) => a + b, 0) / values.length));
     })();
 
     // 8-card comprehensive layer with heat bars
     grid.innerHTML = [
-        worldStateCard('Market Session', marketStatus, `Next open: ${nextOpen}`, marketStatus === 'OPEN' ? 'var(--electric-green)' : 'var(--electric-yellow)', sessionHeat),
-        worldStateCard('AI Regime', regime, `Models: ${activeModels}`, 'var(--electric-purple)', regimeHeat),
-        worldStateCard('Macro Pulse', `${macroPulse} (${idxAvgMove.toFixed(2)}%)`, 'Index move dispersion', 'var(--electric-cyan)', macroHeat),
-        worldStateCard('Sentiment', `${sentimentLabel} ${sentimentScore.toFixed(1)}%`, 'News-driven market mood', sentimentScore >= 60 ? 'var(--electric-green)' : sentimentScore <= 40 ? 'var(--electric-red)' : 'var(--electric-yellow)', sentimentScore),
-        worldStateCard('Risk Climate', stability, riskFromPortfolio == null ? 'Needs active positions' : `Avg portfolio risk ${(riskFromPortfolio).toFixed(3)}`, 'var(--electric-red)', riskHeat),
-        worldStateCard('Allocation Stance', allocationStance, `Derived from risk + regime + sentiment`, allocationStance === 'Defensive' ? 'var(--electric-red)' : allocationStance === 'Pro-Growth' ? 'var(--electric-green)' : 'var(--electric-yellow)', allocHeat),
-        worldStateCard('Geo-Macro Pressure', `${geoMacroLabel} ${geoMacroPressure.toFixed(0)}%`, 'News + regime + index stress blend', geoMacroPressure >= 65 ? 'var(--electric-red)' : geoMacroPressure >= 45 ? 'var(--electric-yellow)' : 'var(--electric-green)', 100 - geoMacroPressure),
-        worldStateCard('Sector Pulse', topSectors, 'From aggregated market news', 'var(--electric-pink)', sectorHeat)
+        worldStateCard('Market Hours', marketStatus, `Next open: ${nextOpen}`, marketStatus === 'OPEN' ? 'var(--electric-green)' : 'var(--electric-yellow)', sessionHeat),
+        worldStateCard('AI Reading', regime, `${activeModels} models active`, 'var(--electric-purple)', regimeHeat),
+        worldStateCard('Market Move', `${macroBand.label} (${idxAvgMove.toFixed(2)}%)`, 'How much the indexes are moving', 'var(--electric-cyan)', macroHeat),
+        worldStateCard('News Mood', `${sentimentLabel} ${sentimentScore.toFixed(1)}%`, 'What live news is saying', sentimentScore >= 60 ? 'var(--electric-green)' : sentimentScore <= 40 ? 'var(--electric-red)' : 'var(--electric-yellow)', sentimentScore),
+        worldStateCard('Risk Level', stability, riskFromPortfolio == null ? 'Waiting for live portfolio risk' : `Average risk ${(riskFromPortfolio).toFixed(3)}`, 'var(--electric-red)', riskHeat),
+        worldStateCard('Sizing Mood', allocationStance, 'How aggressive sizing should be', allocationStance === 'Defensive' ? 'var(--electric-red)' : allocationStance === 'Pro-Growth' ? 'var(--electric-green)' : 'var(--electric-yellow)', allocHeat),
+        worldStateCard('Global Pressure', `${geoMacroLabel} ${geoMacroPressure.toFixed(0)}%`, Number.isFinite(mpi) ? `MPI ${mpi > 0 ? '+' : ''}${mpi.toFixed(2)} · ${humanizeToken(newsIntel.market_pressure_bias || 'Neutral')}` : 'Global markets, news and risk blend', geoMacroPressure >= 65 ? 'var(--electric-red)' : geoMacroPressure >= 45 ? 'var(--electric-yellow)' : 'var(--electric-green)', 100 - geoMacroPressure),
+        worldStateCard('Leading Sectors', topSectors, 'Sectors carrying the strongest live pulse', 'var(--electric-pink)', sectorHeat)
     ].join('');
 
     if (compass) {
@@ -1297,69 +1354,929 @@ function humanizeToken(v) {
     return t.split(' ').map(x => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase()).join(' ');
 }
 
+function setElementText(id, value, color = null) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    if (color) el.style.color = color;
+}
+
+function getDashboardPortfolioEmptyMetrics() {
+    const positions = Array.isArray(window.NEURAL_STATE?.portfolio_intelligence?.positions)
+        ? window.NEURAL_STATE.portfolio_intelligence.positions
+        : [];
+    const stocks = Array.isArray(dashState.stocks) ? dashState.stocks : [];
+    const baselineRisk = positions.length || stocks.length ? 'Low' : 'Awaiting';
+    return {
+        portfolioValue: formatInr(0),
+        dayPnl: `${formatInr(0)}`,
+        risk: baselineRisk
+    };
+}
+
+function setDashboardPortfolioEmptyState() {
+    const metrics = getDashboardPortfolioEmptyMetrics();
+    setElementText('portfolioValue', metrics.portfolioValue, 'var(--electric-cyan)');
+    setElementText('portfolioChange', '--', 'var(--text-secondary)');
+    setElementText('dayPnl', metrics.dayPnl, 'var(--text-secondary)');
+    setElementText('riskLevel', metrics.risk, metrics.risk === 'Low' ? 'var(--electric-green)' : 'var(--text-secondary)');
+}
+
+function deriveSidebarAIPerformance(aiPerformance = {}, state = null) {
+    const rows = Array.isArray(window.__INTEL_PRED_ROWS) && window.__INTEL_PRED_ROWS.length
+        ? window.__INTEL_PRED_ROWS
+        : (Array.isArray(dashState.predictions) ? dashState.predictions : []);
+    const aiEngine = state?.cognitive_state || state?.ai_engine || window.NEURAL_STATE?.cognitive_state || window.NEURAL_STATE?.ai_engine || {};
+    const accuracyRaw =
+        aiPerformance?.accuracy ??
+        aiPerformance?.prediction_accuracy ??
+        state?.ai_performance?.accuracy ??
+        state?.ai_engine?.accuracy ??
+        aiEngine?.accuracy ??
+        aiEngine?.market_state?.system_confidence;
+    let accuracy = Number(accuracyRaw);
+    if (Number.isFinite(accuracy) && accuracy <= 1) accuracy *= 100;
+
+    let modelsActive = Number(aiPerformance?.models_active ?? state?.ai_performance?.models_active);
+    if (!Number.isFinite(modelsActive) || modelsActive <= 0) {
+        const engineModels = Array.isArray(aiEngine?.active_models) ? aiEngine.active_models : [];
+        modelsActive = Number(aiEngine?.models_active ?? (Array.isArray(engineModels) ? engineModels.length : 0));
+    }
+    if (!Number.isFinite(modelsActive) || modelsActive <= 0) {
+        const modelPool = rows.flatMap((row) => Array.isArray(row?.models_used) ? row.models_used : []);
+        modelsActive = new Set(modelPool.filter(Boolean)).size;
+    }
+
+    let dataPoints = Number(aiPerformance?.data_points ?? aiPerformance?.total_data_points ?? aiPerformance?.data_points_min);
+    if (!Number.isFinite(dataPoints) || dataPoints <= 0) {
+        dataPoints = rows.length || Number(aiEngine?.data_points || aiEngine?.predictions_today || aiEngine?.total_predictions || 0) || 0;
+    }
+
+    return {
+        accuracy: Number.isFinite(accuracy) && accuracy > 0 ? `${accuracy.toFixed(1)}%` : '--',
+        modelsActive: Number.isFinite(modelsActive) && modelsActive > 0 ? String(Math.round(modelsActive)) : '--',
+        dataPoints: Number.isFinite(dataPoints) && dataPoints > 0 ? Math.round(dataPoints).toLocaleString('en-IN') : '--'
+    };
+}
+
+function updateSidebarAIPerformance(aiPerformance = {}, state = null) {
+    const derived = deriveSidebarAIPerformance(aiPerformance, state);
+    setElementText('predictionAccuracy', derived.accuracy, derived.accuracy === '--' ? 'var(--text-secondary)' : 'var(--electric-green)');
+    setElementText('modelsActive', derived.modelsActive, derived.modelsActive === '--' ? 'var(--text-secondary)' : 'var(--electric-cyan)');
+    setElementText('dataPoints', derived.dataPoints, derived.dataPoints === '--' ? 'var(--text-secondary)' : 'var(--electric-cyan)');
+}
+
 function updateDashboardPortfolioCardsFromPI(pi) {
     const positions = Array.isArray(pi?.positions) ? pi.positions : [];
-    if (!positions.length) return false;
-
-    let totalInvested = 0;
-    let totalCurrent = 0;
-    let dayPnl = 0;
-    let winners = 0;
-    let losers = 0;
-
-    positions.forEach((p) => {
-        const qty = Number(p.quantity || 0);
-        const avgPrice = Number(p.avg_price || 0);
-        const cp = Number(p.current_price || 0);
-        const chgPct = Number(p.change_percent || 0);
-        if (qty <= 0 || cp <= 0) return;
-
-        const invested = qty * avgPrice;
-        const current = qty * cp;
-        totalInvested += invested;
-        totalCurrent += current;
-
-        const pnl = current - invested;
-        if (pnl > 0) winners += 1;
-        else if (pnl < 0) losers += 1;
-
-        // Derive previous close from live change %, non-destructive interpretation
-        const prev = cp / (1 + (chgPct / 100));
-        if (Number.isFinite(prev) && prev > 0) {
-            dayPnl += (cp - prev) * qty;
-        }
-    });
-
-    const portfolioValueEl = document.getElementById('portfolioValue');
-    const activePositionsEl = document.getElementById('activePositions');
-    const dayPnlEl = document.getElementById('dayPnl');
-    const winnersEl = document.getElementById('winners');
-    const losersEl = document.getElementById('losers');
-    const riskEl = document.getElementById('riskLevel');
-
-    if (portfolioValueEl) portfolioValueEl.textContent = `₹${Math.round(totalCurrent).toLocaleString('en-IN')}`;
-    if (activePositionsEl) activePositionsEl.textContent = String(positions.length);
-    if (dayPnlEl) {
-        dayPnlEl.textContent = `${dayPnl >= 0 ? '+' : ''}₹${Math.round(dayPnl).toLocaleString('en-IN')}`;
-        dayPnlEl.style.color = dayPnl >= 0 ? 'var(--electric-green)' : 'var(--electric-red)';
-    }
-    if (winnersEl) winnersEl.textContent = String(winners);
-    if (losersEl) losersEl.textContent = String(losers);
-    if (riskEl) {
-        const avgRisk = positions.reduce((s, p) => s + Number(p.risk || 0), 0) / Math.max(1, positions.length);
-        riskEl.textContent = avgRisk >= 0.5 ? 'High' : avgRisk >= 0.25 ? 'Medium' : 'Low';
-        riskEl.style.color = avgRisk >= 0.5 ? 'var(--electric-red)' : avgRisk >= 0.25 ? 'var(--electric-yellow)' : 'var(--electric-green)';
+    if (!positions.length) {
+        setDashboardPortfolioEmptyState();
+        updateDashboardMarketIntelligenceCard();
+        updateDashboardPortfolioSnapshotCard(pi);
+        updateDashboardMarketPulseCard();
+        return false;
     }
 
+    updateDashboardPortfolioSnapshotCard(pi);
+    updateDashboardMarketIntelligenceCard();
+    updateDashboardMarketPulseCard();
+    
     updateDashboardAllocationChartFromPositions(positions);
+    syncV7DashboardIframe(dashState.data || {});
 
     return true;
 }
 
+// 🕐 Helper function to calculate and display relative time (e.g., "1 min ago")
+function getRelativeTime(timestamp) {
+    if (!timestamp) return 'just now';
+    const now = Date.now();
+    const diff = now - timestamp;
+    
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (seconds < 60) return 'just now';
+    if (minutes < 60) return `${minutes} min${minutes > 1 ? 's' : ''} ago`;
+    if (hours < 24) return `${hours}h ${minutes % 60}m ago`;
+    return `${days}d ago`;
+}
+
+// 🔄 Update card timestamp display
+function updateCardTimestamp(elementId, timestamp) {
+    const el = document.getElementById(elementId);
+    if (el) {
+        el.textContent = getRelativeTime(timestamp);
+    }
+}
+
+function parseNumericValue(value) {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return Number(value);
+    const normalized = String(value).trim().replace(/,/g, '').replace('%', '');
+    return Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
+}
+
+function format12HourTime(timeStr) {
+    if (!timeStr) return '--';
+    const trimmed = String(timeStr).trim();
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (match) {
+        let hour = Number(match[1]);
+        const minute = String(match[2]).padStart(2, '0');
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        hour = hour % 12 || 12;
+        return `${hour}:${minute} ${ampm}`;
+    }
+    return trimmed;
+}
+
+function computeCloseMessage(status, closeTime) {
+    if (!closeTime || status !== 'OPEN') return '--';
+    try {
+        const now = new Date();
+        const [hour, minute] = String(closeTime).split(':').map(Number);
+        const target = new Date(now);
+        target.setHours(hour, minute, 0, 0);
+        if (target <= now) target.setDate(target.getDate() + 1);
+        const diff = target - now;
+        const hours = Math.floor(diff / 3600000);
+        const mins = Math.floor((diff % 3600000) / 60000);
+        return `Closes in ${hours}h ${mins}m`;
+    } catch (e) {
+        return String(closeTime);
+    }
+}
+
+function normalizeAndExtractDashboardData(rawData = {}) {
+    const data = rawData || {};
+    const marketStatusRaw = data.market_status || {};
+    const session = String(marketStatusRaw.session || marketStatusRaw.current_time || '').trim();
+    const marketOpen = String(marketStatusRaw.market_open_time || marketStatusRaw.open_time || '').trim();
+    const marketClose = String(marketStatusRaw.market_close_time || marketStatusRaw.close_time || '').trim();
+    const nextOpenRaw = String(marketStatusRaw.next_open || data.next_open || '').trim();
+    const statusRaw = String(marketStatusRaw.status || marketStatusRaw.market_state || '').trim().toUpperCase();
+    let status = statusRaw;
+    if (!status) {
+        const now = new Date();
+        if (marketOpen && marketClose) {
+            const [openH, openM] = marketOpen.split(':').map(Number);
+            const [closeH, closeM] = marketClose.split(':').map(Number);
+            const openMoment = new Date(now);
+            openMoment.setHours(openH, openM, 0, 0);
+            const closeMoment = new Date(now);
+            closeMoment.setHours(closeH, closeM, 0, 0);
+            status = (now >= openMoment && now < closeMoment) ? 'OPEN' : 'CLOSED';
+        } else {
+            status = 'CLOSED';
+        }
+    }
+    const displayTime = session || new Date().toLocaleTimeString('en-IN', { hour12: false });
+    const closingTimeText = computeCloseMessage(status, marketClose);
+    const nextOpen = nextOpenRaw ? `${nextOpenRaw}${marketOpen ? ` | ${format12HourTime(marketOpen)}` : ''}` : '--';
+
+    const normalized = {
+        market_status: {
+            status,
+            market: marketStatusRaw.market || marketStatusRaw.exchange || 'NSE',
+            session: displayTime,
+            next_open: nextOpen,
+            closing_time: closingTimeText === '--' ? '--' : closingTimeText,
+            open_time: marketOpen,
+            close_time: marketClose
+        },
+        news_intelligence: {
+            market_regime: String(data.news_intelligence?.market_regime || data.market_intelligence?.regime || data.regime || 'SYNCHRONIZING').toUpperCase(),
+            regime_confidence: parseNumericValue(data.news_intelligence?.regime_confidence || data.market_intelligence?.confidence || data.confidence || 0),
+            market_pressure_index: parseNumericValue(data.news_intelligence?.market_pressure_index || data.market_intelligence?.mpi || data.mpi || 0)
+        },
+        market_sentiment: {
+            vix: parseNumericValue(data.market_sentiment?.vix || data.sentiment?.volatility_index || data.vix || 0),
+            vix_change: parseNumericValue(data.market_sentiment?.vix_change || data.sentiment?.vix_change || data.vix_change || 0),
+            label: String(data.market_sentiment?.label || data.sentiment?.label || data.sentiment_label || 'NEUTRAL').toUpperCase()
+        },
+        macro: {
+            global_sync: Array.isArray(data.macro?.global_sync) ? data.macro.global_sync
+                : Array.isArray(data.market_data?.indices) ? data.market_data.indices
+                : Array.isArray(data.global_sync) ? data.global_sync
+                : Array.isArray(data.indices) ? data.indices
+                : [],
+            live_indices: Array.isArray(data.live_indices) ? data.live_indices
+                : Array.isArray(data.market_data?.indices) ? data.market_data.indices
+                : Array.isArray(data.indices) ? data.indices
+                : Array.isArray(data.global_sync) ? data.global_sync
+                : [],
+            commodities: Array.isArray(data.macro?.commodities) ? data.macro.commodities
+                : Array.isArray(data.market_data?.commodities) ? data.market_data.commodities
+                : Array.isArray(data.commodities) ? data.commodities
+                : [],
+            forex: Array.isArray(data.macro?.forex) ? data.macro.forex
+                : Array.isArray(data.market_data?.forex) ? data.market_data.forex
+                : Array.isArray(data.forex) ? data.forex
+                : Array.isArray(data.fx) ? data.fx
+                : Array.isArray(data.fx_rates) ? data.fx_rates
+                : [],
+            crypto: Array.isArray(data.macro?.crypto) ? data.macro.crypto
+                : Array.isArray(data.market_data?.crypto) ? data.market_data.crypto
+                : Array.isArray(data.crypto) ? data.crypto
+                : Array.isArray(data.cryptocurrencies) ? data.cryptocurrencies
+                : [],
+            interest_rates: Array.isArray(data.macro?.interest_rates) ? data.macro.interest_rates
+                : Array.isArray(data.market_data?.interest_rates) ? data.market_data.interest_rates
+                : Array.isArray(data.interest_rates) ? data.interest_rates
+                : Array.isArray(data.rates) ? data.rates
+                : Array.isArray(data.rate_cards) ? data.rate_cards
+                : [],
+            macro_watch: Array.isArray(data.macro?.macro_watch) ? data.macro.macro_watch
+                : Array.isArray(data.macro_watch) ? data.macro_watch
+                : [],
+            details: {
+                gdp: data.macro?.gdp || data.macro?.gdp_growth || data.gdp || data.gdp_growth || data.economy?.gdp || null,
+                inflation: data.macro?.inflation || data.macro?.inflation_rate || data.inflation || data.inflation_rate || data.economy?.inflation || null
+            }
+        }
+    };
+
+    console.log('🔍 normalizeAndExtractDashboardData OUTPUT:', {
+        market_status: normalized.market_status,
+        news_intelligence: normalized.news_intelligence,
+        market_sentiment: normalized.market_sentiment,
+        macro: {
+            commodities: normalized.macro.commodities.length,
+            forex: normalized.macro.forex.length,
+            crypto: normalized.macro.crypto.length,
+            interest_rates: normalized.macro.interest_rates.length
+        }
+    });
+
+    return normalized;
+}
+
+function updateDashboardMarketIntelligenceCard(passedData = null) {
+    // 🛡️ FRONTEND GUARD: Prevent UI clearing if partial data is passed
+    const rawData = passedData || dashState?.data || window.dashState?.data || {};
+    
+    // If incoming data is empty/null but we have existing data in dashState, use the existing one
+    const hasNewData = rawData && (rawData.live_indices?.length > 0 || rawData.macro?.commodities?.length > 0);
+    const useData = (hasNewData) ? rawData : (dashState.data || rawData);
+
+    const normalized = normalizeAndExtractDashboardData(useData);
+    
+    const marketStatus = normalized.market_status;
+    const newsIntel = normalized.news_intelligence;
+    const sentiment = normalized.market_sentiment;
+    const macro = normalized.macro;
+    
+    console.log('🔍 Extracted values for display:', {
+        status: marketStatus.status,
+        session: marketStatus.session,
+        regime: newsIntel.market_regime,
+        confidence: newsIntel.regime_confidence,
+        sentiment_label: sentiment.label,
+        vix: sentiment.vix,
+        mpi: newsIntel.market_pressure_index,
+        commodities_array: macro.commodities,
+        forex_array: macro.forex,
+        crypto_array: macro.crypto
+    });
+
+    const statusVal = document.getElementById('marketStatusVal');
+    const nextEventVal = document.getElementById('nextEventVal');
+    const regimeVal = document.getElementById('marketRegimeVal');
+    const sentimentVal = document.getElementById('globalSentimentVal');
+    const mpiVal = document.getElementById('mpiVal');
+    const globalSyncVal = document.getElementById('globalSyncVal');
+
+    // Market Status with time info
+    const status = String(marketStatus.status || 'CLOSED').toUpperCase();
+    const statusPieces = [`${status} (${marketStatus.market || 'NSE'})`];
+    if (marketStatus.session) statusPieces.push(marketStatus.session);
+    if (status === 'OPEN' && marketStatus.closing_time && marketStatus.closing_time !== '--') {
+        statusPieces.push(marketStatus.closing_time);
+    }
+    if (statusVal) {
+        statusVal.innerHTML = statusPieces.join(' | ');
+        statusVal.className = `market-status-hero val ${status === 'OPEN' ? 'green' : 'red'}`;
+        console.log('✅ Set statusVal to:', statusVal.innerHTML);
+    }
+
+    // Next Event
+    if (nextEventVal) {
+        nextEventVal.textContent = String(marketStatus.next_open || '--');
+        console.log('✅ Set nextEventVal to:', nextEventVal.textContent);
+    }
+
+    // Market Regime
+    const regime = (newsIntel.market_regime && newsIntel.market_regime !== 'SYNCHRONIZING') ? newsIntel.market_regime : (window.NEURAL_STATE?.ai_engine?.regime || 'SYNCHRONIZING');
+    const regimeUpper = String(regime || '').toUpperCase();
+    const regimeBias = /BUY|UP|BULL|TREND|STRENGTH|MOMENTUM/.test(regimeUpper)
+        ? 1
+        : (/SELL|DOWN|BEAR|CRISIS|WEAK|RISK/.test(regimeUpper) ? -1 : 0);
+    const rawConfidence = Number(newsIntel.regime_confidence || 0);
+    const confidence = rawConfidence <= 1 ? rawConfidence * 100 : rawConfidence;
+    if (regimeVal) {
+        const confText = confidence > 0 ? ` (${Math.round(confidence)}% conf)` : '';
+        regimeVal.textContent = `${regime}${confText}`;
+        regimeVal.className = `metric-value val ${regimeBias > 0 ? 'green' : regimeBias < 0 ? 'red' : 'yellow'}`;
+        console.log('✅ Set regimeVal to:', regimeVal.textContent);
+    }
+
+    // Global Sentiment
+    const vix = Number(sentiment.vix || 0).toFixed(2);
+    const vixChange = Number(sentiment.vix_change || 0);
+    const vixChangeStr = vixChange !== 0 ? ` ${vixChange >= 0 ? '↑' : '↓'} ${Math.abs(vixChange).toFixed(2)}%` : '';
+    const sentLabel = String(sentiment.label || 'NEUTRAL').toUpperCase();
+    const sentimentBias = /BULL|EARLY|RISK-ON|POSITIVE|OPTIMISTIC/.test(sentLabel)
+        ? 1
+        : (/BEAR|RISK-OFF|NEGATIVE|FEAR|CAUTION/.test(sentLabel) ? -1 : 0);
+    if (sentimentVal) {
+        const sentColor = sentimentBias > 0 ? 'green' : (sentimentBias < 0 ? 'red' : 'yellow');
+        sentimentVal.innerHTML = `<span class="${sentColor}">${sentLabel}</span> (VIX: ${vix}${vixChangeStr})`;
+        console.log('✅ Set sentimentVal to:', sentimentVal.innerHTML);
+    }
+
+    // MPI
+    const mpi = Number(newsIntel.market_pressure_index || 0);
+    const mpiBias = String(
+        useData?.news_intelligence?.market_pressure_bias ||
+        useData?.market_intelligence?.market_pressure_bias ||
+        useData?.market_pressure_bias ||
+        useData?.mpi_label ||
+        ''
+    ).trim();
+    const mpiLabel = mpiBias ? humanizeToken(mpiBias) : '';
+    const mpiBiasVote = /BULL|BUY|UP|POSITIVE|RISK-ON/.test(String(mpiLabel || '').toUpperCase())
+        ? 1
+        : (/BEAR|SELL|DOWN|NEGATIVE|RISK-OFF/.test(String(mpiLabel || '').toUpperCase()) ? -1 : (mpi > 0 ? 1 : mpi < 0 ? -1 : 0));
+    if (mpiVal) {
+        mpiVal.innerHTML = `${mpi.toFixed(2)}${mpiLabel ? ` (${escapeHtml(mpiLabel)})` : ''}`;
+        const biasText = String(mpiLabel || '').toUpperCase();
+        mpiVal.className = `val ${/BULL|BUY|UP|POSITIVE|RISK-ON/.test(biasText) ? 'green' : (/BEAR|SELL|DOWN|NEGATIVE|RISK-OFF/.test(biasText) ? 'red' : 'cyan')}`;
+        console.log('✅ Set mpiVal to:', mpiVal.innerHTML);
+    }
+
+    const mpiPressureFill = document.getElementById('mpiPressureFill');
+    if (mpiPressureFill) {
+        const mpiPct = Number.isFinite(mpi) ? Math.max(0, Math.min(100, Math.abs(mpi) <= 1 ? mpi * 100 : mpi)) : 0;
+        mpiPressureFill.style.width = `${mpiPct}%`;
+        mpiPressureFill.style.background = mpiVal?.classList?.contains('red')
+            ? 'linear-gradient(90deg, rgba(255,7,58,0.25), var(--electric-red))'
+            : mpiVal?.classList?.contains('green')
+                ? 'linear-gradient(90deg, rgba(57,255,20,0.25), var(--electric-green))'
+                : 'linear-gradient(90deg, rgba(0,255,255,0.18), var(--electric-cyan))';
+    }
+
+    const marketCoverageVal = document.getElementById('marketCoverageVal');
+    if (marketCoverageVal) {
+        const modelCountRaw = useData?.ai_performance?.models_active ?? useData?.ai_engine?.models_active ?? [];
+        const modelCount = Array.isArray(modelCountRaw) ? modelCountRaw.length : Number(modelCountRaw);
+        const indexCount = Array.isArray(macro.live_indices) ? macro.live_indices.length : 0;
+        const newsCount = Array.isArray(dashState.news) ? dashState.news.length : 0;
+        const pieces = [
+            Number.isFinite(modelCount) && modelCount > 0 ? `${Math.round(modelCount)} models` : null,
+            indexCount > 0 ? `${indexCount} indices` : null,
+            newsCount > 0 ? `${newsCount} news signals` : null
+        ].filter(Boolean);
+        marketCoverageVal.textContent = pieces.length ? pieces.join(' | ') : 'Live context is warming up';
+    }
+
+    const marketQualityVal = document.getElementById('marketQualityVal');
+    if (marketQualityVal) {
+        const coveragePieces = [
+            Array.isArray(macro.live_indices) && macro.live_indices.length ? `${macro.live_indices.length} index feeds` : null,
+            Array.isArray(macro.commodities) && macro.commodities.length ? `${macro.commodities.length} commodity feeds` : null,
+            Array.isArray(macro.forex) && macro.forex.length ? `${macro.forex.length} FX feeds` : null,
+            Array.isArray(macro.crypto) && macro.crypto.length ? `${macro.crypto.length} crypto feeds` : null,
+            Array.isArray(dashState.news) && dashState.news.length ? `${dashState.news.length} news events` : null
+        ].filter(Boolean);
+        marketQualityVal.textContent = coveragePieces.length ? coveragePieces.join(' | ') : 'Live source coverage is warming up';
+    }
+
+    const portfolioImpactVal = document.getElementById('portfolioImpactVal');
+    if (portfolioImpactVal) {
+        const alerts = Array.isArray(dashState.portfolioNewsAlerts) ? dashState.portfolioNewsAlerts : [];
+        const symbols = [...new Set(alerts.flatMap(a => Array.isArray(a.symbols) ? a.symbols : [a.symbol]).filter(Boolean))];
+        portfolioImpactVal.textContent = symbols.length
+            ? `Portfolio-sensitive: ${symbols.slice(0, 4).join(', ')}${symbols.length > 4 ? ` +${symbols.length - 4}` : ''}`
+            : 'No portfolio-specific news pressure detected';
+    }
+
+    const marketDecisionVal = document.getElementById('marketDecisionVal');
+    if (marketDecisionVal) {
+        const votes = [
+            { name: 'Regime', value: regimeBias },
+            { name: 'Sentiment', value: sentimentBias },
+            { name: 'MPI', value: mpiBiasVote }
+        ].filter(vote => vote.value !== 0);
+        const netVote = votes.reduce((sum, vote) => sum + vote.value, 0);
+        const stance = netVote > 0 ? 'Risk-on alignment' : netVote < 0 ? 'Risk-off pressure' : 'Mixed tape';
+        const evidence = votes.map(vote => `${vote.name}:${vote.value > 0 ? 'up' : 'down'}`).join(' | ');
+        const heldCount = Array.isArray(window.NEURAL_STATE?.portfolio_intelligence?.positions)
+            ? window.NEURAL_STATE.portfolio_intelligence.positions.length
+            : 0;
+        marketDecisionVal.textContent = `${stance}${evidence ? ` from ${evidence}` : ''}${heldCount ? ` | ${heldCount} holdings cross-checked` : ' | Portfolio map waiting for holdings'}`;
+        marketDecisionVal.className = `metric-subline strong ${netVote > 0 ? 'green' : netVote < 0 ? 'red' : 'yellow'}`;
+    }
+
+    const toNumeric = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+    const formatPrice = (value, currency = '₹') => `${currency}${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    const formatPercent = (value) => {
+        const num = toNumeric(value);
+        const sign = num >= 0 ? '+' : '↓';
+        return `${sign}${Math.abs(num).toFixed(2)}%`;
+    };
+    const formatIndex = (item) => {
+        if (!item) return null;
+        const name = String(item.name || item.symbol || item.ticker || '').trim();
+        const value = toNumeric(item.value ?? item.level ?? item.last ?? item.price ?? 0);
+        const change = toNumeric(item.change_percent ?? item.change ?? item.change_pct ?? item.delta ?? 0);
+        const arrow = change >= 0 ? '+' : '↓';
+        const valueText = value ? Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '--';
+        return `${name} ${valueText} (${arrow}${Math.abs(change).toFixed(2)}%)`;
+    };
+
+    // Global Sync (market indices)
+    if (globalSyncVal) {
+        const sources = [...(macro.global_sync || []), ...(macro.live_indices || [])];
+        const findIndex = (...matches) => sources.find(item => {
+            const name = String(item.name || item.symbol || '').toUpperCase();
+            return matches.some(match => name.includes(match));
+        });
+        const order = [
+            ['S&P', 'S&P 500'],
+            ['NASDAQ'],
+            ['DOW', 'DOW JONES', 'DJIA'],
+            ['NSE', 'NIFTY', 'NIFTY 50']
+        ];
+        let syncItems = order.map(names => findIndex(...names)).filter(Boolean);
+        if (!syncItems.length) syncItems = sources.slice(0, 4);
+        const uniqueItems = [];
+        syncItems.forEach(item => {
+            const key = String(item.name || item.symbol || '').toUpperCase();
+            if (key && !uniqueItems.some(existing => String(existing.name || existing.symbol || '').toUpperCase() === key)) {
+                uniqueItems.push(item);
+            }
+        });
+        const syncHtml = uniqueItems.map(formatIndex).filter(Boolean).join(' | ');
+        globalSyncVal.innerHTML = syncHtml || '--';
+        globalSyncVal.className = `metric-subline strong val ${uniqueItems.some(item => toNumeric(item.change_percent ?? item.change ?? item.change_pct ?? 0) < 0) ? 'red' : 'green'}`;
+        console.log('✅ Set globalSyncVal to:', globalSyncVal.innerHTML);
+    }
+
+    // Macro commodities display
+    const commoditiesVal = document.getElementById('commoditiesVal');
+    const commoditiesEnergyVal = document.getElementById('commoditiesEnergyVal');
+    const commodities = Array.isArray(macro.commodities) ? macro.commodities : [];
+    const gold = commodities.find(c => String(c.symbol || '').toUpperCase() === 'GOLD' || String(c.name || '').toUpperCase().includes('GOLD'));
+    const silver = commodities.find(c => String(c.symbol || '').toUpperCase() === 'SILVER' || String(c.name || '').toUpperCase().includes('SILVER'));
+    const crude = commodities.find(c => String(c.symbol || '').toUpperCase() === 'CRUDE' || String(c.name || '').toUpperCase().includes('CRUDE'));
+    const naturalGas = commodities.find(c => String(c.name || '').toUpperCase().includes('GAS'));
+    const coal = commodities.find(c => String(c.name || '').toUpperCase().includes('COAL'));
+
+    if (commoditiesVal) {
+        const lines = [];
+        if (gold) lines.push(`Gold ${formatPrice(gold.value, '₹')} ${formatPercent(gold.change_percent ?? gold.change ?? 0)}`);
+        if (silver) lines.push(`Silver ${formatPrice(silver.value, '₹')} ${formatPercent(silver.change_percent ?? silver.change ?? 0)}`);
+        commoditiesVal.innerHTML = lines.length ? lines.join(' | ') : '--';
+        commoditiesVal.className = `val ${lines.some(line => line.includes('↓')) ? 'red' : lines.length ? 'green' : ''}`;
+        console.log('✅ Set commoditiesVal to:', commoditiesVal.innerHTML);
+    }
+    if (commoditiesEnergyVal) {
+        const energyItems = commodities.filter(i => {
+            const n = (i.name || i.symbol || '').toUpperCase();
+            return n.includes('CRUDE') || n.includes('GAS') || n.includes('COAL') || n.includes('OIL');
+        });
+        
+        // Format exactly as requested: Crude | Natural Gas | Coal
+        const crude = energyItems.find(i => (i.name || '').toUpperCase().includes('CRUDE'));
+        const gas = energyItems.find(i => (i.name || '').toUpperCase().includes('GAS'));
+        const coal = energyItems.find(i => (i.name || '').toUpperCase().includes('COAL'));
+        
+        const lines = [];
+        if (crude) lines.push(`Crude ${formatPrice(crude.value, '$')} ${formatPercent(crude.change_percent ?? 0)}`);
+        if (gas) lines.push(`Natural Gas ${formatPrice(gas.value, '$')} ${formatPercent(gas.change_percent ?? 0)}`);
+        if (coal) lines.push(`Coal ${formatPrice(coal.value, '$')} ${formatPercent(coal.change_percent ?? 0)}`);
+        
+        commoditiesEnergyVal.innerHTML = lines.length ? lines.join(' | ') : '--';
+        commoditiesEnergyVal.className = `val ${lines.some(l => l.includes('↓')) ? 'red' : 'green'}`;
+        console.log('✅ Set Energy to:', commoditiesEnergyVal.innerHTML);
+    }
+
+    // Macro forex display
+    const forexVal = document.getElementById('forexVal');
+    if (forexVal) {
+        const forex = Array.isArray(macro.forex) ? macro.forex : [];
+        const usd = forex.find(f => /USDINR|USD\/?INR|USD/.test(String(f.symbol || f.name || '').toUpperCase()));
+        const gbp = forex.find(f => /GBP|POUND/.test(String(f.symbol || f.name || '').toUpperCase()));
+        const eur = forex.find(f => /EUR|EURO/.test(String(f.symbol || f.name || '').toUpperCase()));
+        const pairs = [
+            usd ? `USD/INR ${toNumeric(usd.value).toFixed(2)} ${formatPercent(usd.change_percent ?? usd.change ?? usd.change_pct ?? 0)}` : null,
+            gbp ? `GBP/INR ${toNumeric(gbp.value).toFixed(2)} ${formatPercent(gbp.change_percent ?? gbp.change ?? gbp.change_pct ?? 0)}` : null,
+            eur ? `EUR/INR ${toNumeric(eur.value).toFixed(2)} ${formatPercent(eur.change_percent ?? eur.change ?? eur.change_pct ?? 0)}` : null
+        ].filter(Boolean);
+        forexVal.innerHTML = pairs.length ? pairs.join(' | ') : '--';
+        forexVal.className = `val ${pairs.some(pair => pair.includes('↓')) ? 'red' : pairs.length ? 'green' : ''}`;
+        console.log('✅ Set forexVal to:', forexVal.innerHTML);
+    }
+
+    const dashboardMacroVal = document.getElementById('dashboardMacroVal');
+    if (dashboardMacroVal) {
+        const forex = Array.isArray(macro.forex) ? macro.forex : [];
+        const commoditiesList = Array.isArray(macro.commodities) ? macro.commodities : [];
+        const rates = Array.isArray(macro.interest_rates) ? macro.interest_rates : [];
+        const usd = forex.find(f => /USD|DXY|DOLLAR/.test(String(f.symbol || f.name || '').toUpperCase()));
+        const crudeDriver = commoditiesList.find(c => /CRUDE|OIL/.test(String(c.symbol || c.name || '').toUpperCase()));
+        const leadRate = rates.find(r => /RBI|REPO|INDIA/.test(String(r.symbol || r.name || '').toUpperCase())) || rates[0];
+        const macroPieces = [
+            usd ? `${escapeHtml(usd.symbol || usd.name || 'USD')} ${toNumeric(usd.value ?? usd.rate ?? 0).toFixed(2)} ${formatPercent(usd.change_percent ?? usd.change ?? usd.change_pct ?? 0)}` : null,
+            crudeDriver ? `${escapeHtml(crudeDriver.symbol || crudeDriver.name || 'Crude')} ${formatPrice(crudeDriver.value ?? crudeDriver.price ?? 0, '$')} ${formatPercent(crudeDriver.change_percent ?? crudeDriver.change ?? 0)}` : null,
+            leadRate ? `${escapeHtml(leadRate.symbol || leadRate.name || 'Rate')} ${toNumeric(leadRate.value ?? leadRate.rate ?? 0).toFixed(2)} ${formatPercent(leadRate.change_percent ?? leadRate.change ?? 0)}` : null
+        ].filter(Boolean);
+        dashboardMacroVal.innerHTML = macroPieces.length ? macroPieces.join(' | ') : 'Live macro feed syncing';
+        dashboardMacroVal.className = `val ${macroPieces.some(piece => piece.includes('â†“')) ? 'red' : macroPieces.length ? 'green' : 'yellow'}`;
+    }
+
+    // Macro crypto display
+    const cryptoVal = document.getElementById('cryptoVal');
+    if (cryptoVal) {
+        const crypto = Array.isArray(macro.crypto) ? macro.crypto : [];
+        const btc = crypto.find(c => String(c.symbol || '').toUpperCase() === 'BTC' || String(c.name || '').toUpperCase().includes('BITCOIN'));
+        const eth = crypto.find(c => String(c.symbol || '').toUpperCase() === 'ETH' || String(c.name || '').toUpperCase().includes('ETHEREUM'));
+        const cryptoLines = [btc, eth].filter(Boolean).map(item => {
+            const change = toNumeric(item.change_percent ?? item.change ?? 0);
+            const delta = toNumeric(item.value ?? 0) * (change / 100);
+            const sign = change >= 0 ? '+' : '↓';
+            const cls = change >= 0 ? 'green' : 'red';
+            return `<span class="${cls}">${item.symbol || item.name} ${formatPrice(item.value, '$')} ${sign}${Math.abs(change).toFixed(1)}% (${delta >= 0 ? '+' : '↓'}${formatPrice(Math.abs(delta), '$')})</span>`;
+        });
+        cryptoVal.innerHTML = cryptoLines.length ? cryptoLines.join(' | ') : '--';
+        cryptoVal.className = `val ${cryptoLines.some(line => line.includes('↓')) ? 'red' : cryptoLines.length ? 'green' : ''}`;
+        console.log('✅ Set cryptoVal to:', cryptoVal.innerHTML);
+    }
+
+    // Macro interest rates and GDP/Inflation
+    const interestRatesVal = document.getElementById('interestRatesVal');
+    if (interestRatesVal) {
+        const rates = Array.isArray(macro.interest_rates) ? macro.interest_rates : [];
+        const sortedRates = [...rates].sort((a, b) => {
+            const score = (item) => {
+                const label = String(item.name || item.symbol || '').toUpperCase();
+                if (label.includes('INDIA') || label.includes('RBI') || label.includes('REPO')) return 0;
+                if (label.includes('UK') || label.includes('GILT')) return 1;
+                if (label.includes('US 10Y')) return 2;
+                if (label.includes('US 5Y') || label.includes('FED')) return 3;
+                return 4;
+            };
+            return score(a) - score(b);
+        }).slice(0, 3);
+        const rateRows = sortedRates.map(item => {
+            const change = toNumeric(item.change_percent ?? item.change ?? 0);
+            const sign = change >= 0 ? '+' : '↓';
+            const cls = change >= 0 ? 'green' : 'red';
+            const name = item.name || item.symbol || 'Rate';
+            const value = toNumeric(item.value ?? item.rate ?? 0).toFixed(2);
+            return `<span class="${cls}">${name} ${value} ${sign}${Math.abs(change).toFixed(2)}%</span>`;
+        });
+        interestRatesVal.innerHTML = rateRows.length ? rateRows.join(' | ') : '--';
+        interestRatesVal.className = `val ${rateRows.some(row => row.includes('↓')) ? 'red' : rateRows.length ? 'green' : ''}`;
+        console.log('✅ Set interestRatesVal to:', interestRatesVal.innerHTML);
+    }
+
+    const macroDetailsVal = document.getElementById('macroDetailsVal');
+    if (macroDetailsVal) {
+        const drivers = macro.macro_watch || [];
+        if (drivers.length) {
+            macroDetailsVal.innerHTML = drivers.join(' | ');
+            // "Inflation ↑ Sticky | Growth Weak | Liquidity Tight"
+            const isNegative = drivers.some(d => d.toLowerCase().includes('sticky') || 
+                                               d.toLowerCase().includes('contraction') || 
+                                               d.toLowerCase().includes('tight') ||
+                                               d.toLowerCase().includes('weak'));
+            macroDetailsVal.className = `val ${isNegative ? 'red' : 'green'}`;
+        } else {
+            // Fallback to legacy derivation if new drivers missing
+            const perf = dashState?.data?.ai_performance || {};
+            const mpiNum = Number(perf.market_pressure_index);
+            macroDetailsVal.innerHTML = Number.isFinite(mpiNum)
+                ? `MPI Pressure ${mpiNum.toFixed(2)} | Synchronising Drivers...`
+                : 'Synchronising live macro drivers...';
+            macroDetailsVal.className = 'val yellow';
+        }
+        console.log('✅ Set macroDetailsVal to:', macroDetailsVal.innerHTML);
+    }
+
+    // Update timestamps
+    updateCardTimestamp('marketIntelligenceTimestamp', dashState?.lastUpdate?.dashboard);
+}
+
+function renderDashboardPortfolioCommand(pi, positions, metrics, totalValue, totalInvested) {
+    const valueEl = document.getElementById('pfTotalValueVal');
+    const positionsEl = document.getElementById('pfPositionsVal');
+    const breadthBar = document.getElementById('pfBreadthBar');
+    const gainerEl = document.getElementById('pfTopGainerVal');
+    const loserEl = document.getElementById('pfTopLoserVal');
+    const exposureEl = document.getElementById('pfExposureVal');
+    const riskEl = document.getElementById('pfRiskVal');
+    const alertEl = document.getElementById('pfTopAlertVal');
+    const computedDayPnl = totalValue - totalInvested;
+    const dayPnlValue = Number(metrics?.day_pnl ?? metrics?.daily_pnl ?? metrics?.today_pnl ?? metrics?.pnl_today ?? computedDayPnl);
+    const dayPnlPct = Number(metrics?.day_pnl_percent ?? metrics?.daily_pnl_percent ?? metrics?.today_pnl_percent ?? metrics?.pnl_today_percent ?? (totalInvested > 0 ? (computedDayPnl / totalInvested * 100) : 0));
+    const dailyClass = dayPnlValue >= 0 ? 'green' : 'red';
+
+    if (valueEl) {
+        valueEl.innerHTML = `${formatInr(totalValue)} <span class="${dailyClass}">${dayPnlValue >= 0 ? '+' : ''}${Number.isFinite(dayPnlPct) ? dayPnlPct.toFixed(2) : '--'}% today</span>`;
+    }
+
+    const breadth = positions.reduce((acc, p) => {
+        const change = Number(p.change_percent || p.day_change_percent || 0);
+        if (change > 0) acc.green += 1;
+        else if (change < 0) acc.red += 1;
+        else acc.flat += 1;
+        return acc;
+    }, { green: 0, red: 0, flat: 0 });
+    if (positionsEl) {
+        positionsEl.textContent = positions.length
+            ? `${positions.length} stocks | ${breadth.green} green | ${breadth.red} red | ${breadth.flat} flat`
+            : 'No active positions';
+    }
+    if (breadthBar) {
+        const total = Math.max(positions.length, 1);
+        breadthBar.innerHTML = `
+            <span class="breadth-green" style="width:${(breadth.green / total) * 100}%"></span>
+            <span class="breadth-flat" style="width:${(breadth.flat / total) * 100}%"></span>
+            <span class="breadth-red" style="width:${(breadth.red / total) * 100}%"></span>
+        `;
+    }
+
+    if (gainerEl) {
+        const top = positions.length ? [...positions].sort((a, b) => Number(b.change_percent || 0) - Number(a.change_percent || 0))[0] : null;
+        if (top) {
+            const symbol = String(top.symbol || '').replace('.NS', '').replace('.BO', '');
+            const change = Number(top.change_percent || 0);
+            const price = Number(top.current_price || top.price || 0);
+            gainerEl.innerHTML = `<span class="${change >= 0 ? 'green' : 'red'}">${escapeHtml(symbol)} ${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>${price > 0 ? ` at ${formatInr(price)}` : ''} <span class="terminal-inline-link" onclick="event.stopPropagation(); window.dashboard?.showStockDetails?.('${escapeHtml(symbol)}')">View</span>`;
+        } else {
+            gainerEl.textContent = '--';
+        }
+    }
+
+    if (loserEl) {
+        const bottom = positions.length ? [...positions].sort((a, b) => Number(a.change_percent || 0) - Number(b.change_percent || 0))[0] : null;
+        if (bottom) {
+            const symbol = String(bottom.symbol || '').replace('.NS', '').replace('.BO', '');
+            const change = Number(bottom.change_percent || 0);
+            const price = Number(bottom.current_price || bottom.price || 0);
+            loserEl.innerHTML = `<span class="${change >= 0 ? 'green' : 'red'}">${escapeHtml(symbol)} ${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>${price > 0 ? ` at ${formatInr(price)}` : ''} <span class="terminal-inline-link" onclick="event.stopPropagation(); window.dashboard?.showStockDetails?.('${escapeHtml(symbol)}')">View</span>`;
+        } else {
+            loserEl.textContent = '--';
+        }
+    }
+
+    if (exposureEl) {
+        const exposure = positions
+            .map(p => {
+                const value = Number(p.market_value ?? p.current_value ?? ((p.current_price || p.price || p.avg_price || 0) * (p.quantity || 0)));
+                return { symbol: String(p.symbol || '').replace('.NS', '').replace('.BO', ''), value: Number.isFinite(value) ? value : 0 };
+            })
+            .filter(item => item.symbol && item.value > 0)
+            .sort((a, b) => b.value - a.value);
+        const topExposure = exposure[0];
+        exposureEl.textContent = topExposure && totalValue > 0
+            ? `${topExposure.symbol} ${(topExposure.value / totalValue * 100).toFixed(1)}% of live value`
+            : 'Exposure map builds after live prices arrive';
+    }
+
+    if (riskEl) {
+        const risks = positions.map(p => Number(p.risk ?? p.risk_score)).filter(Number.isFinite);
+        const edges = positions.map(p => Number(p.edge ?? p.predicted_return ?? p.expected_return)).filter(Number.isFinite);
+        const confidences = positions.map(p => Number(p.confidence ?? p.confidence_score)).filter(Number.isFinite);
+        const avg = (items) => items.length ? items.reduce((sum, value) => sum + value, 0) / items.length : null;
+        const avgRisk = avg(risks);
+        const avgEdge = avg(edges);
+        const avgConfidence = avg(confidences);
+        const riskText = avgRisk == null ? (metrics?.risk_level || metrics?.risk || 'Risk model syncing') : `Risk ${avgRisk.toFixed(3)}`;
+        const edgeText = avgEdge == null ? null : `Edge ${avgEdge >= 0 ? '+' : ''}${avgEdge.toFixed(2)}`;
+        const confText = avgConfidence == null ? null : `Conf ${avgConfidence.toFixed(avgConfidence > 1 ? 0 : 2)}${avgConfidence > 1 ? '%' : ''}`;
+        riskEl.textContent = [riskText, edgeText, confText].filter(Boolean).join(' | ');
+    }
+
+    if (alertEl) {
+        const portfolioAlerts = Array.isArray(dashState.portfolioNewsAlerts) ? dashState.portfolioNewsAlerts : [];
+        const alert = portfolioAlerts[0] || pi?.top_alert || null;
+        if (alert && typeof alert === 'object') {
+            const symbols = Array.isArray(alert.symbols) ? alert.symbols.join(', ') : (alert.symbol || '');
+            alertEl.innerHTML = `<span class="yellow">${escapeHtml(symbols || 'Portfolio')}</span> ${escapeHtml(alert.title || alert.headline || 'Live alert')} <span class="terminal-inline-link" onclick="event.stopPropagation(); document.querySelector('[data-tab=\\'news\\']')?.click()">Details</span>`;
+        } else {
+            alertEl.textContent = alert || 'No critical portfolio alerts detected.';
+        }
+    }
+}
+
+function updateDashboardPortfolioSnapshotCard(pi = {}) {
+    // 🛡️ FRONTEND GUARD: Don't clear if incoming data is empty
+    let positions = Array.isArray(pi?.positions) ? pi.positions : [];
+    if (!positions.length && window.NEURAL_STATE?.portfolio_intelligence?.positions?.length) {
+        pi = window.NEURAL_STATE.portfolio_intelligence;
+        positions = pi.positions;
+    }
+    
+    const valueEl = document.getElementById('pfTotalValueVal');
+    const positionsEl = document.getElementById('pfPositionsVal');
+    const investedEl = null;
+    const gainerEl = document.getElementById('pfTopGainerVal');
+    const alertEl = document.getElementById('pfTopAlertVal');
+
+    const metrics = pi?.account_metrics || {};
+    
+    let totalInvested = 0;
+    let totalValue = 0;
+    
+    positions.forEach(pos => {
+        const costBasis = (pos.avg_price || pos.buy_price || 0) * (pos.quantity || 0);
+        const currentValue = (pos.current_price || pos.price || 0) * (pos.quantity || 0);
+        totalInvested += costBasis;
+        totalValue += currentValue;
+    });
+
+    const totalPnL = totalValue - totalInvested;
+    const pnlPercent = totalInvested > 0 ? (totalPnL / totalInvested * 100) : 0;
+    const computedDayPnl = totalValue - totalInvested;
+    const dayPnlValue = metrics.day_pnl ?? metrics.daily_pnl ?? metrics.today_pnl ?? metrics.pnl_today ?? computedDayPnl;
+    const dayPnlPct = metrics.day_pnl_percent ?? metrics.daily_pnl_percent ?? metrics.today_pnl_percent ?? metrics.pnl_today_percent ?? (totalInvested > 0 ? (computedDayPnl / totalInvested * 100) : 0);
+    renderDashboardPortfolioCommand(pi, positions, metrics, totalValue, totalInvested);
+    updateCardTimestamp('portfolioSnapshotTimestamp', dashState?.lastUpdate?.portfolio);
+    return;
+
+    if (investedEl) investedEl.textContent = `₹${Math.round(totalInvested).toLocaleString('en-IN')}`;
+    if (valueEl) valueEl.textContent = `₹${Math.round(totalValue).toLocaleString('en-IN')}`;
+    if (valueEl) {
+        const cls = dayPnlValue >= 0 ? 'green' : 'red';
+        valueEl.innerHTML = `${formatInr(totalValue)} <span class="${cls}">(${dayPnlValue >= 0 ? '+' : ''}${Number(dayPnlPct || 0).toFixed(2)}% today)</span>`;
+    }
+    if (positionsEl) {
+        const green = positions.filter(p => Number(p.change_percent || p.day_change_percent || 0) > 0).length;
+        const red = positions.filter(p => Number(p.change_percent || p.day_change_percent || 0) < 0).length;
+        const flat = Math.max(0, positions.length - green - red);
+        positionsEl.textContent = positions.length
+            ? `${positions.length} stocks (${green} green, ${red} red, ${flat} flat)`
+            : 'No active positions';
+    }
+    if (false && dailyPnlEl) {
+        const cls = dayPnlValue >= 0 ? 'green' : 'red';
+        const arrow = dayPnlValue >= 0 ? '↑' : '↓';
+        dailyPnlEl.innerHTML = `<span class="${cls}" style="font-weight:700;">${arrow} ₹${Math.round(Math.abs(dayPnlValue)).toLocaleString('en-IN')} (${dayPnlValue >= 0 ? '+' : ''}${dayPnlPct.toFixed(2)}%)</span>`;
+    }
+    if (false && pnlEl) {
+        const cls = totalPnL >= 0 ? 'green' : 'red';
+        const arrow = totalPnL >= 0 ? '↑' : '↓';
+        pnlEl.innerHTML = `<span class="${cls}" style="font-weight:700;">${arrow} ₹${Math.round(Math.abs(totalPnL)).toLocaleString('en-IN')} (${totalPnL >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</span>`;
+    }
+
+    if (gainerEl) {
+        if (positions.length > 0) {
+            const top = [...positions].sort((a,b) => (b.change_percent || 0) - (a.change_percent || 0))[0];
+            const cls = (top.change_percent || 0) >= 0 ? 'green' : 'red';
+            const arrow = (top.change_percent || 0) >= 0 ? '↑' : '↓';
+            gainerEl.innerHTML = `<span class="muted">${(top.symbol || '').replace('.NS', '').replace('.BO', '')}</span> <span class="${cls}">${arrow}${(top.change_percent || 0) >= 0 ? '+' : ''}${(top.change_percent || 0).toFixed(2)}%</span>`;
+        } else {
+            gainerEl.textContent = '--';
+        }
+    }
+
+    if (gainerEl && positions.length > 0) {
+        const top = [...positions].sort((a, b) => Number(b.change_percent || 0) - Number(a.change_percent || 0))[0];
+        const cls = Number(top.change_percent || 0) >= 0 ? 'green' : 'red';
+        const symbol = String(top.symbol || '').replace('.NS', '').replace('.BO', '');
+        const price = Number(top.current_price || top.price || 0);
+        gainerEl.innerHTML = `<span class="muted">${escapeHtml(symbol)}</span> <span class="${cls}">${Number(top.change_percent || 0) >= 0 ? '+' : ''}${Number(top.change_percent || 0).toFixed(2)}%</span>${price > 0 ? ` (${formatInr(price)})` : ''} <span class="terminal-inline-link" onclick="event.stopPropagation(); window.dashboard?.showStockDetails?.('${escapeHtml(symbol)}')">View</span>`;
+    }
+
+    if (alertEl) {
+        const portfolioAlerts = Array.isArray(dashState.portfolioNewsAlerts) ? dashState.portfolioNewsAlerts : [];
+        const alert = portfolioAlerts[0] || pi?.top_alert || null;
+        if (alert && typeof alert === 'object') {
+            const symbols = Array.isArray(alert.symbols) ? alert.symbols.join(', ') : (alert.symbol || '');
+            alertEl.innerHTML = `<span class="yellow">${escapeHtml(symbols || 'Portfolio')}</span> ${escapeHtml(alert.title || alert.headline || 'Live alert')} <span class="terminal-inline-link" onclick="event.stopPropagation(); document.querySelector('[data-tab=\\'news\\']')?.click()">Details</span>`;
+        } else {
+            alertEl.textContent = alert || 'No critical portfolio alerts detected.';
+        }
+    }
+    
+    // Update timestamp for Portfolio Snapshot card
+    updateCardTimestamp('portfolioSnapshotTimestamp', dashState?.lastUpdate?.portfolio);
+}
+
+async function updateDashboardMarketPulseCard() {
+    const newsListEl = document.getElementById('dashboardNewsList');
+    const summaryEl = document.getElementById('newsSummaryVal');
+    if (!newsListEl) return;
+
+    let articles = Array.isArray(dashState.news) ? dashState.news.slice() : [];
+    const lastNewsTs = Number(dashState.lastUpdate?.news || 0);
+    const newsAge = Number.isFinite(lastNewsTs) && lastNewsTs > 0 ? Date.now() - lastNewsTs : Infinity;
+    if (!articles.length && newsAge > 0) {
+        try {
+            const response = await api.fetch('/news/market', { cache: false, timeout: 10000 });
+            if (response && (response.articles || response.news || response.items)) {
+                articles = response.articles || response.news || response.items || [];
+                dashState.news = articles;
+                dashState.lastUpdate.news = Date.now();
+            }
+        } catch (e) {
+            console.warn("Market Pulse Update Error:", e?.message);
+        }
+    }
+
+    const impactValues = (Array.isArray(articles) ? articles : [])
+        .map(a => Number(a.impact_score ?? a.importance ?? a.impact_strength))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+    const rankImpact = (score) => {
+        if (!impactValues.length || !Number.isFinite(score)) return { label: 'LIVE', color: 'var(--electric-cyan)' };
+        const belowOrEqual = impactValues.filter(v => v <= score).length;
+        const percentile = belowOrEqual / impactValues.length;
+        if (percentile >= (impactValues.length - 1) / Math.max(impactValues.length, 1)) return { label: 'HIGH IMPACT', color: 'var(--electric-pink)' };
+        if (percentile <= 1 / Math.max(impactValues.length, 1)) return { label: 'LOW IMPACT', color: 'var(--text-secondary)' };
+        return { label: 'MARKET IMPACT', color: 'var(--electric-yellow)' };
+    };
+    const pulse = articles && Array.isArray(articles)
+        ? articles.slice().sort((a, b) => Number(b.impact_score ?? b.importance ?? b.impact_strength ?? 0) - Number(a.impact_score ?? a.importance ?? a.impact_strength ?? 0)).slice(0, 3)
+        : [];
+    if (pulse.length === 0) {
+        if (summaryEl) summaryEl.textContent = 'Live pulse map is waiting for verified market news.';
+        newsListEl.innerHTML = `
+            <div class="news-pulse-item" style="padding:1.25rem 1rem; text-align:center; color:var(--text-secondary);">
+                <div style="font-size:10px; font-weight:800; margin-bottom:6px;">SYNCHRONISING PULSE...</div>
+                <div style="font-weight:700;">Fetching live high-impact market intelligence...</div>
+            </div>
+        `;
+        return;
+    }
+
+    const heldSymbols = new Set((window.NEURAL_STATE?.portfolio_intelligence?.positions || [])
+        .map(p => String(p.symbol || '').toUpperCase().replace('.NS', '').replace('.BO', ''))
+        .filter(Boolean));
+    if (summaryEl) {
+        const sectorScores = {};
+        const portfolioHits = new Set();
+        articles.forEach(article => {
+            const score = Number(article.impact_score ?? article.importance ?? article.impact_strength ?? 0);
+            const sectors = Array.isArray(article.affected_sectors) ? article.affected_sectors : (article.sector ? [article.sector] : []);
+            sectors.filter(Boolean).forEach(sector => {
+                const key = String(sector).trim();
+                if (key) sectorScores[key] = (sectorScores[key] || 0) + (Number.isFinite(score) ? score : 0);
+            });
+            [
+                ...(Array.isArray(article?.entities?.symbols) ? article.entities.symbols : []),
+                ...(Array.isArray(article?.symbols) ? article.symbols : []),
+                article.related_symbol || article.symbol || ''
+            ].map(s => String(s || '').toUpperCase().replace('.NS', '').replace('.BO', '')).filter(Boolean)
+                .forEach(symbol => { if (heldSymbols.has(symbol)) portfolioHits.add(symbol); });
+        });
+        const leadSectors = Object.entries(sectorScores)
+            .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+            .slice(0, 3)
+            .map(([sector]) => sector);
+        const strongest = impactValues.length ? impactValues[impactValues.length - 1] : null;
+        summaryEl.textContent = [
+            `${articles.length} live news events`,
+            strongest == null ? null : `top impact ${Number(strongest).toFixed(2)}`,
+            leadSectors.length ? `sectors: ${leadSectors.join(' | ')}` : null,
+            portfolioHits.size ? `portfolio: ${[...portfolioHits].slice(0, 4).join(', ')}` : 'no portfolio hit'
+        ].filter(Boolean).join(' | ');
+    }
+    newsListEl.innerHTML = pulse.map(a => {
+        const impactScore = Number(a.impact_score ?? a.importance ?? a.impact_strength);
+        const impact = rankImpact(impactScore);
+        const rawTime = a.time || a.timestamp || a.published_at || a.published || a.normalized_time || Date.now();
+        const time = typeof rawTime === 'number' ? getRelativeTime(rawTime) : (formatNewsAge(rawTime) || String(rawTime));
+        const url = (a.url || a.link || '#').replace(/'/g, "\\'");
+        const title = (a.title || a.headline || 'Live market update').substring(0, 120);
+        const symbols = [
+            ...(Array.isArray(a?.entities?.symbols) ? a.entities.symbols : []),
+            ...(Array.isArray(a?.symbols) ? a.symbols : []),
+            a.related_symbol || a.symbol || ''
+        ].map(s => String(s || '').toUpperCase().replace('.NS', '').replace('.BO', '')).filter(Boolean);
+        const portfolioHits = [...new Set(symbols.filter(s => heldSymbols.has(s)))];
+        const sectors = Array.isArray(a.affected_sectors) ? a.affected_sectors : (a.sector ? [a.sector] : []);
+        const sentimentText = humanizeToken(a.sentiment || a.sentiment_label || 'Neutral');
+        
+        return `
+            <div class="news-pulse-item" onclick="window.open('${url}', '_blank')">
+                <div class="news-pulse-meta" style="color:${impact.color};">${impact.label} | ${escapeHtml(time)}</div>
+                <div class="news-pulse-title">${escapeHtml(title)}</div>
+                <div class="news-pulse-impact">Impact: ${escapeHtml(sectors.slice(0, 3).join(' | ') || 'Market')} | Sentiment: ${escapeHtml(sentimentText)}${portfolioHits.length ? ` | Portfolio: ${escapeHtml(portfolioHits.join(', '))}` : ''}</div>
+            </div>
+        `;
+    }).join('');
+    
+    // Update timestamp for Market Pulse card
+    updateCardTimestamp('marketPulseTimestamp', dashState?.lastUpdate?.news);
+}
+
 function updateDashboardAllocationChartFromPositions(positions) {
     try {
-        if (!Array.isArray(positions) || positions.length === 0) return false;
-        const chart = window.dashboard?.charts?.allocation;
         if (!chart || !chart.data || !Array.isArray(chart.data.datasets) || !chart.data.datasets[0]) return false;
 
         const sectorTotals = {};
@@ -1399,25 +2316,40 @@ function updateDashboardAIPredictionCard(aiPerformance, state = null) {
     const accEl = document.getElementById('accuracyRate');
     const modelsEl = document.getElementById('totalModels');
     if (!aiPredEl && !accEl && !modelsEl) return;
+    const aiEngine = state?.cognitive_state || state?.ai_engine || window.NEURAL_STATE?.cognitive_state || window.NEURAL_STATE?.ai_engine || {};
 
     const totalPred =
         Number(aiPerformance?.total_predictions) ||
         Number(aiPerformance?.predictions_today) ||
-        Number(state?.ai_engine?.predictions_today) ||
+        Number(aiEngine?.predictions_today) ||
+        Number(aiEngine?.data_points) ||
+        (Array.isArray(window.__INTEL_PRED_ROWS) ? window.__INTEL_PRED_ROWS.length : 0) ||
         0;
 
     const accRaw =
         aiPerformance?.accuracy_percent ??
         aiPerformance?.accuracy ??
         aiPerformance?.prediction_accuracy?.percentage ??
-        state?.ai_engine?.accuracy;
+        aiEngine?.accuracy ??
+        aiEngine?.market_state?.system_confidence;
     let acc = Number(accRaw);
     if (Number.isFinite(acc) && acc <= 1) acc *= 100;
+    if ((!Number.isFinite(acc) || acc <= 0) && Array.isArray(window.__INTEL_PRED_ROWS) && window.__INTEL_PRED_ROWS.length) {
+        const confidences = window.__INTEL_PRED_ROWS
+            .map((row) => Number(row?.confidence ?? row?.prediction?.confidence ?? 0))
+            .filter((value) => Number.isFinite(value) && value > 0);
+        if (confidences.length) {
+            acc = confidences.reduce((sum, value) => sum + value, 0) / confidences.length;
+        }
+    }
 
     let modelCount = Number(aiPerformance?.models_active);
     if (!Number.isFinite(modelCount) || modelCount <= 0) {
-        const models = state?.ai_engine?.models_active || aiPerformance?.active_models || [];
+        const models = aiEngine?.models_active || aiEngine?.active_models || aiPerformance?.active_models || [];
         modelCount = Array.isArray(models) ? models.length : Number(models || 0);
+        if ((!Number.isFinite(modelCount) || modelCount <= 0) && Array.isArray(window.__INTEL_PRED_ROWS)) {
+            modelCount = new Set(window.__INTEL_PRED_ROWS.flatMap((row) => Array.isArray(row?.prediction?.models_used) ? row.prediction.models_used : (Array.isArray(row?.models_used) ? row.models_used : []))).size;
+        }
     }
 
     if (aiPredEl) aiPredEl.textContent = Number.isFinite(totalPred) && totalPred > 0 ? String(Math.round(totalPred)) : '--';
@@ -1426,6 +2358,7 @@ function updateDashboardAIPredictionCard(aiPerformance, state = null) {
         accEl.style.color = Number.isFinite(acc) ? (acc >= 65 ? 'var(--electric-green)' : acc >= 45 ? 'var(--electric-yellow)' : 'var(--electric-red)') : 'var(--text-muted)';
     }
     if (modelsEl) modelsEl.textContent = Number.isFinite(modelCount) && modelCount > 0 ? String(Math.round(modelCount)) : '--';
+    updateSidebarAIPerformance(aiPerformance, state);
 }
 
 function renderPortfolioAdvancedPanel(positions, accountMetrics = null) {
@@ -2220,7 +3153,11 @@ async function safeFetchJSON(url, options = {}) {
         const r = await fetch(url, options);
         if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
         const text = await r.text();
-        return JSON.parse(text);
+        const cleaned = text
+            .replace(/\bNaN\b/g, "null")
+            .replace(/\binfinity\b/gi, "null")
+            .replace(/\b-Infinity\b/gi, "null");
+        return JSON.parse(cleaned);
     } catch (e) {
         console.error("Invalid JSON or Fetch error from", url, e);
         return { success: false, predictions: [], data: [] };
@@ -2244,7 +3181,7 @@ async function hydrateOnWsDegrade(reason = 'ws') {
         const portfolioBusy = !!(window.__PF_EXPANDED_SYMBOL || document.getElementById('lotEditorModal') || document.getElementById('sellWorkflowModal'));
         const pfLast = Number(dashState?.lastUpdate?.portfolio || 0);
         if (portfolioActive && !portfolioBusy && (now - pfLast) > 45000) jobs.push(safeInit(() => loadPortfolioState(true)));
-        if (predictionsActive) jobs.push(safeInit(loadPredictions));
+        if (predictionsActive) jobs.push(safeInit(() => (typeof loadIntelligencePredictions === 'function' ? loadIntelligencePredictions() : loadPredictions())));
         if (!jobs.length) return;
         await Promise.allSettled(jobs);
     } catch (e) {
@@ -2267,6 +3204,10 @@ socket.on("reconnect_attempt", (n) => {
     console.log(`🔄 Neural reconnect attempt ${n}`);
 });
 socket.on("sentiment_pulse", (p) => {
+    dashState.marketSentiment = {
+        ...(dashState.marketSentiment || {}),
+        ...(p || {})
+    };
     // ✅ SYNC WITH BACKEND CONTRACT (overall_score, label, total_articles)
     const valEl = document.getElementById("marketSentimentValue");
     const labelEl = document.getElementById("marketSentimentLabel");
@@ -2283,10 +3224,22 @@ socket.on("sentiment_pulse", (p) => {
     if (artsEl && p.total_articles != null) {
         artsEl.innerText = p.total_articles;
     }
+    if (isTabActive('news')) {
+        safeInit(loadNews);
+    }
+    updateDashboardMarketIntelligenceCard();
 });
 
 // 🧠 AI STATE UPDATE (Consolidated & Real-time)
 window.NEXUS_SOCKET.on("ai_state", handleAIState);
+window.NEXUS_SOCKET.on("prediction_update", () => {
+    if (isTabActive('predictions') && typeof loadIntelligencePredictions === 'function') {
+        loadIntelligencePredictions();
+    }
+    if (isTabActive('news')) {
+        safeInit(loadNews);
+    }
+});
 
 
 function handleAIState(state) {
@@ -2300,22 +3253,33 @@ function handleAIState(state) {
         window.__LAST_WORLD_STATE_AT = nowTs;
         renderPredictionsWorldState(false);
     }
+    if (isTabActive('predictions') && typeof loadIntelligencePredictions === 'function') {
+        loadIntelligencePredictions();
+    }
+    const livePredictionRows = getLivePredictionRowsFromState();
+    if (livePredictionRows.length) {
+        dashState.predictions = livePredictionRows;
+        if (isTabActive('predictions')) {
+            displayLivePredictions(livePredictionRows);
+        }
+        updatePredictionCards({
+            stocks: livePredictionRows,
+            predictions: livePredictionRows
+        });
+    }
     const regimeLabel = document.querySelector('#regimeFitValue')?.parentElement?.querySelector('.label');
     if (regimeLabel) regimeLabel.textContent = 'Regime Alignment';
 
     // Bridge for Cognitive State
     const cognitiveEl = document.getElementById("aiCognitivePanel");
     if (cognitiveEl) {
-        const perf = state.ai_performance || {};
-        cognitiveEl.innerHTML = perf.status === "active"
-            ? `<div class="p-2 border border-info" style="font-size:0.85rem;">${perf.opportunities?.[0]?.reasoning || 'Analyzing Market Patterns...'}</div>`
-            : "ANALYZING";
+        renderCognitivePanel(buildCognitiveFallbackState(state));
     }
 
     // Bridge for Market Regime
     const regimeEl = document.getElementById("marketRegimeValue");
     if (regimeEl) {
-        regimeEl.textContent = state.ai_engine?.regime || "NEUTRAL";
+        regimeEl.textContent = state.ai_engine?.regime || state.ai_engine?.current_regime || state.cognitive_state?.current_regime || "NEUTRAL";
         regimeEl.style.color = "var(--electric-purple)";
     }
 
@@ -2486,7 +3450,7 @@ class APIClient {
 
     async fetch(endpoint, options = {}) {
 
-        const { cache = true, timeout = CONFIG.TIMEOUT } = options;
+        const { cache = true, timeout = CONFIG.TIMEOUT, retries = 1 } = options;
 
         const cacheKey = endpoint;
 
@@ -2521,6 +3485,8 @@ class APIClient {
         // Execute request
 
         let timeoutId = null;
+        let attempt = 0;
+        while (attempt <= retries) {
         try {
 
             const controller = new AbortController();
@@ -2573,6 +3539,10 @@ class APIClient {
         } catch (error) {
             if (error && error.name === 'AbortError') {
                 console.warn(`[API TIMEOUT] ${endpoint} exceeded ${timeout}ms`);
+                if (attempt < retries) {
+                    attempt++;
+                    continue;
+                }
                 if (this.cache.has(cacheKey)) {
                     const stale = this.cache.get(cacheKey);
                     if (stale && stale.data) {
@@ -2595,6 +3565,8 @@ class APIClient {
             // Ensure timer is always released even when fetch throws.
             try { clearTimeout(timeoutId); } catch { }
         }
+        }
+        return null;
 
     }
 
@@ -2685,7 +3657,99 @@ const api = new APIClient(CONFIG.API_BASE);
 
 // ============================================================================
 
+function ensureDashboardFallbackState() {
+    if (dashState.data && typeof dashState.data === 'object' && Object.keys(dashState.data).length) {
+        return dashState.data;
+    }
+    const neural = window.NEURAL_STATE || {};
+    const cognitive = isNonEmptyObject(neural.cognitive_state) ? neural.cognitive_state : (isNonEmptyObject(neural.ai_engine) ? neural.ai_engine : {});
+    const portfolio = neural.portfolio_intelligence || {};
+    const positions = Array.isArray(portfolio.positions) ? portfolio.positions : [];
+    dashState.data = {
+        live_indices: Array.isArray(dashState.data?.live_indices) ? dashState.data.live_indices : [],
+        market_status: dashState.data?.market_status || {},
+        macro: {
+            commodities: Array.isArray(dashState.data?.macro?.commodities) ? dashState.data.macro.commodities : [],
+            forex: Array.isArray(dashState.data?.macro?.forex) ? dashState.data.macro.forex : [],
+            crypto: Array.isArray(dashState.data?.macro?.crypto) ? dashState.data.macro.crypto : [],
+            interest_rates: Array.isArray(dashState.data?.macro?.interest_rates) ? dashState.data.macro.interest_rates : [],
+            global_sync: Array.isArray(dashState.data?.macro?.global_sync) ? dashState.data.macro.global_sync : [] ,
+            details: {
+                gdp: dashState.data?.macro?.details?.gdp || null,
+                inflation: dashState.data?.macro?.details?.inflation || null
+            }
+        },
+        ai_performance: {
+            accuracy: neural?.accuracy || cognitive?.accuracy || cognitive?.market_state?.system_confidence || 0,
+            models_active: Array.isArray(neural?.active_models) ? neural.active_models.length : Number(neural?.models_active || cognitive?.models_active || 0),
+            prediction_accuracy: neural?.market_state?.system_confidence || cognitive?.market_state?.system_confidence || 0,
+            total_predictions: Number(cognitive?.data_points || neural?.data_points || (Array.isArray(dashState.predictions) ? dashState.predictions.length : 0)),
+            data_points_per_minute: Number(cognitive?.data_points_per_minute || neural?.data_points || 0)
+        },
+        portfolio_summary: {
+            total_value: positions.reduce((sum, p) => sum + Number(p.current_value || 0), 0),
+            positions_count: positions.length
+        }
+    };
+    return dashState.data;
+}
 
+function isNonEmptyObject(value) {
+    return !!value && typeof value === 'object' && Object.keys(value).length > 0;
+}
+
+function publishNexusDashboardState() {
+    const data = dashState.data || {};
+    const cognitiveState =
+        (isNonEmptyObject(data.cognitive_state) && data.cognitive_state)
+        || (isNonEmptyObject(data.ai_engine) && data.ai_engine)
+        || (isNonEmptyObject(window.NEURAL_STATE?.cognitive_state) && window.NEURAL_STATE.cognitive_state)
+        || (isNonEmptyObject(window.NEURAL_STATE?.ai_engine) && window.NEURAL_STATE.ai_engine)
+        || {};
+    window.__NEXUS_DASHBOARD_STATE = {
+        data,
+        live_indices: Array.isArray(data.live_indices) ? data.live_indices : [],
+        marketSentiment: dashState.marketSentiment || data.market_sentiment || {},
+        predictions: Array.isArray(dashState.predictions) ? dashState.predictions : [],
+        stocks: Array.isArray(dashState.stocks) ? dashState.stocks : [],
+        news: Array.isArray(dashState.news) ? dashState.news : [],
+        alerts: Array.isArray(dashState.portfolioNewsAlerts) ? dashState.portfolioNewsAlerts : [],
+        topStocks: Array.isArray(data.top_stocks) ? data.top_stocks : [],
+        portfolioMetrics: dashState.portfolioMetrics || data.PORTFOLIO_STATE?.account_metrics || {},
+        PORTFOLIO_STATE: data.PORTFOLIO_STATE || {},
+        portfolio_intelligence: window.NEURAL_STATE?.portfolio_intelligence || data.PORTFOLIO_STATE?.portfolio_intelligence || {},
+        ai_performance: data.ai_performance || {},
+        ai_engine: cognitiveState,
+        cognitive_state: cognitiveState,
+        newsIntelligence: dashState.newsIntelligence || data.news_intelligence || {},
+        newsSectorwise: dashState.newsSectorwise || data.sectorwise || {},
+        newsNarratives: dashState.newsNarratives || data.narratives || [],
+        newsNarrativeMomentum: dashState.newsNarrativeMomentum || data.narrative_momentum || [],
+        newsShockPropagation: dashState.newsShockPropagation || data.shock_propagation || [],
+        newsPredictionContext: dashState.newsPredictionContext || data.prediction_context || [],
+        infoAdvantage: dashState.infoAdvantage || data.information_advantage || {},
+        lastUpdate: { ...(dashState.lastUpdate || {}) }
+    };
+    return window.__NEXUS_DASHBOARD_STATE;
+}
+
+function renderStocksEmptyState(message = 'Live stock feed is syncing...') {
+    const tbody = document.getElementById('stocksTableBody') || document.getElementById('recommendationsTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:2rem; color: var(--text-secondary);">${message}</td></tr>`;
+}
+
+function renderAnalyticsFallback(message = 'Analytics is syncing from the AI engine...') {
+    const content = document.getElementById('analyticsContent');
+    if (!content) return;
+    content.innerHTML = `<div class="text-center" style="padding:2rem; color: var(--text-secondary);">${message}</div>`;
+}
+
+function renderNewsFallback(message = 'News intelligence is syncing from live feeds...') {
+    const container = document.getElementById('newsContent');
+    if (!container) return;
+    container.innerHTML = `<div style="text-align:center; padding:2rem; color: var(--text-secondary);">${message}</div>`;
+}
 
 async function loadPortfolioState(force = false) {
     if (window.__PF_STATE_INFLIGHT) return false;
@@ -2693,10 +3757,12 @@ async function loadPortfolioState(force = false) {
     try {
         const data = await api.fetch('/portfolio/state', {
             cache: !force,
-            timeout: 15000
+            timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5))
         });
 
         if (!data || data.success === false) {
+            setDashboardPortfolioEmptyState();
+            updateDashboardMarketIntelligenceCard();
             return false;
         }
 
@@ -2724,12 +3790,268 @@ async function loadPortfolioState(force = false) {
             schedulePortfolioRender(merged, accountMetrics, false);
         }
         dashState.lastUpdate.portfolio = Date.now();
+        publishNexusDashboardState();
+        syncV7DashboardIframe(dashState.data || {});
         return true;
     } catch (error) {
         console.error('Portfolio state load error:', error);
+        setDashboardPortfolioEmptyState();
+        // Don't call updateDashboardMarketIntelligenceCard here - let loadDashboard() handle it with full data
         return false;
     } finally {
         window.__PF_STATE_INFLIGHT = false;
+    }
+}
+
+function syncV7DashboardIframe(data = {}) {
+    const iframe = document.querySelector('#dashboard iframe');
+    if (!iframe || !iframe.contentWindow || !iframe.contentWindow.NexusAPI || typeof iframe.contentWindow.NexusAPI.refresh !== 'function') {
+        if (iframe && !iframe.dataset.v7SyncBound) {
+            iframe.dataset.v7SyncBound = '1';
+            iframe.addEventListener('load', () => {
+                syncV7DashboardIframe(dashState.data || {});
+            }, { once: true });
+        }
+        return false;
+    }
+
+    const resolveIndexArray = (input) => {
+        if (Array.isArray(input)) return input;
+        if (input && typeof input === 'object') {
+            return Object.entries(input).map(([name, value]) => {
+                if (typeof value === 'object' && value !== null) {
+                    return {
+                        name,
+                        value: value.value ?? value.last ?? value.price ?? value.close ?? value_level ?? 0,
+                        change: value.change ?? value.change_percent ?? value.delta ?? 0
+                    };
+                }
+                return { name, value, change: 0 };
+            });
+        }
+        return [];
+    };
+
+    const liveIndexList = resolveIndexArray(data.live_indices || data.indices || data.market_indices || data.global_sync);
+    console.log('📊 [IFRAME SYNC] Live indices from API:', liveIndexList);
+    const indexMap = {};
+    const changePercentMap = {};
+    liveIndexList.forEach((index) => {
+        const name = String(index?.name || '').toUpperCase();
+        const symbol = String(index?.symbol || '').toUpperCase();
+        let key = null;
+        if (name.includes('NIFTY 50') || name === 'NIFTY' || symbol.includes('NSEI')) {
+            key = 'nifty50';
+        } else if (name.includes('BANK NIFTY') || name.includes('BANK') || symbol.includes('NSEBANK')) {
+            key = 'bankNifty';
+        } else if (name.includes('SENSEX') || symbol.includes('BSESN')) {
+            key = 'sensex';
+        } else if (name.includes('S&P') || symbol.includes('GSPC')) {
+            key = 'sp500';
+        } else if (name.includes('DOW') || symbol.includes('DJI')) {
+            key = 'dowJones';
+        } else if (name.includes('NASDAQ') || symbol.includes('IXIC')) {
+            key = 'nasdaq';
+        }
+
+        if (!key) {
+            console.log(`   ⚠️  Unmatched index: name='${name}' symbol='${symbol}'`);
+            return;
+        }
+        const value = Number(index?.value ?? index?.last ?? index?.price ?? index?.close);
+        const changePct = Number(index?.change_percent ?? index?.change ?? 0);
+        if (Number.isFinite(value)) {
+            indexMap[key] = value;
+            changePercentMap[key] = changePct;
+            console.log(`   ✓ ${key} = ${value} (${changePct >= 0 ? '+' : ''}${changePct}%)`);
+        }
+    });
+    console.log('📊 [IFRAME SYNC] Final indexMap:', indexMap);
+    console.log('📊 [IFRAME SYNC] Final changePercentMap:', changePercentMap);
+
+    const ai = data.ai_performance || {};
+    const aiEngine =
+        (isNonEmptyObject(data.ai_engine) && data.ai_engine)
+        || (isNonEmptyObject(data.cognitive_state) && data.cognitive_state)
+        || (isNonEmptyObject(window.NEURAL_STATE?.cognitive_state) && window.NEURAL_STATE.cognitive_state)
+        || (isNonEmptyObject(window.NEURAL_STATE?.ai_engine) && window.NEURAL_STATE.ai_engine)
+        || {};
+    const predictionRows = Array.isArray(dashState.predictions) && dashState.predictions.length
+        ? dashState.predictions.slice(0, 7)
+        : Array.isArray(window.NEURAL_STATE?.predictions) && window.NEURAL_STATE.predictions.length
+            ? window.NEURAL_STATE.predictions.slice(0, 7)
+            : Array.isArray(window.NEURAL_STATE?.opportunities) && window.NEURAL_STATE.opportunities.length
+                ? window.NEURAL_STATE.opportunities.slice(0, 7)
+                : [];
+    const predLabels = predictionRows.length
+        ? predictionRows.map((row, idx) => String(row?.symbol || row?.name || `S${idx + 1}`).replace(/\.NS|\.BO/g, ''))
+        : undefined;
+    const predValues = predictionRows.length
+        ? predictionRows.map((row) => Number(row?.confidence ?? row?.prediction?.confidence))
+        : undefined;
+    const realityValues = predictionRows.length
+        ? predictionRows.map((row) => {
+            const actual = row?.actual ?? row?.actual_value ?? row?.realized_return ?? row?.realized_value ?? row?.prediction?.actual;
+            const value = Number(actual);
+            return Number.isFinite(value) ? value : null;
+        })
+        : undefined;
+
+    const sentiment = dashState.marketSentiment || data.market_sentiment || window.NEURAL_STATE?.market_sentiment || {};
+    const marketStatus = data.market_status || dashState.data?.market_status || window.NEURAL_STATE?.market_status || {};
+    const liveIndices = Array.isArray(dashState.data?.live_indices)
+        ? dashState.data.live_indices
+        : Array.isArray(data.live_indices)
+            ? data.live_indices
+            : Array.isArray(window.NEURAL_STATE?.live_indices)
+                ? window.NEURAL_STATE.live_indices
+                : [];
+    const portfolioState = dashState.data?.PORTFOLIO_STATE
+        || data.PORTFOLIO_STATE
+        || window.NEURAL_STATE?.PORTFOLIO_STATE
+        || data.portfolio
+        || data.portfolio_state
+        || window.NEURAL_STATE?.portfolio
+        || {};
+    const portfolioMetrics = portfolioState.account_metrics
+        || portfolioState.metrics
+        || portfolioState
+        || dashState.portfolioMetrics
+        || window.NEURAL_STATE?.portfolio_intelligence?.account_metrics
+        || window.NEURAL_STATE?.portfolio_intelligence
+        || {};
+    const sentimentCounts = [
+        Number(sentiment.bullish_count || 0),
+        Number(sentiment.neutral_count || 0),
+        Number(sentiment.bearish_count || 0)
+    ];
+    const sentimentTotal = sentimentCounts.reduce((sum, value) => sum + (Number.isFinite(value) && value > 0 ? value : 0), 0);
+    const bull = sentimentTotal > 0 ? Math.round((Math.max(0, sentimentCounts[0]) / sentimentTotal) * 100) : undefined;
+    const neutral = sentimentTotal > 0 ? Math.round((Math.max(0, sentimentCounts[1]) / sentimentTotal) * 100) : undefined;
+    const bear = sentimentTotal > 0 ? Math.max(0, 100 - bull - neutral) : undefined;
+
+    const portfolioValue = Number(
+        ai.portfolio_value
+        ?? ai.total_portfolio_value
+        ?? data.PORTFOLIO_STATE?.total_value
+        ?? data.PORTFOLIO_STATE?.value
+        ?? data.portfolio?.total_value
+        ?? data.portfolio?.value
+        ?? data.portfolio_state?.total_value
+        ?? data.portfolio_state?.value
+        ?? window.NEURAL_STATE?.portfolio_intelligence?.account_metrics?.total_value
+        ?? window.NEURAL_STATE?.portfolio_intelligence?.total_value
+        ?? window.NEURAL_STATE?.portfolio_intelligence?.value
+        ?? dashState.data?.portfolio_value
+        ?? dashState.data?.total_portfolio_value
+        ?? 0
+    ) || undefined;
+
+    const totalReturn = Number(portfolioMetrics?.total_return ?? portfolioMetrics?.returns ?? portfolioMetrics?.portfolio_return ?? 0) || undefined;
+    const totalReturnPct = Number(portfolioMetrics?.total_return_pct ?? portfolioMetrics?.returns_pct ?? portfolioMetrics?.portfolio_return_pct ?? portfolioMetrics?.return_percent ?? 0) || undefined;
+    const activePositions = Array.isArray(portfolioState?.positions)
+        ? portfolioState.positions.length
+        : (Array.isArray(window.NEURAL_STATE?.portfolio_intelligence?.positions) ? window.NEURAL_STATE.portfolio_intelligence.positions.length : undefined);
+    const portfolioVar = Number(
+        portfolioMetrics?.var95
+        ?? portfolioMetrics?.var_95
+        ?? portfolioMetrics?.value_at_risk
+        ?? portfolioMetrics?.var
+        ?? portfolioMetrics?.portfolio_var
+        ?? NaN
+    );
+    const aiIndex = Number(ai.index_score ?? ai.ai_index ?? ai.model_index ?? ai.index ?? NaN);
+    const aiIndexChange = Number(ai.index_change ?? ai.index_delta ?? ai.market_state?.index_change ?? NaN);
+    const newsItems = Array.isArray(data.news_items)
+        ? data.news_items.slice(0, 6)
+        : Array.isArray(dashState.news)
+            ? dashState.news.slice(0, 6)
+            : Array.isArray(window.NEURAL_STATE?.news)
+                ? window.NEURAL_STATE.news.slice(0, 6)
+                : undefined;
+    const alerts = Array.isArray(data.alerts)
+        ? data.alerts.slice(0, 6)
+        : Array.isArray(dashState.portfolioNewsAlerts)
+            ? dashState.portfolioNewsAlerts.slice(0, 6)
+            : Array.isArray(window.NEURAL_STATE?.portfolio_alerts)
+                ? window.NEURAL_STATE.portfolio_alerts.slice(0, 6)
+                : undefined;
+    const topStocks = Array.isArray(data.top_stocks)
+        ? data.top_stocks.slice(0, 10)
+        : Array.isArray(window.NEURAL_STATE?.top_stocks)
+            ? window.NEURAL_STATE.top_stocks.slice(0, 10)
+            : Array.isArray(window.NEURAL_STATE?.opportunities)
+                ? window.NEURAL_STATE.opportunities.slice(0, 10)
+                : undefined;
+
+    const payload = {
+        portfolioValue,
+        totalReturn: Number.isFinite(totalReturn) ? totalReturn : undefined,
+        totalReturnPct: Number.isFinite(totalReturnPct) ? totalReturnPct : undefined,
+        activePositions: Number.isFinite(activePositions) ? activePositions : undefined,
+        portfolioVar: Number.isFinite(portfolioVar) ? portfolioVar : undefined,
+        portfolioVarChange: portfolioMetrics?.var_change ?? portfolioMetrics?.var_delta ?? undefined,
+        modelAccuracy: Number(ai.prediction_accuracy ?? ai.accuracy ?? ai.accuracy_percent ?? ai.market_state?.system_confidence ?? NaN) || undefined,
+        totalPredictions: Number(ai.total_predictions ?? ai.predictions_today ?? ai.data_points ?? predictionRows.length) || undefined,
+        aiIndex: Number.isFinite(aiIndex) ? aiIndex : undefined,
+        aiIndexChange: Number.isFinite(aiIndexChange) ? aiIndexChange : undefined,
+        aiIndexPrice: Number(ai.index_price ?? ai.price ?? ai.value ?? NaN) || undefined,
+        aiIndexPeriod: data.market_status?.session || undefined,
+        aiIndexTrend: data.news_intelligence?.market_regime || data.market_sentiment?.label || undefined,
+        ai_engine: aiEngine,
+        cognitive_state: aiEngine,
+        indices: indexMap,
+        indicesChangePercent: changePercentMap,
+        marketStatus,
+        marketSentiment: sentiment,
+        stocks: topStocks,
+        topStocks,
+        newsItems,
+        alerts,
+        newsIntelligence: dashState.newsIntelligence || data.news_intelligence || window.NEURAL_STATE?.news_intelligence || undefined,
+        macro: data.macro || {},
+        live_indices: liveIndices,
+        PORTFOLIO_STATE: portfolioState,
+        portfolioMetrics,
+        portfolio_intelligence: window.NEURAL_STATE?.portfolio_intelligence || portfolioState.portfolio_intelligence || undefined,
+        ticker: {
+            price: portfolioValue,
+            change: Number(data.market_sentiment?.vix_change ?? data.market_sentiment?.vix_change ?? 0) || undefined
+        }
+    };
+
+    if (sentimentTotal > 0) {
+        payload.bull = bull;
+        payload.neutral = neutral;
+        payload.bear = bear;
+    }
+
+    if (
+        predLabels
+        && predValues
+        && realityValues
+        && predValues.every((value) => Number.isFinite(value))
+        && realityValues.every((value) => value !== null && Number.isFinite(value))
+    ) {
+        payload.predLabels = predLabels;
+        payload.predictions = predValues;
+        payload.reality = realityValues;
+    }
+    if (Array.isArray(predValues) && predValues.length) {
+        const cleanPreds = predValues.filter(Number.isFinite);
+        if (cleanPreds.length) {
+            const avgPred = cleanPreds.reduce((sum, value) => sum + value, 0) / cleanPreds.length;
+            const normalizedAvg = avgPred > 0 && avgPred <= 1 ? avgPred * 100 : avgPred;
+            payload.predictionViewLabel = `${Math.round(normalizedAvg)}% ▾`;
+        }
+    }
+
+    try {
+        iframe.contentWindow.NexusAPI.refresh(payload);
+        return true;
+    } catch (error) {
+        console.warn('V7 dashboard iframe sync failed:', error);
+        return false;
     }
 }
 
@@ -2741,46 +4063,107 @@ async function loadDashboard() {
 
         if (CONFIG.DEBUG_MODE) console.log('📊 Loading dashboard data...');
 
-        const data = await api.fetch('/dashboard-data', { timeout: 20000 });
+        let data = await api.fetch('/dashboard-data/live', {
+            timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5))
+        });
+        if (!data || !data.success) {
+            data = await api.fetch('/dashboard-data', {
+                timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5))
+            });
+        }
 
-
+        // 🔍 DEEP DEBUG: Log raw API response
+        console.log('🔍 RAW API Response from /dashboard-data:', data);
+        console.log('   ├─ data.success:', data?.success);
+        console.log('   ├─ data.data:', data?.data);
+        console.log('   ├─ Keys in data.data:', Object.keys(data?.data || {}));
+        console.log('   └─ Full response structure:', JSON.stringify(data, null, 2).substring(0, 500));
 
         if (!data || !data.success) {
-
-            console.error('Dashboard API failed');
-            if (dashState.data) {
-                updateDashboardUI();
-                return true;
-            }
-
+            console.error('Dashboard API failed', data);
+            dashState.data = ensureDashboardFallbackState();
+            updateDashboardMarketIntelligenceCard(dashState.data);
+            updateDashboardUI();
+            updateDashboardMarketPulseCard();
+            renderPredictionsWorldState();
             return false;
-
         }
 
-
-
-        dashState.data = (data && typeof data.data === 'object' && data.data) ? data.data : {};
-
-        // 🔥 Fetch AI Boostrap Metrics (Accuracy, Models, Regime)
-        try {
-            const bootstrapCtl = new AbortController();
-            const bootstrapTimer = setTimeout(() => bootstrapCtl.abort(), 8000);
-            const bootstrapRes = await fetch('/api/bootstrap', { signal: bootstrapCtl.signal });
-            clearTimeout(bootstrapTimer);
-            const bootstrapData = await bootstrapRes.json();
-            if (bootstrapData.success && bootstrapData.ai_performance && dashState.data) {
-                dashState.data.ai_performance = bootstrapData.ai_performance;
-                if (CONFIG.DEBUG_MODE) console.log('🧠 AI Performance Bootstrap Sync:', dashState.data.ai_performance);
+        const dashboardPayload = (data && typeof data.data === 'object' && data.data && Object.keys(data.data).length)
+            ? data.data
+            : (data && typeof data === 'object' && !Array.isArray(data))
+                ? Object.fromEntries(Object.entries(data).filter(([key]) => !['success', 'message', 'error'].includes(key)))
+                : {};
+        dashState.data = dashboardPayload;
+        if (isNonEmptyObject(dashState.data.ai_engine) || isNonEmptyObject(dashState.data.cognitive_state)) {
+            if (!window.NEURAL_STATE || typeof window.NEURAL_STATE !== 'object') {
+                window.NEURAL_STATE = {};
             }
-        } catch (err) {
-            console.error('AI Bootstrap fetch failed:', err);
+            window.NEURAL_STATE.cognitive_state = isNonEmptyObject(dashState.data.cognitive_state)
+                ? dashState.data.cognitive_state
+                : dashState.data.ai_engine;
+            window.NEURAL_STATE.ai_engine = isNonEmptyObject(dashState.data.ai_engine)
+                ? dashState.data.ai_engine
+                : dashState.data.cognitive_state;
+            if (dashState.data.PORTFOLIO_STATE?.portfolio_intelligence) {
+                window.NEURAL_STATE.portfolio_intelligence = dashState.data.PORTFOLIO_STATE.portfolio_intelligence;
+            }
         }
+        
+        // 🔍 DEEP DEBUG: Log assigned dashState
+        console.log('🔍 dashState.data after API:', dashState.data);
+        console.log('   ├─ market_status:', dashState.data.market_status);
+        console.log('   ├─ macro:', dashState.data.macro);
+        console.log('   ├─ news_intelligence:', dashState.data.news_intelligence);
+        console.log('   ├─ market_sentiment:', dashState.data.market_sentiment);
+        console.log('   └─ All keys:', Object.keys(dashState.data));
+
+        publishNexusDashboardState();
+        syncV7DashboardIframe(dashState.data || {});
+
+        // 🔥 Fetch AI Bootstrap Metrics (Accuracy, Models, Regime) in the background.
+        void api.fetch('/bootstrap', {
+            cache: false,
+            timeout: Math.max(8000, Math.floor(CONFIG.TIMEOUT / 2))
+        }).then((bootstrapData) => {
+            if (bootstrapData && bootstrapData.success && dashState.data) {
+                if (bootstrapData.ai_performance) {
+                    dashState.data.ai_performance = bootstrapData.ai_performance;
+                }
+                if (isNonEmptyObject(bootstrapData.cognitive_state)) {
+                    dashState.data.ai_engine = bootstrapData.cognitive_state;
+                    dashState.data.cognitive_state = bootstrapData.cognitive_state;
+                    if (!window.NEURAL_STATE || typeof window.NEURAL_STATE !== 'object') {
+                        window.NEURAL_STATE = {};
+                    }
+                    window.NEURAL_STATE.cognitive_state = bootstrapData.cognitive_state;
+                    window.NEURAL_STATE.ai_engine = bootstrapData.cognitive_state;
+                }
+                if (CONFIG.DEBUG_MODE) console.log('🧠 AI Performance Bootstrap Sync:', dashState.data.ai_performance);
+                publishNexusDashboardState();
+                syncV7DashboardIframe(dashState.data || {});
+                updateDashboardUI();
+            }
+        }).catch((err) => {
+            console.error('AI Bootstrap fetch failed:', err);
+        });
 
         dashState.lastUpdate.dashboard = Date.now();
 
-
+        // 🔍 DEBUG: Before calling update functions
+        console.log('🔍 About to call updateDashboardMarketIntelligenceCard with dashState.data:', dashState.data);
+        
+        // Update dashboard market cards with live data - PASS DATA AS PARAMETER
+        updateDashboardMarketIntelligenceCard(dashState.data);
+        // Always refresh market pulse so news stays current
+        updateDashboardMarketPulseCard();
+        if (window.NEURAL_STATE?.portfolio_intelligence) {
+            updateDashboardPortfolioSnapshotCard(window.NEURAL_STATE.portfolio_intelligence);
+        }
 
         updateDashboardUI();
+        publishNexusDashboardState();
+        syncV7DashboardIframe(dashState.data || {});
         renderPredictionsWorldState();
 
         if (CONFIG.DEBUG_MODE) console.log('âœ… Dashboard loaded');
@@ -2792,6 +4175,14 @@ async function loadDashboard() {
     } catch (error) {
 
         console.error('Dashboard error:', error);
+        dashState.data = ensureDashboardFallbackState();
+        updateDashboardMarketIntelligenceCard(dashState.data);
+        updateDashboardUI();
+        publishNexusDashboardState();
+        syncV7DashboardIframe(dashState.data || {});
+        updateDashboardMarketPulseCard();
+        renderDashboardCards();
+        renderPredictionsWorldState();
 
         return false;
 
@@ -2808,39 +4199,73 @@ async function loadStocks() {
     try {
 
         if (CONFIG.DEBUG_MODE) console.log('📊 Loading stocks...');
+        console.log('🔍 About to fetch /stocks API...');
+        const data = await api.fetch('/stocks?limit=20', {
+            cache: true,
+            timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5))
+        });
 
-        const response = await fetch('/api/stocks?limit=20');
-
-        const data = await response.json();
-
-
+        console.log('🔍 /stocks API Response:', data);
+        console.log('🔍 /stocks API Response structure:', {
+            has_data: !!data,
+            has_success: !!data?.success,
+            has_data_field: !!data?.data,
+            data_type: typeof data?.data,
+            data_is_array: Array.isArray(data?.data),
+            data_length: Array.isArray(data?.data) ? data.data.length : 'N/A',
+            first_stock: data?.data?.[0]
+        });
 
         if (CONFIG.DEBUG_MODE) console.log('Stocks API response:', data);
 
+        let stocksPayload = Array.isArray(data?.data) ? data.data
+            : Array.isArray(data?.stocks) ? data.stocks
+            : Array.isArray(data?.results) ? data.results
+            : [];
 
-
-        if (!data.success || !data.data) {
-
-            console.error('Stocks API failed');
-
+        if (!stocksPayload.length) {
+            console.error('❌ Stocks API failed - missing data or empty list:', {
+                has_data: !!data,
+                has_success: !!data?.success,
+                payload_type: typeof data?.data,
+                stocks_found: Array.isArray(data?.stocks),
+                results_found: Array.isArray(data?.results)
+            });
+            const predictionFallback = Array.isArray(dashState.predictions) ? normalizePredictionsForTable(dashState.predictions) : [];
+            if (predictionFallback.length) {
+                console.warn('⚠️ Using live prediction rows as dashboard recommendations fallback', predictionFallback.length);
+                stocksPayload = predictionFallback;
+            }
+        }
+        if (!stocksPayload.length) {
+            const fallbackStocks = Array.isArray(dashState.data?.top_stocks) ? dashState.data.top_stocks : [];
+            if (fallbackStocks.length) {
+                console.warn('⚠️ Using dashboard top_stocks fallback for stock recommendations', fallbackStocks.length);
+                stocksPayload = fallbackStocks;
+            }
+        }
+        if (!stocksPayload.length) {
+            if (Array.isArray(dashState.stocks) && dashState.stocks.length) {
+                console.log('📊 Using cached stocks:', dashState.stocks.length);
+                renderStocksTable();
+                return true;
+            }
+            console.log('📊 No cached stocks, showing empty state');
+            renderStocksEmptyState('Live stock feed is syncing...');
             return false;
-
         }
 
-
-
-        dashState.stocks = data.data;
+        dashState.stocks = stocksPayload;
 
         dashState.lastUpdate.stocks = Date.now();
+        publishNexusDashboardState();
 
-
+        console.log('✅ Stocks loaded successfully:', dashState.stocks.length, 'stocks');
 
         if (CONFIG.DEBUG_MODE) {
-            console.log(`âœ… Loaded ${dashState.stocks.length} stocks`);
+            console.log(`✅ Loaded ${dashState.stocks.length} stocks`);
             console.log('First stock:', dashState.stocks[0]);
         }
-
-
 
         renderStocksTable();
         if (window.NEURAL_STATE?.portfolio_intelligence?.positions && isTabActive('portfolio')) {
@@ -2851,11 +4276,17 @@ async function loadStocks() {
 
         return true;
 
-
-
     } catch (error) {
 
-        console.error('Stocks error:', error);
+        console.error('❌ Stocks error:', error);
+        console.log('🔍 Stocks error details:', { message: error.message, stack: error.stack });
+        if (Array.isArray(dashState.stocks) && dashState.stocks.length) {
+            console.log('📊 Using cached stocks after error:', dashState.stocks.length);
+            renderStocksTable();
+            return true;
+        }
+        console.log('📊 No cached stocks after error, showing empty state');
+        renderStocksEmptyState('Live stock feed is syncing...');
 
         return false;
 
@@ -2878,6 +4309,7 @@ async function loadPredictions() {
         const rows = normalizePredictionsForTable(data);
         dashState.predictions = rows;
         dashState.lastUpdate.predictions = Date.now();
+        publishNexusDashboardState();
         if (!rows.length) {
             if (isTabActive('predictions')) displayLivePredictions([]);
             return true;
@@ -2897,20 +4329,45 @@ async function loadPredictions() {
 
 // Adapter 1 — Cards
 function updatePredictionCards(data) {
+    const rows = normalizePredictionsForTable(data);
+    const derivedConfidence = rows.length
+        ? rows.reduce((sum, row) => sum + Number(row?.confidence ?? row?.confidences15d ?? row?.prediction?.confidence ?? 0), 0) / rows.length
+        : null;
+    const derivedModels = (() => {
+        const modelSet = new Set();
+        rows.forEach((row) => {
+            const pred = (typeof row?.prediction === 'object' && row.prediction) ? row.prediction : row;
+            const models = Array.isArray(pred?.models_used) ? pred.models_used : [];
+            models.forEach((model) => modelSet.add(String(model)));
+        });
+        return modelSet.size || null;
+    })();
+    const derivedRegime = (() => {
+        const regimes = rows.map((row) => String(row?.market_regime || row?.regime || '')).filter(Boolean);
+        if (!regimes.length) return null;
+        const counts = regimes.reduce((acc, regime) => {
+            acc[regime] = (acc[regime] || 0) + 1;
+            return acc;
+        }, {});
+        return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    })();
+
     const accEl = document.getElementById("globalAccuracyValue");
     if (accEl) {
-        const acc = Number(data?.global_accuracy);
-        accEl.textContent = Number.isFinite(acc) ? `${acc.toFixed(1)}%` : "--";
+        const acc = Number(data?.global_accuracy ?? derivedConfidence);
+        accEl.textContent = Number.isFinite(acc) && acc > 0 ? `${acc.toFixed(1)}%` : "—";
     }
 
     const ensEl = document.getElementById("activeEnsemblesValue");
     if (ensEl) {
-        const models = Number(data?.models_active);
-        ensEl.textContent = Number.isFinite(models) ? String(models) : "--";
+        const models = Number(data?.models_active ?? derivedModels);
+        ensEl.textContent = Number.isFinite(models) && models >= 0 ? String(models) : "—";
     }
 
     const regEl = document.getElementById("marketRegimeValue");
-    if (regEl) regEl.textContent = data?.market_regime || "UNKNOWN";
+    if (regEl) regEl.textContent = data?.market_regime || derivedRegime || "UNKNOWN";
+    const strategyEl = document.getElementById("aiStrategyValue");
+    if (strategyEl) strategyEl.textContent = String(data?.macro_context?.mode || data?.ai_mode || data?.market_regime || derivedRegime || 'ADAPTIVE').replaceAll('_', ' ');
 }
 
 // Adapter 2 — Matrix Bridge
@@ -2968,11 +4425,14 @@ function normalizePredictionsForTable(payload) {
             const fallbackTarget = toNum(row.target_price ?? nested.target_price);
             const fallbackReturn = toNum(row.predicted_return ?? nested.predicted_return);
             const pMap = row.predictions || nested.predictions || {};
-            const p1d = normalizeHorizon(row.predictions1d || pMap['1d'], fallbackTarget, fallbackReturn, current);
+            const forecastHorizons = row.forecast_horizons || nested.forecast_horizons || {};
+            const p1d = normalizeHorizon(row.predictions1d || pMap['1d'] || forecastHorizons['1d'], fallbackTarget, fallbackReturn, current);
+            const p1w = normalizeHorizon(row.predictions1w || pMap['1w'] || pMap['7d'] || forecastHorizons['1w'], null, null, current);
+            const p1m = normalizeHorizon(row.predictions1m || pMap['1m'] || pMap['30d'] || forecastHorizons['1m'], null, null, current);
             const p15d = normalizeHorizon(row.predictions15d || pMap['15d'], null, null, current);
-            const p3m = normalizeHorizon(row.predictions3m || pMap['3m'], null, null, current);
-            const p6mObj = row.predictions6m || pMap['6m'] || pMap['180d'] || pMap['half_year'] || null;
-            const p1yObj = row.predictions1y || pMap['1y'] || pMap['12m'] || pMap['365d'] || null;
+            const p3m = normalizeHorizon(row.predictions3m || pMap['3m'] || forecastHorizons['3m'], null, null, current);
+            const p6mObj = row.predictions6m || pMap['6m'] || pMap['180d'] || pMap['half_year'] || forecastHorizons['6m'] || null;
+            const p1yObj = row.predictions1y || pMap['1y'] || pMap['12m'] || pMap['365d'] || forecastHorizons['1y'] || null;
             let p6mTarget = cleanTarget(
                 row.target_6m ??
                 row.target6m ??
@@ -3047,6 +4507,8 @@ function normalizePredictionsForTable(payload) {
                 name: row.name || nested.name || symbol,
                 currentprice: current ?? 0,
                 predictions1d: p1d,
+                predictions1w: p1w,
+                predictions1m: p1m,
                 predictions15d: p15d,
                 predictions3m: p3m,
                 target_6m: p6mTarget,
@@ -3058,7 +4520,10 @@ function normalizePredictionsForTable(payload) {
                 market_conditions: { momentum, volatility_level: volLevel },
                 action: String(row.action || row.signal || nested.action || nested.signal || 'HOLD').toUpperCase(),
                 current_price: current ?? 0,
-                target_price: p1d.targetprice ?? (current ?? 0)
+                target_price: p1d.targetprice ?? (current ?? 0),
+                forecast_horizons: forecastHorizons,
+                session_outlook: row.session_outlook || nested.session_outlook || null,
+                prediction_change: row.prediction_change || nested.prediction_change || null
             };
         })
         .filter((row) => row.symbol);
@@ -3846,6 +5311,11 @@ async function openLotEditor(symbol, page = 1) {
             </div>
         `;
     }
+
+    if (updatedAt) {
+        const sourceTs = dashState.lastUpdate?.predictions || Date.now();
+        updatedAt.textContent = `Updated ${new Date(sourceTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
 }
 
 async function saveLotEdit(lotId, symbol) {
@@ -4192,8 +5662,7 @@ window.SymbolAuthority = {
     getSelected(inputId) {
         const input = document.getElementById(inputId);
         if (!input || input.dataset.selected !== 'true') return null;
-        if (this.activeSelection && this.activeSelection.base) return this.activeSelection.base;
-        return input.dataset.baseSymbol || null;
+        return input.dataset.tradableSymbol || input.dataset.baseSymbol || this.activeSelection?.tradable || this.activeSelection?.base || null;
     },
 
     async performSearch(query, inputId, containerId) {
@@ -4209,6 +5678,7 @@ window.SymbolAuthority = {
 
         // Debounce: keep responsive while avoiding request spam
         clearTimeout(this._debounceTimer);
+        // faster debounce for instant feel
         this._debounceTimer = setTimeout(async () => {
             try {
                 const results = await this.fetchResults(query);
@@ -4223,7 +5693,7 @@ window.SymbolAuthority = {
                 console.error("Search failed:", e);
                 this.renderResults([], inputId, containerId);
             }
-        }, 120);
+        }, 60);
     },
 
     async fetchResults(query) {
@@ -4235,7 +5705,8 @@ window.SymbolAuthority = {
         this._abortController = new AbortController();
 
         try {
-            const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=15`, {
+            // comprehensive endpoint covers full NSE+BSE universe and is optimized
+            const resp = await fetch(`/api/search/comprehensive?q=${encodeURIComponent(query)}&limit=30`, {
                 signal: this._abortController.signal,
                 cache: 'no-store'
             });
@@ -4264,6 +5735,7 @@ window.SymbolAuthority = {
         container.innerHTML = results.map(stock => {
             const sym = stock.display || stock.symbol;
             const name = stock.name || sym;
+            const exchange = stock.exchange || (String(sym).toUpperCase().endsWith('.BO') ? 'BSE' : 'NSE');
             const priceRaw = Number(stock.current_price ?? stock.price);
             const changePctRaw = Number(stock.change_percent);
             const changeValueRaw = Number(stock.change_value ?? stock.price_change);
@@ -4281,11 +5753,16 @@ window.SymbolAuthority = {
                 ? `${effectiveChangeValue != null && effectiveChangeValue >= 0 ? '+' : ''}${effectiveChangeValue != null ? effectiveChangeValue.toFixed(2) : '--'} (${hasChangePct ? `${changePctRaw >= 0 ? '+' : ''}${changePctRaw.toFixed(2)}%` : '--'})`
                 : '--';
             const safeName = (name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const safeSymbol = String(stock.symbol || sym || '').replace(/'/g, "\\'");
+            const safeDisplay = String(sym || stock.symbol || '').replace(/'/g, "\\'");
             return `
-            <div class="search-result-item" onclick="SymbolAuthority.select('${stock.symbol}', '${safeName}', '${inputId}', '${containerId}')"
+            <div class="search-result-item" onclick="SymbolAuthority.select('${safeSymbol}', '${safeName}', '${inputId}', '${containerId}', '${safeDisplay}')"
                 style="padding:0.75rem 1rem; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05); transition:all 0.2s; display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; flex-direction:column; gap:2px; max-width:65%;">
-                    <div style="color:var(--electric-yellow); font-weight:700; font-family:monospace; font-size:14px;">${sym}</div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <span style="color:var(--electric-yellow); font-weight:700; font-family:monospace; font-size:14px;">${sym}</span>
+                        <span style="font-size:9px;color:var(--electric-cyan);border:1px solid rgba(0,255,255,0.22);border-radius:999px;padding:1px 6px;">${exchange}</span>
+                    </div>
                     <div style="color:var(--text-muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${name}</div>
                 </div>
                 <div style="text-align:right;">
@@ -4296,17 +5773,19 @@ window.SymbolAuthority = {
         }).join('');
     },
 
-    select(symbol, name, inputId, containerId) {
-        const base = String(symbol || "").replace(".NS", "").replace(".BO", "");
-        const tradable = `${base}.NS`;
+    select(symbol, name, inputId, containerId, displaySymbol = null) {
+        const display = String(displaySymbol || symbol || "").toUpperCase();
+        const base = display.replace(".NS", "").replace(".BO", "");
+        const tradable = display.includes(".") ? display : `${base}.NS`;
         const input = document.getElementById(inputId);
         if (input) {
-            input.value = base;
+            input.value = tradable;
             input.dataset.selected = 'true';
             input.dataset.baseSymbol = base;
+            input.dataset.tradableSymbol = tradable;
         }
 
-        this.activeSelection = { base, tradable, name };
+        this.activeSelection = { base, tradable, display: tradable, name };
         const container = document.getElementById(containerId);
         if (container) {
             container.innerHTML = '';
@@ -4318,9 +5797,9 @@ window.SymbolAuthority = {
         // Open stock analysis modal ONLY for global search, NOT for portfolio add
         if (inputId !== 'pf_symbol') {
             if (typeof showStockDetails === 'function') {
-                showStockDetails(base);
+                showStockDetails(tradable);
             } else if (window.dashboard && window.dashboard.showStockDetails) {
-                window.dashboard.showStockDetails(base);
+                window.dashboard.showStockDetails(tradable);
             }
         }
 
@@ -4493,12 +5972,12 @@ async function loadAnalytics() {
 
     try {
 
-        const data = await api.fetch('/analytics');
-
-
+        const data = await api.fetch('/analytics', {
+            timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5))
+        });
 
         if (!data || !data.success) {
-
+            renderAnalyticsFallback();
             return false;
 
         }
@@ -4519,6 +5998,7 @@ async function loadAnalytics() {
 
     } catch (error) {
         console.error('Analytics error:', error);
+        renderAnalyticsFallback();
         return false;
     }
 }
@@ -4643,28 +6123,62 @@ function renderAnalytics() {
 
 async function loadNews() {
     try {
-        const data = await api.fetch('/news/market');
+        const data = await api.fetch('/news/market', {
+            timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5))
+        });
 
-        if (!data || !data.articles) {
+        console.log('🔍 News API payload:', data);
+
+        const rawArticles = data?.articles || data?.news || data?.items || [];
+        const liveNews = Array.isArray(rawArticles) ? rawArticles : [];
+
+        if (!data || !liveNews.length) {
             console.error("❌ News API failed or no articles", data);
+            if (Array.isArray(dashState.news) && dashState.news.length) {
+                renderMarketSentiment();
+                renderNews();
+                updateDashboardMarketIntelligenceCard();
+                updateDashboardMarketPulseCard();
+                renderPredictionsWorldState();
+                return true;
+            }
+            renderNewsFallback();
             return false;
         }
-
-        // 🔥 LIVE articles
-        dashState.news = data.articles;
+        dashState.news = liveNews;
 
         // 🔥 LIVE market sentiment
         dashState.marketSentiment = data.sentiment;
         dashState.newsSectorwise = data.sectorwise || {};
+        dashState.newsNarratives = data.narratives || [];
+        dashState.newsNarrativeMomentum = data.narrative_momentum || [];
+        dashState.newsShockPropagation = data.shock_propagation || [];
+        dashState.newsIntelligence = data.market_intelligence || {};
+        dashState.portfolioNewsAlerts = data.portfolio_alerts || [];
+        dashState.newsPredictionContext = data.prediction_context || [];
+        dashState.infoAdvantage = data.information_advantage || {};
 
         dashState.lastUpdate.news = Date.now();
+        publishNexusDashboardState();
         renderMarketSentiment();
         renderNews();
+        updateDashboardMarketIntelligenceCard();
+        updateDashboardMarketPulseCard();
         renderPredictionsWorldState();
+        syncV7DashboardIframe(dashState.data || {});
         return true;
 
     } catch (error) {
         console.error('News error:', error);
+        if (Array.isArray(dashState.news) && dashState.news.length) {
+            renderMarketSentiment();
+            renderNews();
+            updateDashboardMarketIntelligenceCard();
+            renderPredictionsWorldState();
+            syncV7DashboardIframe(dashState.data || {});
+            return true;
+        }
+        renderNewsFallback();
         return false;
     }
 }
@@ -4717,23 +6231,19 @@ function updateDashboardUI() {
 
             // Dynamic element ID mapping (NO hardcoded IDs)
 
-            let elementId = null;
+            const mappings = [
+                { test: /NIFTY\s*50|^NIFTY$/i, id: 'nifty50' },
+                { test: /BANK\s*NIFTY|^BANK$/i, id: 'banknifty' },
+                { test: /SENSEX/i, id: 'sensex' },
+                { test: /S&P\s*500|SP500/i, id: 'sp500' },
+                { test: /DOW\s*JONES|DJI|DOW/i, id: 'dowJones' },
+                { test: /NASDAQ/i, id: 'nasdaq' }
+            ];
+            const found = mappings.find(m => m.test.test(name));
+            const elementId = found ? found.id : null;
 
 
 
-            if (name.includes('NIFTY 50') || name === 'NIFTY') {
-
-                elementId = 'nifty50';
-
-            } else if (name.includes('SENSEX')) {
-
-                elementId = 'sensex';
-
-            } else if (name.includes('BANK NIFTY') || name.includes('BANK')) {
-
-                elementId = 'banknifty';
-
-            }
 
 
 
@@ -5012,6 +6522,58 @@ function updateDashboardUI() {
     // ================================================================
 
     const aiPerformance = data.ai_performance || {};
+    const aiEngine =
+        (isNonEmptyObject(data.ai_engine) && data.ai_engine)
+        || (isNonEmptyObject(data.cognitive_state) && data.cognitive_state)
+        || (isNonEmptyObject(window.NEURAL_STATE?.ai_engine) && window.NEURAL_STATE.ai_engine)
+        || (isNonEmptyObject(window.NEURAL_STATE?.cognitive_state) && window.NEURAL_STATE.cognitive_state)
+        || {};
+    const portfolioSnapshot = data.PORTFOLIO_STATE || {};
+    const portfolioIntelligence = window.NEURAL_STATE?.portfolio_intelligence || portfolioSnapshot.portfolio_intelligence || {};
+    const portfolioPositions = Array.isArray(portfolioIntelligence.positions) ? portfolioIntelligence.positions : [];
+    const portfolioMetrics = portfolioSnapshot.account_metrics || portfolioIntelligence.account_metrics || {};
+    const formatCompact = (value) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? num.toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '--';
+    };
+    const signedPercent = (value) => {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '--';
+        return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+    };
+    const liveIndices = Array.isArray(data.live_indices) ? data.live_indices : [];
+    const niftyIndex = liveIndices.find(index => String(index?.name || '').toUpperCase().includes('NIFTY'));
+    const totalPredictions = Number(
+        aiPerformance.total_predictions ??
+        aiPerformance.predictions_today ??
+        aiEngine.total_predictions ??
+        aiEngine.predictions_today ??
+        data.total_predictions ??
+        0
+    );
+    const accuracyValue = Number(
+        aiPerformance.accuracy ??
+        aiPerformance.prediction_accuracy ??
+        aiPerformance.accuracy_percent ??
+        aiEngine.accuracy ??
+        aiEngine.prediction_accuracy ??
+        0
+    );
+    const portfolioValueRaw = Number(portfolioMetrics.total_value || portfolioMetrics.portfolio_value || 0);
+    const portfolioValue = Number.isFinite(portfolioValueRaw) && portfolioValueRaw > 0
+        ? portfolioValueRaw
+        : portfolioPositions.length
+            ? portfolioPositions.reduce((sum, pos) => sum + Number(pos?.value ?? pos?.current_value ?? pos?.market_value ?? 0), 0)
+            : 0;
+    const portfolioPnlPercentRaw = Number(portfolioMetrics.total_pnl_percent || portfolioMetrics.day_pnl_percent || 0);
+    const portfolioPnlPercent = Number.isFinite(portfolioPnlPercentRaw) && portfolioPnlPercentRaw !== 0
+        ? portfolioPnlPercentRaw
+        : (() => {
+            if (!portfolioPositions.length) return 0;
+            const invested = portfolioPositions.reduce((sum, pos) => sum + Number(pos?.invested ?? (Number(pos?.quantity || 0) * Number(pos?.avg_price || 0)) ?? 0), 0);
+            const value = portfolioPositions.reduce((sum, pos) => sum + Number(pos?.value ?? pos?.current_value ?? pos?.market_value ?? 0), 0);
+            return invested > 0 && value > 0 ? ((value - invested) / invested) * 100 : 0;
+        })();
 
 
 
@@ -5179,6 +6741,44 @@ function updateDashboardUI() {
 
     }
 
+    const dashboardGain = document.querySelector('.sb-card--dashboard .sb-stat-green');
+    if (dashboardGain) dashboardGain.textContent = totalPredictions > 0 ? `+ ${formatCompact(totalPredictions)}` : '--';
+
+    const dashboardBadge = document.querySelector('.sb-card--dashboard .sb-badge-green');
+    if (dashboardBadge) dashboardBadge.textContent = accuracyValue > 0 ? `${accuracyValue.toFixed(0)}%` : '--';
+
+    const dashboardReturn = document.querySelector('.sb-card--dashboard .sb-row-val');
+    if (dashboardReturn) dashboardReturn.textContent = portfolioValue > 0 ? `$ ${formatCompact(portfolioValue)}` : '--';
+
+    const dashboardReturnPct = document.querySelector('.sb-card--dashboard .sb-row-pct');
+    if (dashboardReturnPct) dashboardReturnPct.textContent = portfolioPnlPercent !== 0 ? signedPercent(portfolioPnlPercent) : '--';
+
+    const chartPct = document.querySelector('.sb-card--chart .sb-chart-pct');
+    if (chartPct) chartPct.textContent = accuracyValue > 0 ? (accuracyValue / 10).toFixed(1) : '--';
+
+    const chartChange = document.querySelector('.sb-card--chart .sb-chart-change-pos');
+    if (chartChange) chartChange.textContent = accuracyValue > 0 ? signedPercent(accuracyValue) : '--';
+
+    const chartPrice = document.querySelector('.sb-card--chart .sb-chart-price');
+    if (chartPrice && Number.isFinite(Number(niftyIndex?.value))) {
+        chartPrice.textContent = Number(niftyIndex.value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    }
+
+    const chartChangeSm = document.querySelector('.sb-card--chart .sb-stat-green-sm');
+    if (chartChangeSm) chartChangeSm.textContent = Number.isFinite(Number(niftyIndex?.change_percent)) ? signedPercent(niftyIndex.change_percent) : '--';
+
+    const momentum = document.querySelector('.sb-section .sb-val-green-dot');
+    if (momentum) momentum.textContent = Number.isFinite(Number(data.market_sentiment?.vix)) ? `${Number(data.market_sentiment.vix).toFixed(1)}%` : '--';
+
+    const cycleBadge = document.querySelector('.sb-section .sb-badge-cyan');
+    if (cycleBadge) cycleBadge.textContent = Number.isFinite(Number(aiPerformance.models_active || aiPerformance.active_models)) ? `Cycle: ${Math.max(1, Math.round(Number(aiPerformance.models_active || aiPerformance.active_models)))}` : 'Cycle: --';
+
+    const syncFill = document.querySelector('.sb-card--sync .sb-sync-fill');
+    if (syncFill) syncFill.style.width = accuracyValue > 0 ? `${Math.max(0, Math.min(100, accuracyValue))}%` : '0%';
+
+    const selfLearnFill = document.querySelector('.sb-card--selflearn .sb-selflearn-fill');
+    if (selfLearnFill) selfLearnFill.style.width = totalPredictions > 0 ? `${Math.max(0, Math.min(100, totalPredictions / 10))}%` : '0%';
+
     updateDashboardAIPredictionCard(aiPerformance, window.NEURAL_STATE || null);
 
 
@@ -5271,6 +6871,8 @@ function updateDashboardUI() {
     renderPredictionCards();
     if (window.NEURAL_STATE?.portfolio_intelligence) {
         updateDashboardPortfolioCardsFromPI(window.NEURAL_STATE.portfolio_intelligence);
+    } else {
+        updateDashboardMarketIntelligenceCard();
     }
 
     console.log('âœ… Dashboard UI update COMPLETE');
@@ -5308,7 +6910,7 @@ function renderPredictionCards(passedData) {
             regimeEl.textContent = "WAITING";
             regimeEl.style.color = "var(--text-muted)";
         }
-        if (stratEl) stratEl.textContent = "ADAPTIVE";
+        if (stratEl) stratEl.textContent = "--";
         return;
     }
 
@@ -5352,7 +6954,7 @@ function renderPredictionCards(passedData) {
 
     /* STRATEGY */
     if (stratEl) {
-        const strat = (ai.active_strategy || ai.strategy || "ADAPTIVE").toUpperCase();
+        const strat = (ai.active_strategy || ai.strategy || "--").toUpperCase();
         stratEl.textContent = strat.replace('_', ' ');
     }
 }
@@ -5387,178 +6989,162 @@ function updateElement(id, value, className = '') {
 
 
 
-function renderStocksTable() {
-
-    if (CONFIG.DEBUG_MODE) console.log('📄 Rendering stocks table with CSS classes...');
-
-
-
-    const tbody = document.getElementById('stocksTableBody') ||
-
-        document.querySelector('#stocksTable tbody') ||
-
-        document.querySelector('tbody');
-
-
-
-    if (!tbody) {
-
-        console.error('âŒ Table tbody not found');
-
-        return;
-
+function sortStocksTable(sortKey) {
+    if (!sortKey) return;
+    const current = window.__STOCK_SORT || { key: 'symbol', direction: 'asc' };
+    if (current.key === sortKey) {
+        current.direction = current.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        current.key = sortKey;
+        current.direction = 'asc';
     }
-
-
-
-    if (!dashState.stocks || dashState.stocks.length === 0) {
-
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center">Loading stocks...</td></tr>';
-
-        if (CONFIG.DEBUG_MODE) console.warn('âš ï¸ No stocks data');
-
-        return;
-
-    }
-
-
-
-    if (CONFIG.DEBUG_MODE) {
-        console.log(`âœ… Rendering ${dashState.stocks.length} stocks with CSS classes`);
-        console.log('Sample stock:', dashState.stocks[0]);
-    }
-
-
-
-    tbody.innerHTML = dashState.stocks.map((stock, index) => {
-
-        const symbol = (stock.symbol || '').replace('.NS', '').replace('.BO', '');
-
-        const name = stock.name || symbol;
-
-        const exchange = stock.exchange || 'NSE';
-
-        const price = parseFloat(stock.current_price || 0);
-
-        const change = parseFloat(stock.change_percent || 0);
-
-        const volume = parseFloat(stock.volume || 0);
-
-        const signal = (stock.prediction_signal || 'HOLD').toUpperCase().trim();
-
-        const confidence = parseFloat(stock.prediction_confidence || 0);
-
-        const target = parseFloat(stock.target_price || price);
-
-
-
-        // Map signal to CSS class
-
-        let signalClass = 'hold';
-
-        if (signal.includes('STRONG BUY')) signalClass = 'strongbuy';
-
-        else if (signal.includes('BUY')) signalClass = 'buy';
-
-        else if (signal.includes('STRONG SELL')) signalClass = 'strongsell';
-
-        else if (signal.includes('SELL')) signalClass = 'sell';
-
-
-
-        const signalText = signal.replace(/_/g, ' ');
-
-
-
-        if (CONFIG.DEBUG_MODE) {
-            if (CONFIG.DEBUG_MODE) console.log(`Row ${index + 1}: ${symbol} | ${name} | ₹${price.toFixed(2)} | ${change.toFixed(2)}% | ${signal} `);
-        }
-
-
-
-        return `
-
-        <tr onclick="showStockDetails('${symbol}')">
-
-                <td>
-
-                    <div class="stock-symbol">${symbol}</div>
-
-                    <div class="exchange">${exchange}</div>
-
-                </td>
-
-                <td>
-
-                    <div class="company-name">${name}</div>
-
-                </td>
-
-                <td class="price">₹${price.toFixed(2)}</td>
-
-                <td class="change ${change >= 0 ? 'positive' : 'negative'}">
-
-                    ${change >= 0 ? '+' : ''}${change.toFixed(2)}%
-
-                </td>
-
-                <td class="volume">${formatVolume(volume)}</td>
-
-                <td>
-
-                    <span class="prediction-badge ${signalClass}">${signalText}</span>
-
-                </td>
-
-                <td class="confidence">
-
-                    <div class="confidence-bar">
-
-                        <div class="confidence-fill" style="width: ${confidence}%"></div>
-
-                    </div>
-
-                    <div class="confidence-value">${confidence.toFixed(0)}%</div>
-
-                </td>
-
-                <td class="target-price">₹${target.toFixed(2)}</td>
-
-                <td class="ai-size" style="font-weight:bold; color:var(--electric-yellow);">
-                    ${(function () {
-                const sym = symbol.replace('.NS', '').replace('.BO', '');
-                const cog = window.AI_COGNITION?.opportunities?.find(o => o.symbol === sym || o.symbol === symbol);
-                return cog ? (cog.allocation * 100).toFixed(2) + '%' : '0.00%';
-            })()}
-                </td>
-
-                <td>
-
-                    <button class="btn-detail" onclick="event.stopPropagation(); showStockDetails('${symbol}')">
-
-                        Analyze
-
-                    </button>
-
-                </td>
-
-            </tr>
-
-        `;
-
-    }).join('');
-
-
-
-    if (CONFIG.DEBUG_MODE) {
-        console.log(`âœ… Successfully rendered ${dashState.stocks.length} stock rows with CSS styling`);
-    }
-
+    window.__STOCK_SORT = current;
+    renderStocksTable();
 }
 
+function updateStockSortIcons() {
+    const sortState = window.__STOCK_SORT || { key: 'symbol', direction: 'asc' };
+    const iconIds = {
+        symbol: 'stockSortSymbol',
+        name: 'stockSortName',
+        price: 'stockSortPrice',
+        change: 'stockSortChange',
+        volume: 'stockSortVolume',
+        signal: 'stockSortSignal',
+        confidence: 'stockSortConfidence',
+        target: 'stockSortTarget',
+        aiSize: 'stockSortAiSize'
+    };
 
+    Object.entries(iconIds).forEach(([key, id]) => {
+        const icon = document.getElementById(id);
+        if (!icon) return;
+        icon.className = 'fas fa-sort';
+        if (sortState.key === key) {
+            icon.className = sortState.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+        }
+    });
+}
 
-// 🧠 NEURAL PREDICTION MATRIX (Replacing Legacy Table)
+function renderStocksTable() {
+    if (CONFIG.DEBUG_MODE) console.log('📄 Rendering stocks table with CSS classes...');
+
+    const tbody = document.getElementById('stocksTableBody') ||
+        document.querySelector('#stocksTable tbody') ||
+        document.querySelector('tbody');
+
+    if (!tbody) {
+        console.error('❌ Table tbody not found');
+        return;
+    }
+
+    const dashState = window.dashState || {};
+    const stocks = Array.isArray(dashState.stocks) ? dashState.stocks.slice() : [];
+    const sortState = window.__STOCK_SORT || { key: 'symbol', direction: 'asc' };
+
+    if (!stocks.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center">Live stock feed is syncing...</td></tr>';
+        if (CONFIG.DEBUG_MODE) console.warn('⚠ No stocks data');
+        updateStockSortIcons();
+        return;
+    }
+
+    const sortValue = (stock, key) => {
+        switch (key) {
+            case 'price': return Number(stock.current_price ?? stock.last_price ?? stock.price ?? 0);
+            case 'change': return Number(stock.change_percent ?? stock.change_pct ?? stock.change ?? stock.price_change ?? 0);
+            case 'volume': return Number(stock.volume ?? stock.total_volume ?? stock.trading_volume ?? stock.qty ?? 0);
+            case 'confidence': return Number(stock.prediction_confidence ?? stock.confidence ?? stock.confidence_percent ?? 0);
+            case 'target': return Number(stock.target_price ?? stock.target ?? stock.price ?? 0);
+            case 'aiSize': return Number(stock.allocation ?? stock.allocation_pct ?? stock.ai_size ?? 0);
+            case 'name': return String(stock.name || stock.company_name || '').toLowerCase();
+            case 'signal': return String(stock.prediction_signal ?? stock.signal ?? '').toLowerCase();
+            default: return String(stock.symbol || '').toLowerCase();
+        }
+    };
+
+    stocks.sort((a, b) => {
+        const aVal = sortValue(a, sortState.key);
+        const bVal = sortValue(b, sortState.key);
+        if (typeof aVal === 'string' || typeof bVal === 'string') {
+            const cmp = String(aVal).localeCompare(String(bVal), undefined, { numeric: true, sensitivity: 'base' });
+            return sortState.direction === 'asc' ? cmp : -cmp;
+        }
+        return sortState.direction === 'asc' ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
+    });
+
+    if (CONFIG.DEBUG_MODE) {
+        console.log(`✅ Rendering ${stocks.length} stocks with CSS classes`);
+        console.log('Sample stock:', stocks[0]);
+    }
+
+    tbody.innerHTML = stocks.map((stock) => {
+        const symbol = (stock.symbol || '').replace('.NS', '').replace('.BO', '');
+        const name = stock.name || stock.company_name || symbol;
+        const exchange = stock.exchange || stock.market || 'NSE';
+        const price = Number(stock.current_price ?? stock.last_price ?? stock.price ?? 0);
+        const change = Number(stock.change_percent ?? stock.change_pct ?? stock.change ?? stock.price_change ?? 0);
+        const volume = Number(stock.volume ?? stock.total_volume ?? stock.trading_volume ?? stock.qty ?? 0);
+        const signal = String(stock.prediction_signal ?? stock.signal ?? 'HOLD').toUpperCase().trim();
+        const confidence = Number(stock.prediction_confidence ?? stock.confidence ?? stock.confidence_percent ?? 0);
+        const target = Number(stock.target_price ?? stock.target ?? price ?? 0);
+        const aiSize = Number(stock.allocation ?? stock.allocation_pct ?? stock.ai_size ?? 0);
+
+        let signalClass = 'hold';
+        if (signal.includes('STRONG BUY')) signalClass = 'strongbuy';
+        else if (signal.includes('BUY')) signalClass = 'buy';
+        else if (signal.includes('STRONG SELL')) signalClass = 'strongsell';
+        else if (signal.includes('SELL')) signalClass = 'sell';
+
+        const signalText = signal.replace(/_/g, ' ');
+        const volumeDisplay = volume > 0 ? formatVolume(volume) : '--';
+        const confidenceDisplay = Number.isFinite(confidence) ? confidence.toFixed(0) : '0';
+        const targetDisplay = Number.isFinite(target) ? `₹${target.toFixed(2)}` : '--';
+        const priceDisplay = Number.isFinite(price) ? `₹${price.toFixed(2)}` : '--';
+        const aiSizeDisplay = Number.isFinite(aiSize) ? `${aiSize.toFixed(2)}%` : '--';
+
+        return `
+            <tr onclick="showStockDetails('${symbol}')">
+                <td>
+                    <div class="stock-symbol">${symbol}</div>
+                    <div class="exchange">${exchange}</div>
+                </td>
+                <td>
+                    <div class="company-name">${name}</div>
+                </td>
+                <td class="price">${priceDisplay}</td>
+                <td class="change ${change >= 0 ? 'positive' : 'negative'}">
+                    ${change >= 0 ? '+' : ''}${change.toFixed(2)}%
+                </td>
+                <td class="volume">${volumeDisplay}</td>
+                <td>
+                    <span class="prediction-badge ${signalClass}">${signalText}</span>
+                </td>
+                <td class="confidence">
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: ${Math.min(100, Math.max(0, confidence))}%"></div>
+                    </div>
+                    <div class="confidence-value">${confidenceDisplay}%</div>
+                </td>
+                <td class="target-price">${targetDisplay}</td>
+                <td class="ai-size" style="font-weight:bold; color:var(--electric-yellow);">
+                    ${aiSizeDisplay}
+                </td>
+                <td>
+                    <button class="btn-detail" onclick="event.stopPropagation(); showStockDetails('${symbol}')">
+                        Analyze
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    updateStockSortIcons();
+
+    if (CONFIG.DEBUG_MODE) {
+        console.log(`✅ Successfully rendered ${stocks.length} stock rows with CSS styling`);
+    }
+}
 function initNeuralPredictionMatrix(opportunities) {
     // Intentionally disabled.
     // Predictions are rendered through `displayLivePredictions` only.
@@ -5593,6 +7179,8 @@ function setupTickerEditor() {
     const resultsDiv = document.getElementById('tickerSearchResults');
 
     if (!addBtn || !input || !inputContainer) return;
+    if (addBtn.dataset.bound === 'true') return;
+    addBtn.dataset.bound = 'true';
 
     let debounceTimer;
 
@@ -5616,16 +7204,42 @@ function setupTickerEditor() {
 
         debounceTimer = setTimeout(async () => {
             try {
-                const res = await fetch(`/api/search?q=${query}`);
-                const data = await res.json();
+                const results = typeof SymbolAuthority?.fetchResults === 'function'
+                    ? await SymbolAuthority.fetchResults(query)
+                    : [];
 
-                if (data.results && data.results.length > 0) {
-                    resultsDiv.innerHTML = data.results.map(r => `
-        <div class="ticker-result-item" data-symbol="${r.symbol}" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid rgba(0,229,255,0.1); display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:700; color:var(--accent-cyan)">${r.symbol}</span>
-                            <span style="font-size:10px; color:rgba(255,255,255,0.5)">NSE</span>
-                        </div>
-        `).join('');
+                if (Array.isArray(results) && results.length > 0) {
+                    resultsDiv.innerHTML = results.map((r) => {
+                        const displaySymbol = r.display || r.symbol;
+                        const displayName = r.name || r.company || 'Live search result';
+                        const priceRaw = Number(r.current_price ?? r.price);
+                        const changePctRaw = Number(r.change_percent);
+                        const changeValueRaw = Number(r.change_value ?? r.price_change);
+                        const hasPrice = Number.isFinite(priceRaw) && priceRaw > 0;
+                        const hasChangePct = Number.isFinite(changePctRaw);
+                        const hasChangeValue = Number.isFinite(changeValueRaw);
+                        const effectiveChangeValue = hasChangeValue
+                            ? changeValueRaw
+                            : (hasPrice && hasChangePct ? (priceRaw * changePctRaw / 100) : null);
+                        const changeColor = hasChangePct
+                            ? (changePctRaw >= 0 ? 'var(--electric-green)' : 'var(--electric-red)')
+                            : 'var(--text-muted)';
+                        const priceText = hasPrice ? `₹${priceRaw.toFixed(2)}` : '--';
+                        const changeText = (hasChangePct || effectiveChangeValue != null)
+                            ? `${effectiveChangeValue != null && effectiveChangeValue >= 0 ? '+' : ''}${effectiveChangeValue != null ? effectiveChangeValue.toFixed(2) : '--'} (${hasChangePct ? `${changePctRaw >= 0 ? '+' : ''}${changePctRaw.toFixed(2)}%` : '--'})`
+                            : '--';
+                        return `
+        <div class="search-result-item ticker-result-item" data-symbol="${r.symbol}" style="padding:0.75rem 1rem; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05); transition:all 0.2s; display:flex; justify-content:space-between; align-items:center;">
+                            <div style="display:flex; flex-direction:column; gap:2px; max-width:65%;">
+                                <div style="color:var(--electric-yellow); font-weight:700; font-family:monospace; font-size:14px;">${displaySymbol}</div>
+                                <div style="color:var(--text-muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${displayName}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="color:white; font-weight:700; font-family:monospace; font-size:13px;">${priceText}</div>
+                                <div style="color:${changeColor}; font-size:11px; font-weight:bold;">${changeText}</div>
+                            </div>
+                        </div>`;
+                    }).join('');
 
                     resultsDiv.style.display = 'block';
 
@@ -5638,8 +7252,7 @@ function setupTickerEditor() {
                             resultsDiv.style.display = 'none';
                             await addTicker(sym);
                         });
-                        // Hover effect
-                        item.addEventListener('mouseenter', () => item.style.background = 'rgba(0,229,255,0.1)');
+                        item.addEventListener('mouseenter', () => item.style.background = 'rgba(0,255,255,0.08)');
                         item.addEventListener('mouseleave', () => item.style.background = 'transparent');
                     });
                 } else {
@@ -5654,21 +7267,8 @@ function setupTickerEditor() {
     // Add Ticker Helper
     async function addTicker(symbol) {
         if (!symbol) return;
-        symbol = symbol.toUpperCase();
-
-        // 1. If it was hidden, unhide it
-        if (dashState.hiddenTickers.includes(symbol)) {
-            dashState.hiddenTickers = dashState.hiddenTickers.filter(s => s !== symbol);
-        }
-        // 2. Add to userTickers if not present
-        else if (!dashState.userTickers.includes(symbol)) {
-            dashState.userTickers.push(symbol);
-        }
-
-        // 3. UI Updates
-        await syncTickers();
-        await addPredictionCard(symbol); // Optimistic add
-        // Refresh full table to respect sort order if needed, but card add is fine for now
+        symbol = normalizePredictionSymbol(symbol);
+        await addPredictionCard(symbol);
 
         // Reset UI
         input.value = '';
@@ -5702,6 +7302,18 @@ function setupTickerEditor() {
 
 async function addPredictionCard(symbol) {
     try {
+        if (typeof loadIntelligencePredictions === 'function') {
+            const normalizedSymbol = normalizePredictionSymbol(symbol);
+            if (!normalizedSymbol) return;
+            if (!dashState.userTickers.includes(normalizedSymbol)) {
+                dashState.userTickers.push(normalizedSymbol);
+            }
+            dashState.hiddenTickers = dashState.hiddenTickers.filter((item) => normalizePredictionSymbol(item) !== normalizedSymbol);
+            await syncTickers();
+            await loadIntelligencePredictions();
+            console.log(`✅ Added prediction row: ${normalizedSymbol} `);
+            return;
+        }
         // Auto-append .NS for NSE stocks if not already present
         const fetchSymbol = symbol.includes('.') ? symbol : symbol + '.NS';
 
@@ -6604,7 +8216,7 @@ function sortLivePredictionsTable(key) {
         cur.direction = cur.direction === 'asc' ? 'desc' : 'asc';
     } else {
         cur.key = key;
-        cur.direction = (key === 'confidence' || key === 'ai_size') ? 'desc' : 'asc';
+        cur.direction = ['confidence', 'ai_size', 'reliability', 'edge', 'scenario'].includes(key) ? 'desc' : 'asc';
     }
     window.__PRED_SORT = cur;
     if (Array.isArray(window.__PRED_LIVE_ROWS) && window.__PRED_LIVE_ROWS.length) {
@@ -6633,22 +8245,635 @@ function removeLegacyPredictionMatrixUI() {
     } catch (_) { }
 }
 
-function displayLivePredictions(predictionsData) {
-    removeLegacyPredictionMatrixUI();
+// ============================================================================
+// AI MARKET INTELLIGENCE CONSOLE — Helper Renderers
+// ============================================================================
+
+/**
+ * Renders a colour-coded reliability badge.
+ * Falls back gracefully when intelligence data is absent.
+ */
+function renderReliabilityBadge(gate, score) {
+    const g = String(gate || '').toUpperCase();
+    const colorMap = { RELIABLE: '#39ff14', UNCERTAIN: '#ffcc00', WEAK: '#ff4757' };
+    const color = colorMap[g] || '#aaa';
+    const label = g || 'UNKNOWN';
+    const scoreStr = score != null ? ` ${Number(score).toFixed(0)}` : '';
+    return `<span class="reliability-badge reliability-badge-${label.toLowerCase()}" style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:0.5px;border:1px solid ${color};color:${color};background:${color}18;">${label}${scoreStr}</span>`;
+}
+
+/**
+ * Renders a colour-coded decision badge.
+ */
+function renderDecisionBadge(decision) {
+    const d = String(decision || 'HOLD').toUpperCase();
+    const colorMap = {
+        ENTER:  '#39ff14',
+        ADD:    '#00e5ff',
+        HOLD:   '#ffcc00',
+        WAIT:   '#ff9f43',
+        REDUCE: '#ff6b35',
+        EXIT:   '#ff4757'
+    };
+    const color = colorMap[d] || '#aaa';
+    return `<span class="decision-badge decision-badge-${d.toLowerCase()}" style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:14px;font-size:11px;font-weight:800;letter-spacing:0.8px;background:${color}22;border:1px solid ${color};color:${color};">${d}</span>`;
+}
+
+function formatPercentValue(value, decimals = 1) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '--';
+    const sign = num >= 0 ? '+' : '';
+    return `${sign}${num.toFixed(decimals)}%`;
+}
+
+function formatCurrency(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    return `₹${num.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
+function letterGrade(score) {
+    const val = Number(score);
+    if (!Number.isFinite(val)) return '—';
+    if (val >= 80) return 'A';
+    if (val >= 65) return 'B+';
+    if (val >= 50) return 'B';
+    if (val >= 35) return 'C';
+    return 'D';
+}
+
+function renderDashboardCards() {
+    const marketCard = document.getElementById('marketIntelligenceCard');
+    const portfolioCard = document.getElementById('portfolioSnapshotCard');
+    const predictionsCard = document.getElementById('topPredictionsCard');
+    const newsCard = document.getElementById('marketPulseCard');
+    if (!marketCard || !portfolioCard || !predictionsCard || !newsCard) return;
+
+    const marketIntel = dashState.newsIntelligence || {};
+    const status = dashState.data?.market_status || {};
+    const nextEvent = marketIntel.next_market_event || {};
+    const liveIndices = Array.isArray(dashState.data?.live_indices) ? dashState.data.live_indices : [];
+    const indicesByName = { };
+    liveIndices.forEach(idx => {
+        const name = (idx?.name || '').toUpperCase();
+        if (name.includes('S&P')) indicesByName.sp = idx;
+        if (name.includes('NASDAQ')) indicesByName.nasdaq = idx;
+        if (name.includes('NIFTY')) indicesByName.nifty = idx;
+    });
+
+    const sentimentLabel = String(marketIntel.global_sentiment || dashState.marketSentiment?.label || 'Neutral');
+    const regimeLabel = String(marketIntel.market_regime || 'UNKNOWN');
+    const mpi = Number.isFinite(+marketIntel.market_pressure_index) ? Number(marketIntel.market_pressure_index) : null;
+    const globalSync = [
+        `S&P ${indicesByName.sp?.change_percent?.toFixed(2) ?? '--'}%`,
+        `Nasdaq ${indicesByName.nasdaq?.change_percent?.toFixed(2) ?? '--'}%`,
+        `Nifty ${indicesByName.nifty?.change_percent?.toFixed(2) ?? '--'}%`
+    ].join(' | ');
+
+    marketCard.innerHTML = `
+        <div class="card-title">Market Intelligence</div>
+        <div class="card-body">
+            <div>Market Status: ${escapeHtml(status.status || 'SYNC')}</div>
+            <div>Next Event: ${escapeHtml(nextEvent.label || nextEvent.name || '—')}</div>
+            <div>Regime: ${escapeHtml(regimeLabel)}</div>
+            <div>Global Sentiment: ${escapeHtml(sentimentLabel)}</div>
+            <div>MPI: ${mpi != null ? `${mpi.toFixed(2)} (${mpi >= 0 ? 'Bullish' : 'Bearish'})` : '--'}</div>
+            <div>Global Sync: ${escapeHtml(globalSync)}</div>
+            <div>Macro: USD ${escapeHtml(String(marketIntel.usd_index ?? marketIntel.global_view?.usd_index ?? '--'))} | Crude ${escapeHtml(String(marketIntel.crude_price ?? marketIntel.global_view?.crude_price ?? '--'))}</div>
+            <div>Crypto: BTC ${escapeHtml(String(marketIntel.crypto_price ?? marketIntel.global_view?.btc_price ?? '--'))}</div>
+        </div>
+    `;
+
+    const portfolio = window.NEURAL_STATE?.portfolio_intelligence || {};
+    const positions = Array.isArray(portfolio.positions) ? portfolio.positions : [];
+    const dayChange = Number(portfolio.account_metrics?.day_return || 0);
+    const topGainer = positions.sort((a, b) => (Number(b.change_percent) || 0) - (Number(a.change_percent) || 0))[0];
+    const topAlert = dashState.portfolioNewsAlerts?.find(alert => Array.isArray(alert.symbols) ? alert.symbols.some(Boolean) : alert.symbol) || null;
+
+    portfolioCard.innerHTML = `
+        <div class="card-title">Portfolio Snapshot</div>
+        <div class="card-body">
+            <div>${formatCurrency(portfolio.account_metrics?.total_value || 0)} (${formatPercentValue(portfolio.account_metrics?.total_return || 0)})</div>
+            <div>Positions: ${positions.length} (${positions.filter(p => Number(p.change_percent || 0) > 0).length} green)</div>
+            <div>Top Gainer: ${topGainer ? `${topGainer.symbol} ${formatPercentValue(topGainer.change_percent, 1)}` : '–'}</div>
+            <div>Top Alert: ${topAlert ? escapeHtml(topAlert.title || topAlert.symbol) : 'None'}</div>
+        </div>
+        <div class="card-actions">
+            <button class="btn-link" onclick="switchTab('portfolio')">View Full Portfolio →</button>
+            <button class="btn-link" onclick="switchTab('predictions')">Add Stock →</button>
+        </div>
+    `;
+
+    const topRows = (Array.isArray(window.__INTEL_PRED_ROWS) ? window.__INTEL_PRED_ROWS : [])
+        .slice()
+        .sort((a, b) => (Number(b.opportunity_score || b.reliability_score || 0) - Number(a.opportunity_score || a.reliability_score || 0)))
+        .slice(0, 5);
+    const predictionRowsHtml = topRows.length
+        ? topRows.map(row => `
+            <tr>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${escapeHtml(row.ai_signal || row.decision || 'WAIT')}</td>
+                <td>${formatPercentValue(row.confidence, 1)}</td>
+                <td>${letterGrade(row.reliability_score)}</td>
+                <td>${escapeHtml(row.decision || row.signal_gate || 'WAIT')}</td>
+                <td>${row.portfolio_context?.is_held ? `✓ ${formatPercentValue(row.position_size, 1)}` : '—'}</td>
+            </tr>
+        `).join('')
+        : `<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">Live signals are syncing…</td></tr>`;
+
+    predictionsCard.innerHTML = `
+        <div class="card-title">Top Predictions</div>
+        <div class="card-body">
+            <table class="mini-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th><th>Signal</th><th>Conf</th><th>SRS</th><th>Decision</th><th>In Portfolio</th>
+                    </tr>
+                </thead>
+                <tbody>${predictionRowsHtml}</tbody>
+            </table>
+        </div>
+        <div class="card-actions">
+            <button class="btn-link" onclick="switchTab('predictions')">View All Predictions →</button>
+            <button class="btn-link" onclick="switchTab('news')">Scan Market →</button>
+        </div>
+    `;
+
+    const newsItems = Array.isArray(dashState.news) ? dashState.news.slice(0, 3) : [];
+    const newsHtml = newsItems.map(item => `
+        <div class="news-card">
+            <div class="news-title">${escapeHtml(item.title || item.headline || 'Live news')}</div>
+            <div class="news-meta">Impact: ${escapeHtml(item.impact || 'Medium')} | Sentiment: ${escapeHtml(item.sentiment || 'Neutral')}</div>
+        </div>
+    `).join('');
+    newsCard.innerHTML = `
+        <div class="card-title">Market Pulse</div>
+        <div class="card-body">
+            ${newsHtml || '<div style="color:var(--text-secondary);">Top news will appear here.</div>'}
+        </div>
+        <div class="card-actions">
+            <button class="btn-link" onclick="switchTab('news')">View All News →</button>
+            <button class="btn-link" onclick="switchTab('alerts')">Filter by Sector →</button>
+        </div>
+    `;
+}
+
+/**
+ * Renders a compact scenario probability bar.
+ */
+function renderScenarioMini(scenarios) {
+    if (!scenarios || typeof scenarios !== 'object') return '<span style="color:var(--text-muted);font-size:10px;">—</span>';
+    const bull  = Number(scenarios.bullish  || 0);
+    const neut  = Number(scenarios.neutral  || 0);
+    const bear  = Number(scenarios.bearish  || 0);
+    return `<div class="scenario-mini" title="Bull:${bull}% Neutral:${neut}% Bear:${bear}%" style="display:grid;grid-template-rows:auto auto;gap:4px;min-width:118px;">
+        <div class="scenario-bar" style="display:grid;grid-template-columns:${Math.max(bull, 1)}fr ${Math.max(neut, 1)}fr ${Math.max(bear, 1)}fr;height:6px;border-radius:999px;overflow:hidden;">
+            <div style="background:#39ff14;"></div>
+            <div style="background:#ffcc00;"></div>
+            <div style="background:#ff4757;"></div>
+        </div>
+        <div style="font-size:9px;color:var(--text-muted);display:flex;justify-content:space-between;gap:6px;">
+            <span>▲${bull}%</span>
+            <span>◆${neut}%</span>
+            <span>▼${bear}%</span>
+        </div>
+    </div>`;
+}
+
+/**
+ * XAI Panel HTML for a single prediction row.
+ */
+function renderXAIPanel(drivers, symbol, stability, macro_risk, detail = {}) {
+    const companyProfile = detail?.company_profile || {};
+    const horizons = detail?.forecast_horizons || {};
+    const sessionOutlook = detail?.session_outlook || {};
+    const predictionChange = detail?.prediction_change || {};
+    const adaptiveEnsemble = detail?.adaptive_ensemble || {};
+    const driftIntelligence = detail?.drift_intelligence || {};
+    const riskIntelligence = detail?.risk_intelligence || {};
+    const globalContext = detail?.global_context || {};
+    const marketNetwork = detail?.market_network || {};
+    const timingIntelligence = detail?.timing_intelligence || {};
+    const liquidityIntelligence = detail?.liquidity_intelligence || {};
+    const trapIntelligence = detail?.trap_intelligence || {};
+    const strategyIntelligence = detail?.strategy_intelligence || {};
+    const newsContext = detail?.news_context || {};
+    const horizonHtml = Object.entries(horizons)
+        .map(([label, payload]) => {
+            const ret = Number(payload?.return_percent);
+            const tgt = Number(payload?.target_price);
+            if (!Number.isFinite(ret) && !Number.isFinite(tgt)) return '';
+            const retClass = Number.isFinite(ret) ? (ret >= 0 ? 'var(--electric-green)' : 'var(--electric-red)') : 'var(--text-secondary)';
+            return `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;">
+                <span style="color:var(--electric-cyan);font-weight:700;text-transform:uppercase;">${label}</span>
+                <span style="color:${retClass};">${Number.isFinite(ret) ? `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%` : '—'}</span>
+                <span style="color:var(--text-muted);">${Number.isFinite(tgt) ? `₹${tgt.toFixed(2)}` : '—'}</span>
+            </div>`;
+        })
+        .filter(Boolean)
+        .join('');
+    const sessionHtml = ['expected_close', 'next_open'].map((key) => {
+        const payload = sessionOutlook?.[key] || {};
+        const ret = Number(payload?.return_percent);
+        const tgt = Number(payload?.target_price);
+        return `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;">
+            <span style="color:var(--electric-yellow);font-weight:700;text-transform:uppercase;">${key.replace('_', ' ')}</span>
+            <span style="color:${ret >= 0 ? 'var(--electric-green)' : 'var(--electric-red)'};">${Number.isFinite(ret) ? `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%` : '—'}</span>
+            <span style="color:var(--text-muted);">${Number.isFinite(tgt) ? `₹${tgt.toFixed(2)}` : '—'}</span>
+        </div>`;
+    }).join('');
+    const changeHtml = predictionChange?.available ? `
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <div><div style="font-size:10px;color:var(--text-muted);">Prev Signal</div><div style="color:var(--text-primary);font-weight:700;">${predictionChange.previous_signal || '—'}</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Conf Δ</div><div style="color:${Number(predictionChange.confidence_delta) >= 0 ? 'var(--electric-green)' : 'var(--electric-red)'};font-weight:700;">${Number(predictionChange.confidence_delta || 0).toFixed(1)}</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Return Δ</div><div style="color:${Number(predictionChange.return_delta) >= 0 ? 'var(--electric-green)' : 'var(--electric-red)'};font-weight:700;">${Number(predictionChange.return_delta || 0).toFixed(2)}%</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Elapsed</div><div style="color:var(--text-primary);font-weight:700;">${predictionChange.elapsed_minutes != null ? `${predictionChange.elapsed_minutes}m` : '—'}</div></div>
+        </div>` : '';
+    const adaptiveHtml = Object.keys(adaptiveEnsemble?.weights || {}).length ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <div style="color:var(--electric-yellow);font-size:10px;font-weight:700;margin-bottom:6px;">ADAPTIVE ENSEMBLE</div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                <div style="font-size:10px;color:var(--text-secondary);">Regime: <span style="color:var(--text-primary);font-weight:700;">${adaptiveEnsemble.regime || 'UNKNOWN'}</span></div>
+                <div style="font-size:10px;color:var(--text-secondary);">Agreement: <span style="color:var(--text-primary);font-weight:700;">${Number(adaptiveEnsemble.agreement_score || 0).toFixed(1)}%</span></div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+                ${Object.entries(adaptiveEnsemble.weights || {}).map(([name, weight]) => `<span style="font-size:10px;padding:2px 8px;border-radius:999px;border:1px solid rgba(0,229,255,0.25);color:var(--electric-cyan);">${escapeHtml(name)} ${(Number(weight || 0) * 100).toFixed(1)}%</span>`).join('')}
+            </div>
+        </div>` : '';
+    const riskHtml = (riskIntelligence?.scenario_engine || riskIntelligence?.kelly_fraction != null) ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+            <div><div style="font-size:10px;color:var(--text-muted);">Tail Risk</div><div style="color:var(--text-primary);font-weight:700;">${riskIntelligence.tail_risk_state || 'UNKNOWN'}</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Kelly</div><div style="color:var(--electric-yellow);font-weight:700;">${Number((riskIntelligence.kelly_fraction || 0) * 100).toFixed(2)}%</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Payoff</div><div style="color:var(--text-primary);font-weight:700;">${Number(riskIntelligence.payoff_ratio || 0).toFixed(2)}x</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Fragility</div><div style="color:var(--text-primary);font-weight:700;">${riskIntelligence?.scenario_engine?.fragility || 'UNKNOWN'}</div></div>
+        </div>` : '';
+    const driftHtml = driftIntelligence?.status ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+            <div><div style="font-size:10px;color:var(--text-muted);">Drift Status</div><div style="color:var(--text-primary);font-weight:700;">${driftIntelligence.status}</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Drift Score</div><div style="color:var(--text-primary);font-weight:700;">${Number(driftIntelligence.score || 0).toFixed(3)}</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Macro Risk</div><div style="color:var(--text-primary);font-weight:700;">${globalContext.context_risk || macro_risk || 'LOW'}</div></div>
+            <div><div style="font-size:10px;color:var(--text-muted);">Index Dispersion</div><div style="color:var(--text-primary);font-weight:700;">${Number(globalContext.index_dispersion || 0).toFixed(3)}</div></div>
+        </div>` : '';
+    const newsHtml = newsContext?.headline || newsContext?.narrative || newsContext?.event_type ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <div style="color:var(--electric-pink);font-size:10px;font-weight:700;margin-bottom:6px;">NEWS CONTEXT</div>
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+                <div><div style="font-size:10px;color:var(--text-muted);">Narrative</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(newsContext.narrative || 'UNMAPPED'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Event</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(newsContext.event_type || 'GENERAL'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Impact</div><div style="color:var(--text-primary);font-weight:700;">${Number(newsContext.impact_score || 0).toFixed(2)}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Decay</div><div style="color:var(--text-primary);font-weight:700;">${Number(newsContext.duration_decay || 0).toFixed(2)}</div></div>
+            </div>
+            ${Array.isArray(newsContext.affected_sectors) && newsContext.affected_sectors.length ? `<div style="margin-top:8px;color:var(--text-secondary);font-size:10px;">Affected: ${escapeHtml(newsContext.affected_sectors.join(', '))}</div>` : ''}
+            ${newsContext.headline ? `<div style="margin-top:8px;color:var(--text-secondary);font-size:11px;line-height:1.45;">${escapeHtml(String(newsContext.headline))}</div>` : ''}
+        </div>` : '';
+    const whyHtml = `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+            <div>
+                <div style="font-size:10px;color:var(--text-muted);">Why Signal</div>
+                <div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(drivers?.[0]?.factor || adaptiveEnsemble?.regime || 'Model alignment'))}</div>
+            </div>
+            <div>
+                <div style="font-size:10px;color:var(--text-muted);">Why Decision</div>
+                <div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(timingIntelligence?.state || liquidityIntelligence?.state || trapIntelligence?.state || 'Context gating'))}</div>
+            </div>
+            <div>
+                <div style="font-size:10px;color:var(--text-muted);">What Changed</div>
+                <div style="color:var(--text-primary);font-weight:700;">${predictionChange?.available ? escapeHtml(`${Number(predictionChange.confidence_delta || 0).toFixed(1)} conf / ${Number(predictionChange.return_delta || 0).toFixed(2)} ret`) : 'First live reading'}</div>
+            </div>
+        </div>`;
+    const executionHtml = (timingIntelligence?.state || liquidityIntelligence?.state || trapIntelligence?.state || strategyIntelligence?.strategy_id) ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <div style="color:var(--electric-cyan);font-size:10px;font-weight:700;margin-bottom:6px;">EXECUTION CONTEXT</div>
+            <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;">
+                <div><div style="font-size:10px;color:var(--text-muted);">Timing</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(timingIntelligence.state || 'UNCERTAIN'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Liquidity</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(liquidityIntelligence.state || 'NEUTRAL'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Trap Risk</div><div style="color:var(--text-primary);font-weight:700;">${Number(trapIntelligence.trap_probability || 0).toFixed(2)}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Authenticity</div><div style="color:var(--text-primary);font-weight:700;">${Number(trapIntelligence.authenticity_score || 0).toFixed(1)}%</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Strategy</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(strategyIntelligence.strategy_id || '--'))}</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px;">
+                <div><div style="font-size:10px;color:var(--text-muted);">Network</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(marketNetwork.leader_follower_state || 'ALIGNED'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Sector</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(marketNetwork.sector || 'UNMAPPED'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Strategy Quality</div><div style="color:var(--text-primary);font-weight:700;">${Number(strategyIntelligence.quality_score || 0).toFixed(2)}</div></div>
+            </div>
+        </div>` : '';
+    const profileHtml = `
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+            <div style="color:var(--electric-cyan);font-size:10px;font-weight:700;margin-bottom:8px;">MARKET SNAPSHOT</div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+                <div><div style="font-size:10px;color:var(--text-muted);">Company</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(companyProfile.company_name || symbol))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Sector</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(companyProfile.sector || 'UNMAPPED'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Risk</div><div style="color:var(--text-primary);font-weight:700;">${escapeHtml(String(companyProfile.risk_level || 'UNKNOWN'))}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Price</div><div style="color:var(--text-primary);font-weight:700;">${Number.isFinite(Number(companyProfile.current_price)) ? `â‚¹${Number(companyProfile.current_price).toFixed(2)}` : 'â€”'}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">Target</div><div style="color:var(--text-primary);font-weight:700;">${Number.isFinite(Number(companyProfile.target_price)) ? `â‚¹${Number(companyProfile.target_price).toFixed(2)}` : 'â€”'}</div></div>
+                <div><div style="font-size:10px;color:var(--text-muted);">PE</div><div style="color:var(--text-primary);font-weight:700;">${Number.isFinite(Number(companyProfile.pe_ratio)) ? Number(companyProfile.pe_ratio).toFixed(2) : 'â€”'}</div></div>
+            </div>
+        </div>`;
+
+    if (!Array.isArray(drivers) || drivers.length === 0) {
+        return `<tr class="xai-row" id="xai-${symbol}" style="display:none;"><td colspan="9" style="padding:0 1rem 0.8rem;"><div class="xai-panel" style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:0.8rem 1rem;font-size:11px;color:var(--text-secondary);">No driver data available.</div></td></tr>`;
+    }
+    const driverHtml = drivers.slice(0, 6).map(d => `
+        <div style="display:grid;grid-template-columns:130px 1fr auto;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+            <span style="color:var(--electric-cyan);font-weight:600;">${d.factor || '—'}</span>
+            <span style="color:var(--text-primary);">${d.strength || '—'}</span>
+            <span style="color:var(--text-muted);text-align:right;">${d.direction || ''}</span>
+        </div>`).join('');
+    const stabilityColor = stability === 'STABLE' ? '#39ff14' : stability === 'OSCILLATING' ? '#ffcc00' : '#ff4757';
+    const macroColor = macro_risk === 'HIGH' ? '#ff4757' : macro_risk === 'MEDIUM' ? '#ffcc00' : '#39ff14';
+    return `<tr class="xai-row" id="xai-${symbol}" style="display:none;">
+        <td colspan="9" style="padding:0 1rem 0.8rem;">
+            <div class="xai-panel" style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:0.9rem 1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:11px;font-weight:800;color:var(--electric-cyan);letter-spacing:0.5px;">AI REASONING • ${symbol}</span>
+                        <span style="font-size:10px;padding:2px 8px;border-radius:999px;border:1px solid ${stabilityColor};color:${stabilityColor};font-weight:700;">${stability || 'UNKNOWN'}</span>
+                        <span style="font-size:10px;padding:2px 8px;border-radius:999px;border:1px solid ${macroColor};color:${macroColor};font-weight:700;">MACRO ${macro_risk || 'LOW'}</span>
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:16px;align-items:start;">
+                    <div style="min-width:0;">
+                        ${profileHtml}
+                        <div style="color:var(--electric-yellow);font-size:10px;font-weight:700;margin-bottom:6px;">PRIMARY DRIVERS</div>
+                        <div style="font-size:11px;color:var(--text-secondary);background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:10px 12px;">${driverHtml}</div>
+                        ${whyHtml}
+                        ${changeHtml}
+                    </div>
+                    <div style="min-width:0;display:grid;gap:10px;">
+                        ${executionHtml}
+                        ${newsHtml}
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:12px;">
+                    <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:10px 12px;">
+                        <div style="color:var(--electric-yellow);font-size:10px;font-weight:700;margin-bottom:6px;">MULTI-HORIZON OUTLOOK</div>
+                        ${horizonHtml || '<div style="color:var(--text-muted);font-size:10px;">No horizon data</div>'}
+                    </div>
+                    <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:10px 12px;">
+                        <div style="color:var(--electric-yellow);font-size:10px;font-weight:700;margin-bottom:6px;">SESSION OUTLOOK</div>
+                        ${sessionHtml}
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:12px;">
+                    <div style="min-width:0;">
+                        ${adaptiveHtml}
+                        ${riskHtml}
+                    </div>
+                    <div style="min-width:0;">
+                        ${driftHtml}
+                    </div>
+                </div>
+            </div>
+        </td>
+    </tr>`;
+}
+
+/**
+ * Toggle XAI panel for a prediction row.
+ */
+function toggleXAIPanel(symbol) {
+    const xaiRow = document.getElementById(`xai-${symbol}`);
+    if (!xaiRow) return;
+    const hidden = xaiRow.style.display === 'none' || !xaiRow.style.display;
+    xaiRow.style.display = hidden ? 'table-row' : 'none';
+}
+
+function ensurePredictionHeaderAssist() {
+    const tip = ensureMetricTooltipEl();
+    const defs = {
+        symbol: { title: 'Symbol', desc: 'The stock currently being tracked in the intelligence console.', score: 5, better: 'Use this to open detail and compare updates.' },
+        price: { title: 'Price', desc: 'Latest live traded price feeding the downstream intelligence layer.', score: 6, better: 'Refreshes with live market state.' },
+        signal: { title: 'Signal', desc: 'Direction from the existing model output after post-processing.', score: 7, better: 'BUY, SELL or HOLD bias.' },
+        confidence: { title: 'Confidence', desc: 'How strongly the ensemble supports the active signal.', score: 8, better: 'Higher is stronger support.' },
+        reliability: { title: 'Reliability', desc: 'Confidence adjusted by entropy, volatility, agreement and context.', score: 9, better: 'Higher means cleaner signal quality.' },
+        edge: { title: 'Edge', desc: 'Expected return from the latest prediction state.', score: 7, better: 'Positive favors upside.' },
+        decision: { title: 'Decision', desc: 'Execution guidance derived after risk and reliability gating.', score: 8, better: 'ENTER, WAIT or REDUCE are actionable cues.' },
+        scenario: { title: 'Scenario', desc: 'Bull, neutral and bear path balance from scenario analysis.', score: 8, better: 'Shows path distribution, not certainty.' },
+        ai_size: { title: 'AI Size', desc: 'Suggested exposure from edge, reliability and volatility context.', score: 7, better: 'Use as sizing guidance.' }
+    };
+
+    document.querySelectorAll('[data-intel-tip]').forEach((el) => {
+        if (el.dataset.tipBound === 'true') return;
+        el.dataset.tipBound = 'true';
+        const def = defs[el.dataset.intelTip];
+        if (!def) return;
+        el.addEventListener('mouseenter', (event) => {
+            const fillColor = scoreColor(def.score);
+            tip.innerHTML = `
+                <div class="mt-title">${def.title}</div>
+                <div class="mt-desc">${def.desc}</div>
+                <div class="mt-row"><span>Meaning</span><span>${def.better}</span></div>
+                <div class="mt-bar"><div class="mt-fill" style="width:${(def.score / 10) * 100}%;background:${fillColor};"></div></div>
+            `;
+            const rect = event.currentTarget.getBoundingClientRect();
+            tip.style.left = `${Math.max(10, Math.min(window.innerWidth - 280, rect.left))}px`;
+            tip.style.top = `${Math.max(10, rect.bottom + 8)}px`;
+            tip.style.display = 'block';
+        });
+        el.addEventListener('mouseleave', hideMetricTooltip);
+    });
+}
+
+function syncPredictionCognitivePanelVisibility(visible) {
+    const section = document.getElementById('aiCognitivePanel')?.closest('section');
+    if (!section) return;
+    section.style.display = visible ? '' : 'none';
+}
+
+function renderPredictionConsoleSummary(rows) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const toNumber = (value) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : null;
+    };
+    const average = (values) => values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length) : null;
+    const confidenceValues = safeRows.map((row) => toNumber(row?.confidence ?? row?.confidences15d ?? row?.prediction?.confidence)).filter((value) => value != null);
+    const reliabilityValues = safeRows.map((row) => toNumber(row?.reliability_score)).filter((value) => value != null);
+    const sizeValues = safeRows.map((row) => toNumber(row?.ai_size ?? row?.recommended_position_size)).filter((value) => value != null);
+    const regimes = safeRows.map((row) => String(row?.market_regime || row?.regime || '')).filter(Boolean);
+    const dominantRegime = regimes.length
+        ? Object.entries(regimes.reduce((acc, regime) => {
+            acc[regime] = (acc[regime] || 0) + 1;
+            return acc;
+        }, {})).sort((a, b) => b[1] - a[1])[0]?.[0]
+        : 'UNKNOWN';
+
+    const cells = [
+        ['Regime', dominantRegime || 'UNKNOWN'],
+        ['Avg Confidence', average(confidenceValues) != null ? `${average(confidenceValues).toFixed(1)}%` : '—'],
+        ['Avg Reliability', average(reliabilityValues) != null ? `${average(reliabilityValues).toFixed(1)}` : '—'],
+        ['AI Size', average(sizeValues) != null ? `${average(sizeValues).toFixed(1)}%` : '—']
+    ];
+
+    return `
+        <div class="intel-console-summary">
+            ${cells.map(([label, value]) => `
+                <div style="min-width:0;">
+                    <div class="intel-console-summary-label">${label}</div>
+                    <div class="intel-console-summary-value">${value}</div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+// ============================================================================
+// OPPORTUNITY SCANNER CONTROLS
+// ============================================================================
+function renderOpportunityScannerControls() {
+    return `
+    <div class="opportunity-controls" id="opportunityControls">
+        <span class="opportunity-controls-label">Scanner</span>
+        <select id="sectorScanFilter" class="intel-console-select" onchange="applyIntelligenceFilters()">
+            <option value="">All Sectors</option>
+        </select>
+        <select id="topNScanFilter" class="intel-console-select" onchange="applyIntelligenceFilters()">
+            <option value="0">Show All</option>
+            <option value="5">Top 5</option>
+            <option value="10" selected>Top 10</option>
+            <option value="20">Top 20</option>
+            <option value="50">Top 50</option>
+        </select>
+        <select id="gateScanFilter" class="intel-console-select" onchange="applyIntelligenceFilters()">
+            <option value="">All Signals</option>
+            <option value="RELIABLE">Reliable Only</option>
+            <option value="UNCERTAIN">Uncertain</option>
+        </select>
+        <span id="scannerResultCount" class="opportunity-controls-count"></span>
+    </div>`;
+}
+
+function normalizePredictionSymbol(symbol) {
+    const raw = String(symbol || '').trim().toUpperCase();
+    if (!raw) return '';
+    return raw.endsWith('.NS') || raw.endsWith('.BO') ? raw : `${raw}.NS`;
+}
+
+function collectAvailablePredictionSectors(rows) {
+    const sectors = new Set();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const sector = String(row?.sector || '').trim();
+        if (sector) sectors.add(sector);
+    });
+    return Array.from(sectors).sort((a, b) => a.localeCompare(b));
+}
+
+function refreshScannerSectorOptions(rows) {
+    const select = document.getElementById('sectorScanFilter');
+    if (!select) return;
+    const previousValue = String(select.value || '');
+    const sectors = collectAvailablePredictionSectors(rows);
+    select.innerHTML = [
+        '<option value="">All Sectors</option>',
+        ...sectors.map((sector) => `<option value="${escapeHtml(sector)}">${escapeHtml(sector)}</option>`)
+    ].join('');
+    if (previousValue && sectors.includes(previousValue)) {
+        select.value = previousValue;
+    }
+}
+
+function buildPredictionRowFromStockPayload(stockPayload) {
+    const payload = stockPayload?.data || stockPayload;
+    if (!payload || typeof payload !== 'object') return null;
+    const prediction = payload.prediction || {};
+    return {
+        symbol: String(payload.symbol || '').toUpperCase(),
+        name: String(payload.name || payload.company || payload.symbol || '').trim(),
+        current_price: Number(payload.current_price ?? payload.price ?? 0),
+        currentprice: Number(payload.current_price ?? payload.price ?? 0),
+        volatility: Number(payload?.indicators?.volatility ?? payload.volatility ?? 0),
+        prediction: {
+            signal: prediction.signal || payload.signal || 'HOLD',
+            confidence: Number(prediction.confidence ?? payload.confidence ?? 0),
+            target_price: Number(prediction.target_price ?? payload.target_price ?? payload.current_price ?? 0),
+            predicted_return: Number(prediction.predicted_return ?? payload.predicted_return ?? 0),
+            risk_level: prediction.risk_level || payload.risk_level || 'MEDIUM',
+            models_used: Array.isArray(prediction.models_used) ? prediction.models_used : []
+        },
+        timestamp: payload.timestamp || new Date().toISOString(),
+        history: Array.isArray(payload.history) ? payload.history : []
+    };
+}
+
+async function mergePinnedPredictionRows(rows) {
+    const normalizedRows = Array.isArray(rows) ? rows.slice() : [];
+    const hidden = new Set((dashState.hiddenTickers || []).map((symbol) => normalizePredictionSymbol(symbol)));
+    const existing = new Set(normalizedRows.map((row) => normalizePredictionSymbol(row?.symbol)));
+    const desired = Array.from(new Set((dashState.userTickers || []).map((symbol) => normalizePredictionSymbol(symbol))))
+        .filter((symbol) => symbol && !hidden.has(symbol) && !existing.has(symbol));
+
+    if (!desired.length) return normalizedRows;
+
+    const additions = [];
+    dashState._predictionTickerFailures = dashState._predictionTickerFailures || {};
+    await Promise.allSettled(desired.map(async (symbol) => {
+        try {
+            const response = await api.fetch(`/stock/${encodeURIComponent(symbol)}`, {
+                cache: false,
+                timeout: CONFIG.TIMEOUT
+            });
+            if (!response?.success || !response?.data) return;
+            const built = buildPredictionRowFromStockPayload(response);
+            if (!built) return;
+            delete dashState._predictionTickerFailures[symbol];
+            additions.push(...normalizePredictionsForTable([built]));
+        } catch (_) {
+            const failures = Number(dashState._predictionTickerFailures[symbol] || 0) + 1;
+            dashState._predictionTickerFailures[symbol] = failures;
+            if (failures >= 2) {
+                dashState.userTickers = (dashState.userTickers || []).filter((item) => normalizePredictionSymbol(item) !== symbol);
+                dashState.hiddenTickers = Array.from(new Set([...(dashState.hiddenTickers || []), symbol]));
+                syncTickers().catch(() => {});
+            }
+        }
+    }));
+
+    return additions.concat(normalizedRows);
+}
+
+function getPredictionContextLookup() {
+    const items = Array.isArray(dashState.newsPredictionContext) ? dashState.newsPredictionContext : [];
+    return items.reduce((acc, item) => {
+        const raw = String(item?.symbol || item?.asset || '').trim();
+        if (!raw) return acc;
+        acc[normalizePredictionSymbol(raw)] = item;
+        return acc;
+    }, {});
+}
+
+function getLivePredictionRowsFromState() {
+    const state = window.NEURAL_STATE || {};
+    const rawRows = []
+        .concat(Array.isArray(state?.predictions) ? state.predictions : [])
+        .concat(Array.isArray(state?.ai_engine?.predictions) ? state.ai_engine.predictions : []);
+    if (!rawRows.length && Array.isArray(state?.opportunities)) {
+        rawRows.push(...state.opportunities);
+    }
+    const normalized = normalizePredictionsForTable(rawRows);
+    if (normalized.length) return normalized;
+    return Array.isArray(dashState.predictions) ? normalizePredictionsForTable(dashState.predictions) : [];
+}
+
+/**
+ * Apply sector/top-N/gate filters in-memory to the cached predicti    removeLegacyPredictionMatrixUI();
 
     let content = document.getElementById('predictionsTableContent');
     if (!content) {
         const host = document.getElementById('prediction-cards');
         if (host) {
             host.innerHTML = `
-                <div class="tab-section">
-                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
-                        <h3 style="margin:0;">Top Predictions</h3>
+                <div class="tab-section intel-console-section">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem;">
+                        <h3 style="margin:0;color:var(--electric-pink);">🧠 AI Market Intelligence Console</h3>
                         <div id="addTickerBtn" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 14px; border-radius:6px; font-size:11px; font-weight:700; color:var(--accent-cyan, #00e5ff); letter-spacing:0.5px; border:1px solid var(--accent-cyan, #00e5ff); background:rgba(0, 229, 255, 0.08); box-shadow:0 0 8px rgba(0, 229, 255, 0.15); transition:all 0.3s ease;">
                             <i class="fas fa-plus"></i> ADD TICKER
                         </div>
                     </div>
-                    <div class="table-card">
+                    ${renderOpportunityScannerControls()}
+                    <div class="table-card intel-table-card">
                         <div id="predictionsTableContent"></div>
                     </div>
                 </div>
@@ -6661,202 +8886,498 @@ function displayLivePredictions(predictionsData) {
     }
 
     if (!content) {
-        console.warn('âš ï¸ Predictions table container not found');
+        console.warn('⚠️ Intel console container not found');
         return;
     }
 
     if (!predictionsData || predictionsData.length === 0) {
-        content.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;">No prediction data available.</p>';
+        content.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;">No prediction data available. AI engine is warming up…</p>';
         return;
     }
 
-    window.__PRED_LIVE_ROWS = Array.isArray(predictionsData) ? predictionsData.slice() : [];
+    // Cache full rows for in-memory scanner filtering
+    window.__PRED_LIVE_ROWS   = Array.isArray(predictionsData) ? predictionsData.slice() : [];
+    window.__INTEL_PRED_ROWS  = window.__PRED_LIVE_ROWS;
+
+    // Sort by opportunity_score desc (with confidence fallback)
+    const sortedRows = window.__PRED_LIVE_ROWS.slice().sort((a, b) => {
+        const aScore = Number(a.opportunity_score ?? a.confidence ?? 0);
+        const bScore = Number(b.opportunity_score ?? b.confidence ?? 0);
+        return bScore - aScore;
+    });
+
+    // Apply top-N from scanner control if already rendered
+    const topNEl = document.getElementById('topNScanFilter');
+    const topN   = topNEl ? parseInt(topNEl.value || '0', 10) : 0;
+    const display = topN > 0 ? sortedRows.slice(0, topN) : sortedRows;
+
+    const countEl = document.getElementById('scannerResultCount');
+    if (countEl) countEl.textContent = `${display.length} signal${display.length !== 1 ? 's' : ''}`;
+
+    _renderIntelligenceTable(display);
+
+    if (CONFIG.DEBUG_MODE) console.log(`✅ Intelligence Console: ${display.length} rows rendered`);
+}
+
+/**
+ * Core intelligence table renderer (also called by applyIntelligenceFilters for instant in-memory filtering).
+ */
+function _renderIntelligenceTableLegacyUnused(rows) {
+    const content = document.getElementById('predictionsTableContent');
+    if (!content) return;
+    if (!rows || rows.length === 0) {
+        content.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;">No signals match the current filter.</p>';
+        return;
+    }
+
+    const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const pct   = (v) => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    const inr   = (v) => v == null ? '—' : `₹${v.toFixed(2)}`;
+    const cls   = (v) => v == null ? '' : (v >= 0 ? 'text-success' : 'text-danger');
+
+    // Edge = predicted_return as a quick proxy
+    const edgeStr = (row) => {
+        const pr = toNum(row.predicted_return ?? (row.prediction||{}).predicted_return);
+        return pr != null ? `<span class="${cls(pr)}" style="font-weight:700;">${pct(pr)}</span>` : '<span style="color:var(--text-muted);">—</span>';
+    };
+
+    // Horizon context from existing multi-timeframe fields
+    const horizonLabel = (row) => {
+        const h1d = toNum((row.predictions1d || {}).returnpercent);
+        const h15d = toNum((row.predictions15d || {}).returnpercent);
+        if (h1d != null)  return `<span style="font-size:10px;color:var(--text-muted);">1D: <b class="${cls(h1d)}">${pct(h1d)}</b></span>`;
+        if (h15d != null) return `<span style="font-size:10px;color:var(--text-muted);">15D: <b class="${cls(h15d)}">${pct(h15d)}</b></span>`;
+        return '<span style="color:var(--text-muted);font-size:10px;">—</span>';
+    };
+
+    const tableRows = rows.map(row => {
+        const symbol   = String(row.symbol || '').replace('.NS','').replace('.BO','');
+        const pred     = (typeof row.prediction === 'object' && row.prediction) ? row.prediction : row;
+        const name     = row.name || pred.name || symbol;
+        const current  = toNum(row.current_price ?? row.currentprice ?? pred.current_price ?? 0);
+
+        // Intelligence fields (from backend enrichment) with fallbacks
+        const gate        = row.signal_gate  || null;
+        const relScore    = toNum(row.reliability_score);
+        const decision    = row.decision     || null;
+        const scenarios   = row.scenarios    || null;
+        const drivers     = row.explain_drivers || [];
+        const stability   = row.stability    || 'UNKNOWN';
+        const macro_risk  = row.macro_risk   || 'LOW';
+        const opScore     = toNum(row.opportunity_score);
+        const sector      = row.sector       || '';
+
+        // Legacy signal (backward compat)
+        const signalRaw   = pred.signal || row.signal || row.ai_signal || 'HOLD';
+        const signalUpper = String(signalRaw).toUpperCase();
+        const sigColor    = signalUpper.includes('BUY') ? '#39ff14' : signalUpper.includes('SELL') ? '#ff4757' : '#ffcc00';
+
+        // Confidence
+        const conf = Math.max(0, Math.min(100, toNum(pred.confidence ?? row.confidence ?? 0) || 0));
+        const confBar = `<div style="width:56px;height:5px;background:rgba(255,255,255,0.1);border-radius:3px;margin-top:3px;overflow:hidden;"><div style="width:${conf}%;height:100%;background:${conf>=60?'#39ff14':conf>=40?'#ffcc00':'#ff4757'};border-radius:3px;"></div></div>`;
+
+        const reliabilityHtml  = gate    ? renderReliabilityBadge(gate, relScore) : `<span style="color:var(--text-muted);font-size:10px;">${signalUpper}</span>`;
+        const decisionHtml     = decision? renderDecisionBadge(decision) : `<span style="color:${sigColor};font-weight:700;font-size:11px;">${signalUpper}</span>`;
+        const scenarioHtml     = renderScenarioMini(scenarios);
+        const opScoreHtml      = opScore != null ? `<span style="color:var(--electric-yellow);font-weight:700;font-size:12px;">${opScore.toFixed(1)}</span>` : '—';
+
+        const xaiPanel = renderXAIPanel(drivers, symbol, stability, macro_risk);
+
+        return `
+            <tr onclick="toggleXAIPanel('${symbol}')" style="cursor:pointer;" class="prediction-row intel-row">
+                <td>
+                    <div class="stock-symbol">${symbol}</div>
+                    <div style="font-size:0.75em;color:var(--text-secondary);">${name.length > 20 ? name.slice(0,20)+'…' : name}</div>
+                    ${sector ? `<div style="font-size:9px;color:var(--electric-purple);margin-top:1px;">${sector}</div>` : ''}
+                </td>
+                <td class="price">${inr(current)}</td>
+                <td>${reliabilityHtml}</td>
+                <td>
+                    <div style="font-size:12px;font-weight:700;">${conf.toFixed(1)}%</div>
+                    ${confBar}
+                </td>
+                <td>${edgeStr(row)}</td>
+                <td>${horizonLabel(row)}</td>
+                <td>${decisionHtml}</td>
+                <td>${scenarioHtml}</td>
+                <td>${opScoreHtml}</td>
+            </tr>
+            ${xaiPanel}
+        `;
+    }).join('');
+
+    content.innerHTML = `
+        <table class="predictions-table intel-console-table" style="width:100%;border-collapse:separate;border-spacing:0 3px;">
+            <thead>
+                <tr style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;">
+                    <th style="cursor:pointer;padding:8px 10px;" onclick="sortLivePredictionsTable('symbol')">Symbol <i class="fas ${predSortIcon('symbol')}"></i></th>
+                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('current')">Price <i class="fas ${predSortIcon('current')}"></i></th>
+                    <th>Reliability</th>
+                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('confidence')">Confidence <i class="fas ${predSortIcon('confidence')}"></i></th>
+                    <th>Edge</th>
+                    <th>Horizon</th>
+                    <th>Decision</th>
+                    <th>Scenario</th>
+                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('opp_score')" title="Opportunity Score">Opp↑</th>
+                </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+        </table>
+    `;
+}
+
+
+
+
+
+
+function applyIntelligenceFilters() {
+    const sourceRows = Array.isArray(window.__INTEL_PRED_ROWS) ? window.__INTEL_PRED_ROWS.slice() : [];
+    const sectorValue = String(document.getElementById('sectorScanFilter')?.value || '').toLowerCase();
+    const topNValue = parseInt(document.getElementById('topNScanFilter')?.value || '0', 10);
+    const gateValue = String(document.getElementById('gateScanFilter')?.value || '').toUpperCase();
+
+    let rows = sourceRows.filter((row) => {
+        const sector = String(row?.sector || '').toLowerCase();
+        const gate = String(row?.signal_gate || '').toUpperCase();
+        return (!sectorValue || sector.includes(sectorValue)) && (!gateValue || gate === gateValue);
+    });
+
+    const sortState = window.__PRED_SORT || { key: 'confidence', direction: 'desc' };
+    const sortValue = (row) => {
+        switch (sortState.key) {
+            case 'symbol': return String(row?.symbol || '');
+            case 'current': return Number(row?.current_price ?? row?.currentprice ?? 0);
+            case 'signal': return String(row?.signal || row?.ai_signal || row?.prediction?.signal || '');
+            case 'confidence': return Number(row?.confidence ?? row?.prediction?.confidence ?? row?.confidences15d ?? 0);
+            case 'reliability': return Number(row?.reliability_score ?? 0);
+            case 'edge': return Number(row?.predicted_return ?? row?.prediction?.predicted_return ?? 0);
+            case 'decision': return String(row?.decision || '');
+            case 'scenario': return Number(row?.scenarios?.bullish ?? 0);
+            case 'ai_size': return Number(row?.ai_size ?? row?.recommended_position_size ?? 0);
+            default: return Number(row?.opportunity_score ?? row?.ai_size ?? row?.confidence ?? 0);
+        }
+    };
+    rows.sort((a, b) => {
+        const aVal = sortValue(a);
+        const bVal = sortValue(b);
+        if (typeof aVal === 'string' || typeof bVal === 'string') {
+            const cmp = String(aVal).localeCompare(String(bVal));
+            return sortState.direction === 'asc' ? cmp : -cmp;
+        }
+        const cmp = Number(aVal || 0) - Number(bVal || 0);
+        return sortState.direction === 'asc' ? cmp : -cmp;
+    });
+    if (topNValue > 0) rows = rows.slice(0, topNValue);
+
+    const countEl = document.getElementById('scannerResultCount');
+    if (countEl) countEl.textContent = `${rows.length} signal${rows.length === 1 ? '' : 's'}`;
+    const summaryMount = document.getElementById('predictionConsoleSummaryMount');
+    if (summaryMount) summaryMount.innerHTML = renderPredictionConsoleSummary(rows);
+
+    renderIntelligenceConsoleTable(rows);
+}
+
+function displayLivePredictions(predictionsData) {
+    removeLegacyPredictionMatrixUI();
+    syncPredictionCognitivePanelVisibility(false);
+
+    let content = document.getElementById('predictionsTableContent');
+    if (!content) {
+        const host = document.getElementById('prediction-cards');
+        if (host) {
+            host.innerHTML = `
+                <div class="tab-section intel-console-section">
+                    <div class="intel-console-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem; gap:0.75rem; flex-wrap:wrap;">
+                        <h3 style="margin:0;color:var(--electric-pink);">AI Market Intelligence Console</h3>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div id="addTickerBtn" class="intel-console-add-btn" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 14px; border-radius:6px; font-size:11px; font-weight:700; color:var(--accent-cyan, #00e5ff); letter-spacing:0.5px; border:1px solid var(--accent-cyan, #00e5ff); background:rgba(0, 229, 255, 0.08); box-shadow:0 0 8px rgba(0, 229, 255, 0.15); transition:all 0.3s ease;">
+                                <i class="fas fa-plus"></i> ADD TICKER
+                            </div>
+                            <div id="tickerInputContainer" style="display:none; position:relative;">
+                                <div class="search-box intel-ticker-search">
+                                    <i class="fas fa-search"></i>
+                                <input type="text" id="addTickerInput" placeholder="e.g. SBIN, WIPRO" autocomplete="off"
+                                    style="width: 100%; display:block;" />
+                                    <div id="tickerSearchResults" class="search-results"
+                                        style="position:absolute; width:100%; top:100%; left:0; z-index:200; max-height:400px; overflow-y:auto; background:rgba(10, 12, 18, 0.97); border:1px solid rgba(0, 255, 255, 0.2); border-radius:6px; backdrop-filter:blur(10px); display:none;">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="predictionConsoleSummaryMount"></div>
+                    ${renderOpportunityScannerControls()}
+                    <div class="table-card intel-table-card">
+                        <div id="predictionsTableContent"></div>
+                    </div>
+                </div>
+            `;
+            if (typeof setupTickerEditor === 'function') {
+                try { setupTickerEditor(); } catch (_) { }
+            }
+            content = document.getElementById('predictionsTableContent');
+        }
+    }
+
+    if (!content) return;
+
+    if (!Array.isArray(predictionsData) || predictionsData.length === 0) {
+        window.__PRED_LIVE_ROWS = [];
+        window.__INTEL_PRED_ROWS = [];
+        content.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;">No prediction data available. AI engine is warming up...</p>';
+        return;
+    }
+
+    window.__PRED_LIVE_ROWS = predictionsData.slice();
+    window.__INTEL_PRED_ROWS = predictionsData.slice();
+    const summaryMount = document.getElementById('predictionConsoleSummaryMount');
+    if (summaryMount) summaryMount.innerHTML = renderPredictionConsoleSummary(window.__INTEL_PRED_ROWS);
+    refreshScannerSectorOptions(window.__INTEL_PRED_ROWS);
+    applyIntelligenceFilters();
+}
+
+function renderIntelligenceConsoleTable(rows) {
+    const content = document.getElementById('predictionsTableContent');
+    if (!content) return;
+    if (!rows || rows.length === 0) {
+        content.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;">No signals match the current filter.</p>';
+        return;
+    }
 
     const toNum = (v) => {
         const n = Number(v);
         return Number.isFinite(n) ? n : null;
     };
-    const cleanTarget = (v) => {
-        const n = toNum(v);
-        return n != null && n > 0 ? n : null;
-    };
-    const pct = (v) => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
-    const inr = (v) => v == null ? '—' : `₹${v.toFixed(2)}`;
-    const cls = (v) => v == null ? '' : (v >= 0 ? 'text-success' : 'text-danger');
-    const compactTrend = (raw) => {
-        const t = String(raw || 'NEUTRAL').toUpperCase().replace(/\s+/g, '_');
-        if (t.includes('NEUTRAL')) return 'NEUTRAL';
-        if (t.includes('VOLATILE')) return 'VOLATILE';
-        if (t.includes('TRENDING_BULL') || t.includes('BULL')) return 'BULLISH';
-        if (t.includes('BEAR')) return 'BEARISH';
-        if (t.includes('MOMO_UP')) return 'UPTREND';
-        if (t.includes('MOMO_DOWN')) return 'DOWNTREND';
-        return t.length > 12 ? t.slice(0, 12) : t;
-    };
-    const compactSignal = (raw) => {
-        const t = String(raw || 'HOLD').toUpperCase().replace(/\s+/g, '_');
-        if (t.includes('BUY') || t.includes('ADD') || t.includes('ACCUMULATE')) return 'ADD';
-        if (t.includes('SELL') || t.includes('REDUCE') || t.includes('DISTRIBUTE')) return 'REDUCE';
-        return 'HOLD';
-    };
-    const compactVol = (raw) => {
-        const v = String(raw || 'UNKNOWN').toUpperCase();
-        if (v.includes('HIGH')) return 'High vol';
-        if (v.includes('LOW')) return 'Low vol';
-        if (v.includes('MED')) return 'Med vol';
-        if (v.includes('NORMAL')) return 'Normal vol';
-        return 'Vol unknown';
-    };
-    const horizonFromPred = (stock, key) => {
-        const p = stock[`predictions${key}`] || (stock.predictions || {})[key] || {};
-        const current = toNum(stock.currentprice ?? stock.current_price);
-        let ret = toNum(p.returnpercent ?? p.return_percent);
-        let target = cleanTarget(p.targetprice ?? p.target_price);
-        if (ret == null && target != null && current != null && current > 0) {
-            ret = ((target - current) / current) * 100;
-        }
-        if (target == null && ret != null && current != null && current > 0) {
-            target = current * (1 + ret / 100);
-        }
-        return { ret, target };
-    };
-    const horizonFromTarget = (stock, key, predKey = null) => {
-        const current = toNum(stock.currentprice ?? stock.current_price);
-        let target = cleanTarget(stock[key]);
-        if (target == null && predKey) {
-            const pObj = stock[`predictions${predKey}`] || (stock.predictions || {})[predKey] || {};
-            const pRet = toNum(pObj.returnpercent ?? pObj.return_percent);
-            if (pRet != null && current != null && current > 0) {
-                target = current * (1 + pRet / 100);
-            }
-        }
-        if (target == null || current == null || current <= 0) return { ret: null, target };
-        return { ret: ((target - current) / current) * 100, target };
-    };
+    const fmtPct = (v) => (v == null ? '&mdash;' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
+    const fmtPrice = (v) => (v == null ? '&mdash;' : `₹${v.toFixed(2)}`);
+    const signClass = (v) => (v == null ? '' : (v >= 0 ? 'text-success' : 'text-danger'));
+    const hdr = (key, label, sortKey = key, withTip = true) => `<th${withTip ? ` data-intel-tip="${key}"` : ''} style="cursor:pointer;" onclick="sortLivePredictionsTable('${sortKey}')">${label} <i class="fas ${predSortIcon(sortKey)}"></i></th>`;
+    const cleanName = (value) => String(value || '').replace(/\.(NS|BO)$/i, '').trim();
+    const predictionContextLookup = getPredictionContextLookup();
 
-    const aiSizeBySymbol = new Map();
-    const opp = []
-        .concat(Array.isArray(window.AI_COGNITION?.opportunities) ? window.AI_COGNITION.opportunities : [])
-        .concat(Array.isArray(window.NEURAL_STATE?.opportunities) ? window.NEURAL_STATE.opportunities : []);
-    opp.forEach((o) => {
-        const base = String(o?.symbol || '').toUpperCase().replace('.NS', '').replace('.BO', '');
-        if (!base) return;
-        let size = toNum(o?.allocation_pct ?? o?.allocation ?? o?.weight_pct ?? o?.position_size);
-        if (size == null) return;
-        size = size <= 1 ? (size * 100) : size;
-        aiSizeBySymbol.set(base, Math.max(0, Math.min(100, size)));
-    });
+    const tableRows = rows.map((row) => {
+        const symbol = String(row?.symbol || '').replace('.NS', '').replace('.BO', '');
+        const canonicalSymbol = normalizePredictionSymbol(row?.symbol || symbol);
+        const pred = (typeof row?.prediction === 'object' && row.prediction) ? row.prediction : row;
+        const companyName = cleanName(row?.company_name || row?.name || pred?.company_name || pred?.name || '');
+        const displayName = companyName && companyName.toUpperCase() !== symbol.toUpperCase() ? companyName : '';
+        const current = toNum(row?.current_price ?? row?.currentprice ?? pred?.current_price);
+        const signal = String(pred?.signal || row?.signal || row?.ai_signal || 'HOLD').toUpperCase();
+        const confidence = Math.max(0, Math.min(100, toNum(pred?.confidence ?? row?.confidence ?? 0) || 0));
+        const edge = toNum(row?.predicted_return ?? pred?.predicted_return);
+        const aiSize = toNum(row?.ai_size ?? row?.recommended_position_size);
+        const sector = row?.sector || '';
+        const detail = {
+            company_profile: {
+                company_name: displayName || symbol,
+                sector,
+                pe_ratio: toNum(row?.pe_ratio ?? row?.pe ?? pred?.pe_ratio),
+                market_cap: row?.market_cap ?? row?.marketCap ?? pred?.market_cap,
+                volume: toNum(row?.volume ?? pred?.volume),
+                current_price: current,
+                target_price: toNum(pred?.target_price ?? row?.target_price),
+                risk_level: pred?.risk_level || row?.risk_level || 'UNKNOWN'
+            },
+            forecast_horizons: row?.forecast_horizons || {},
+            session_outlook: row?.session_outlook || {},
+            prediction_change: row?.prediction_change || {},
+            adaptive_ensemble: row?.adaptive_ensemble || {},
+            drift_intelligence: row?.drift_intelligence || {},
+            risk_intelligence: row?.risk_intelligence || {},
+            global_context: row?.global_context || {},
+            market_network: row?.market_network || {},
+            timing_intelligence: row?.timing_intelligence || {},
+            liquidity_intelligence: row?.liquidity_intelligence || {},
+            trap_intelligence: row?.trap_intelligence || {},
+            strategy_intelligence: row?.strategy_intelligence || {},
+            news_context: predictionContextLookup[canonicalSymbol] || {}
+        };
 
-    const formatReturnCell = (h) => {
-        if (!h || (h.ret == null && h.target == null)) return '<span style="color:var(--text-muted);">—</span>';
-        return `<div class="${cls(h.ret)}">${pct(h.ret)}</div><div style="font-size:0.8em;color:var(--text-secondary);">${inr(h.target)}</div>`;
-    };
-
-    const rows = predictionsData.map((stock) => {
-        const symbol = String(stock.symbol || '').replace('.NS', '').replace('.BO', '');
-        const name = stock.name || symbol;
-        const current = toNum(stock.currentprice ?? stock.current_price);
-        const h1d = horizonFromPred(stock, '1d');
-        const h15d = horizonFromPred(stock, '15d');
-        const h3m = horizonFromPred(stock, '3m');
-        const h6m = horizonFromTarget(stock, 'target_6m', '6m');
-        const h1y = horizonFromTarget(stock, 'target_1y', '1y');
-        const conf = Math.max(0, Math.min(100, toNum(stock.confidences15d ?? stock.confidence ?? stock.confidences?.['15d']) || 0));
-        const trendRaw = stock.marketconditions?.momentum || stock.market_conditions?.momentum || stock.market_regime || stock.regime || 'NEUTRAL';
-        const trend = compactTrend(trendRaw);
-        const signalRaw = stock.ai_signal || stock.action || stock.signal || 'HOLD';
-        const aiSignal = compactSignal(signalRaw);
-        const vol = compactVol(stock.marketconditions?.volatilitylevel || stock.market_conditions?.volatility_level || stock.risk_level);
-        const aiInline = toNum(stock.ai_size_pct ?? stock.allocation_pct ?? stock.weight_pct ?? stock.position_size ?? stock.ai_size);
-        const aiSize = aiSizeBySymbol.get(symbol.toUpperCase()) ?? (aiInline != null ? (aiInline <= 1 ? aiInline * 100 : aiInline) : null);
-        const aiText = aiSize != null ? `${Math.max(0, Math.min(100, aiSize)).toFixed(2)}%` : '--';
-        return { stock, symbol, name, current, h1d, h15d, h3m, h6m, h1y, conf, trend, aiSignal, vol, aiSize, aiText };
-    });
-
-    const sortCfg = window.__PRED_SORT || { key: 'confidence', direction: 'desc' };
-    const valueForSort = (r, key) => {
-        switch (key) {
-            case 'symbol': return r.symbol;
-            case 'current': return r.current;
-            case 'ret1d': return r.h1d?.ret;
-            case 'ret15d': return r.h15d?.ret;
-            case 'ret3m': return r.h3m?.ret;
-            case 'ret6m': return r.h6m?.ret;
-            case 'ret1y': return r.h1y?.ret;
-            case 'confidence': return r.conf;
-            case 'trend': return r.trend;
-            case 'ai_signal': return r.aiSignal;
-            case 'ai_size': return r.aiSize;
-            default: return r.symbol;
-        }
-    };
-    rows.sort((a, b) => {
-        const av = valueForSort(a, sortCfg.key);
-        const bv = valueForSort(b, sortCfg.key);
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        let cmp = 0;
-        if (typeof av === 'string' || typeof bv === 'string') cmp = String(av).localeCompare(String(bv));
-        else cmp = Number(av) - Number(bv);
-        return sortCfg.direction === 'asc' ? cmp : -cmp;
-    });
+        return `
+            <tr onclick="toggleXAIPanel('${symbol}')" style="cursor:pointer;" class="prediction-row intel-row">
+                <td>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                        <div class="stock-symbol">${symbol}</div>
+                        <button onclick="event.stopPropagation(); removeTicker('${row?.symbol || symbol}');" title="Remove ticker" style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.30);color:#ff4757;border-radius:999px;padding:4px 8px;font-size:10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"><i class="fas fa-trash" style="font-size:10px;"></i></button>
+                    </div>
+                    ${displayName ? `<div style="font-size:0.78em;color:var(--text-primary);font-weight:600;line-height:1.3;">${escapeHtml(displayName.length > 34 ? `${displayName.slice(0, 34)}...` : displayName)}</div>` : ''}
+                    ${sector ? `<div style="font-size:10px;color:var(--electric-purple);margin-top:2px;text-transform:capitalize;">${escapeHtml(sector)}</div>` : ''}
+                </td>
+                <td class="price">${fmtPrice(current)}</td>
+                <td><span class="signal-badge ${predBadgeClass(signal)}">${signal}</span></td>
+                <td>
+                    <div style="font-size:12px;font-weight:700;">${confidence.toFixed(1)}%</div>
+                    <div style="width:56px;height:5px;background:rgba(255,255,255,0.1);border-radius:3px;margin-top:3px;overflow:hidden;">
+                        <div style="width:${confidence}%;height:100%;background:${confidence >= 60 ? '#39ff14' : confidence >= 40 ? '#ffcc00' : '#ff4757'};"></div>
+                    </div>
+                </td>
+                <td>${renderReliabilityBadge(row?.signal_gate || signal, toNum(row?.reliability_score))}</td>
+                <td class="srs-grade" style="font-weight:bold; color:var(--electric-cyan);">
+                    ${letterGrade(row?.reliability_score)}
+                </td>
+                <td>${edge == null ? '<span style="color:var(--text-muted);">&mdash;</span>' : `<span class="${signClass(edge)}" style="font-weight:700;">${fmtPct(edge)}</span>`}</td>
+                <td>${renderDecisionBadge(row?.decision || signal)}</td>
+                <td>${renderScenarioMini(row?.scenarios)}</td>
+                <td>${aiSize == null ? '<span style="color:var(--text-muted);">&mdash;</span>' : `<span style="color:var(--electric-yellow);font-weight:700;font-size:12px;">${aiSize.toFixed(1)}%</span>`}</td>
+                <td class="portfolio-status" style="font-weight:600; color:var(--electric-green);">
+                    ${row?.portfolio_context?.is_held ? `✓ ${formatPercentValue(row?.position_size, 1)}` : '—'}
+                </td>
+                <td class="allocation-size" style="font-weight:600; color:var(--electric-cyan);">
+                    ${formatPercentValue(row?.allocation_percent ?? row?.position_size, 1)}
+                </td>
+            </tr>
+            ${renderXAIPanel(Array.isArray(row?.explain_drivers) ? row.explain_drivers : [], symbol, row?.stability || 'UNKNOWN', row?.macro_risk || 'LOW', detail)}
+        `;
+    }).join('');
 
     content.innerHTML = `
-        <table class="predictions-table">
+        <table class="predictions-table intel-console-table" style="width:100%;border-collapse:separate;border-spacing:0 3px;">
             <thead>
-                <tr>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('symbol')">Stock <i class="fas ${predSortIcon('symbol')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('current')">Current Price <i class="fas ${predSortIcon('current')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ret1d')">1D Target <i class="fas ${predSortIcon('ret1d')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ret15d')">15D Target <i class="fas ${predSortIcon('ret15d')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ret3m')">3M Target <i class="fas ${predSortIcon('ret3m')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ret6m')">6M Target <i class="fas ${predSortIcon('ret6m')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ret1y')">1Y Target <i class="fas ${predSortIcon('ret1y')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('confidence')">Confidence <i class="fas ${predSortIcon('confidence')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('trend')">Market Trend <i class="fas ${predSortIcon('trend')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ai_signal')">AI Signal <i class="fas ${predSortIcon('ai_signal')}"></i></th>
-                    <th style="cursor:pointer;" onclick="sortLivePredictionsTable('ai_size')">AI Size % <i class="fas ${predSortIcon('ai_size')}"></i></th>
+                <tr style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;">
+                    ${hdr('symbol', 'Symbol', 'symbol', false)}
+                    ${hdr('price', 'Price', 'current')}
+                    ${hdr('signal', 'Signal', 'signal')}
+                    ${hdr('confidence', 'Confidence', 'confidence')}
+                    ${hdr('srs', 'SRS', 'reliability')}
+                    ${hdr('edge', 'Edge', 'edge')}
+                    ${hdr('decision', 'Decision', 'decision')}
+                    ${hdr('scenario', 'Scenario', 'scenario')}
+                    ${hdr('ai_size', 'AI Size', 'ai_size')}
+                    ${hdr('portfolio', 'Portfolio', 'portfolio')}
+                    ${hdr('allocation', 'Sizing', 'allocation')}
                 </tr>
             </thead>
-            <tbody>
-                ${rows.map((r) => `
-                        <tr onclick="showStockDetails('${r.symbol}')" style="cursor:pointer;" class="prediction-row">
-                            <td>
-                                <div class="stock-symbol">${r.symbol}</div>
-                                <div style="font-size:0.8em;color:var(--text-secondary);">${r.name.length > 22 ? `${r.name.substring(0, 22)}...` : r.name}</div>
-                            </td>
-                            <td class="price">${inr(r.current)}</td>
-                            <td>${formatReturnCell(r.h1d)}</td>
-                            <td>${formatReturnCell(r.h15d)}</td>
-                            <td>${formatReturnCell(r.h3m)}</td>
-                            <td>${formatReturnCell(r.h6m)}</td>
-                            <td>${formatReturnCell(r.h1y)}</td>
-                            <td>
-                                <div class="confidence-bar" style="width:60px;height:8px;background:rgba(255,255,255,0.2);border-radius:4px;">
-                                    <div style="width:${r.conf}%;height:100%;background:var(--electric-green);border-radius:4px;"></div>
-                                </div>
-                                <div style="margin-top:2px;">${r.conf.toFixed(1)}%</div>
-                            </td>
-                            <td style="min-width:110px;">
-                                <span class="prediction-badge ${predBadgeClass(r.trend)}">${r.trend}</span>
-                                <div style="font-size:0.78em;color:var(--text-secondary);line-height:1.2;white-space:nowrap;">${r.vol}</div>
-                            </td>
-                            <td>
-                                <span class="prediction-badge ${predBadgeClass(r.aiSignal)}">${r.aiSignal}</span>
-                            </td>
-                            <td class="ai-size" style="font-weight:bold;color:var(--electric-yellow);">${r.aiText}</td>
-                        </tr>
-                    `).join('')}
-            </tbody>
+            <tbody>${tableRows}</tbody>
         </table>
     `;
-
-    if (CONFIG.DEBUG_MODE) console.log(`✅ Rendered ${rows.length} clickable prediction rows`);
-
+    ensurePredictionHeaderAssist();
+    ensureMetricTooltips();
 }
 
+// Final compatibility shim: any legacy call path now routes into the
+// single active intelligence renderer above.
+function _renderIntelligenceTable(rows) {
+    return renderIntelligenceConsoleTable(rows);
+}
 
+async function loadIntelligencePredictions() {
+    if (window.__INTEL_PRED_INFLIGHT) return false;
+    window.__INTEL_PRED_INFLIGHT = true;
+    try {
+        const intelligenceTimeout = Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5));
+        let payload = await api.fetch('/predictions/intelligence?top_n=100', {
+            cache: false,
+            timeout: intelligenceTimeout
+        });
+        let rows = normalizePredictionsForTable(payload?.rows || payload?.predictions || payload?.stocks || payload?.opportunities || []);
+        if (!rows.length) {
+            payload = await api.fetch('/predictions', {
+                cache: true,
+                timeout: CONFIG.TIMEOUT
+            });
+            rows = normalizePredictionsForTable(payload);
+        }
+        if (!rows.length) {
+            rows = getLivePredictionRowsFromState();
+            payload = payload || {};
+        }
+        rows = await mergePinnedPredictionRows(rows);
+        if (!rows.length) {
+            if (isTabActive('predictions')) displayLivePredictions([]);
+            renderPredictionsWorldState(true);
+            return false;
+        }
+        dashState.predictions = rows;
+        dashState.lastUpdate.predictions = Date.now();
+        updatePredictionCards({
+            ...(payload || {}),
+            stocks: rows,
+            predictions: rows,
+            global_accuracy: payload?.global_accuracy,
+            models_active: payload?.models_active,
+            market_regime: payload?.market_regime || payload?.macro_context?.dominant_regime
+        });
+        if (isTabActive('predictions')) displayLivePredictions(rows);
+        renderPredictionsWorldState(true);
+        if (document.getElementById('aiCognitivePanel')) {
+            renderCognitivePanel(buildCognitiveFallbackState(window.NEURAL_STATE || {}));
+        }
+        return true;
+    } catch (error) {
+        console.warn('Intelligence predictions load failed:', error);
+        const fallbackRows = getLivePredictionRowsFromState();
+        if (fallbackRows.length) {
+            dashState.predictions = fallbackRows;
+            if (isTabActive('predictions')) displayLivePredictions(fallbackRows);
+            renderPredictionsWorldState(true);
+            if (document.getElementById('aiCognitivePanel')) {
+                renderCognitivePanel(buildCognitiveFallbackState(window.NEURAL_STATE || {}));
+            }
+            return true;
+        }
+        if (isTabActive('predictions')) displayLivePredictions([]);
+        return false;
+    } finally {
+        window.__INTEL_PRED_INFLIGHT = false;
+    }
+}
+
+const loadPredictionsBase = loadPredictions;
+loadPredictions = async function () {
+    const ok = await loadIntelligencePredictions();
+    if (ok) return true;
+    return loadPredictionsBase();
+};
+
+addPredictionCard = async function (symbol) {
+    try {
+        const normalizedSymbol = normalizePredictionSymbol(symbol);
+        if (!normalizedSymbol) return;
+        dashState._predictionTickerFailures = dashState._predictionTickerFailures || {};
+        delete dashState._predictionTickerFailures[normalizedSymbol];
+        dashState.hiddenTickers = (dashState.hiddenTickers || []).filter((item) => normalizePredictionSymbol(item) !== normalizedSymbol);
+        if (dashState.userTickers.includes(normalizedSymbol)) {
+            showToast(`${normalizedSymbol} is already in Predictions`, 'info');
+            return;
+        }
+        dashState.userTickers.push(normalizedSymbol);
+        await syncTickers();
+        if (typeof loadIntelligencePredictions === 'function') {
+            await loadIntelligencePredictions();
+        } else if (typeof loadPredictions === 'function') {
+            await loadPredictions();
+        }
+        showToast(`${normalizedSymbol} added to Predictions`, 'success');
+    } catch (err) {
+        console.error(`Add ticker failed for ${symbol}: `, err);
+        showToast(`Failed to add ${normalizePredictionSymbol(symbol) || 'ticker'}`, 'error');
+    }
+};
+
+removeTicker = function (symbol, cardElement) {
+    symbol = normalizePredictionSymbol(symbol);
+    if (!symbol) return;
+    const existed = dashState.userTickers.includes(symbol) || (window.__PRED_LIVE_ROWS || []).some((row) => normalizePredictionSymbol(row?.symbol) === symbol);
+    if (dashState.userTickers.includes(symbol)) {
+        dashState.userTickers = dashState.userTickers.filter(s => s !== symbol);
+    }
+    if (!dashState.hiddenTickers.includes(symbol)) {
+        dashState.hiddenTickers.push(symbol);
+    }
+    window.__PRED_LIVE_ROWS = (window.__PRED_LIVE_ROWS || []).filter((row) => normalizePredictionSymbol(row?.symbol) !== symbol);
+    window.__INTEL_PRED_ROWS = (window.__INTEL_PRED_ROWS || []).filter((row) => normalizePredictionSymbol(row?.symbol) !== symbol);
+    if (cardElement) cardElement.remove();
+    syncTickers().finally(() => {
+        if (typeof loadIntelligencePredictions === 'function') {
+            loadIntelligencePredictions();
+        }
+        showToast(existed ? `${symbol} removed from Predictions` : `${symbol} hidden from Predictions`, 'success');
+    });
+};
+
+window.applyIntelligenceFilters = applyIntelligenceFilters;
+window.loadIntelligencePredictions = loadIntelligencePredictions;
 
 // ============================================================================
 
@@ -6949,10 +9470,9 @@ async function startAutoRefresh() {
                 await loadDashboard();
             }
 
-            const hasPortfolio = Boolean((window.NEURAL_STATE?.portfolio_intelligence?.positions || []).length);
             const stocksLast = Number(dashState?.lastUpdate?.stocks || 0);
             const due = (Date.now() - stocksLast) >= (CONFIG.REFRESH_INTERVALS.stocks - 1000);
-            if ((dashboardActive || predictionsActive || wsDisconnected) && hasPortfolio && due) {
+            if ((dashboardActive || predictionsActive || wsDisconnected) && due) {
                 await safeInit(loadStocks);
             }
             const predsLast = Number(dashState?.lastUpdate?.predictions || 0);
@@ -6997,6 +9517,20 @@ async function startAutoRefresh() {
 
 
 async function initialize() {
+    const bootStartedAt = Date.now();
+
+    // START LOADER IMMEDIATELY - deterministic, no event-timing dependency
+    window.__DASHBOARD_BOOTSTRAP_READY = false;
+    window.__DASHBOARD_BOOTSTRAP_HIDDEN = false;
+    if (typeof integrateLoaderSequence === 'function') integrateLoaderSequence();
+    window.setTimeout(() => {
+        if (!window.__DASHBOARD_BOOTSTRAP_HIDDEN) {
+            console.warn('⚠️ Initialization timed out, forcing UI display');
+            window.__DASHBOARD_BOOTSTRAP_READY = true;
+            hideLoader();
+            window.__DASHBOARD_BOOTSTRAP_HIDDEN = true;
+        }
+    }, 8000);
 
     console.log('🚀 NEXUS QUANTUM AI v13.0 Starting...');
 
@@ -7010,29 +9544,27 @@ async function initialize() {
 
 
 
-    // Phase-1 critical boot: keep backend pressure low so first paint is reliable.
-    const results = await Promise.allSettled([
-        loadDashboard(),
-        loadStocks()
+    // Phase-1 critical boot: first paint should not wait for every slow endpoint.
+    await safeInit(loadDashboard);
+    const minLoaderVisibleMs = 2200;
+    const elapsed = Date.now() - bootStartedAt;
+    if (elapsed < minLoaderVisibleMs) {
+        await new Promise((resolve) => setTimeout(resolve, minLoaderVisibleMs - elapsed));
+    }
+    window.__DASHBOARD_BOOTSTRAP_READY = true;
+    if (!window.__DASHBOARD_BOOTSTRAP_HIDDEN) {
+        hideLoader();
+        window.__DASHBOARD_BOOTSTRAP_HIDDEN = true;
+    }
+
+    // Phase-2 modules: start in parallel without blocking UI.
+    Promise.allSettled([
+        safeInit(loadStocks),
+        safeInit(loadPortfolioState),
+        safeInit(loadPredictions),
+        safeInit(loadAnalytics),
+        safeInit(loadNews)
     ]);
-
-    // Phase-2 non-critical modules: start after core data is in place.
-    await safeInit(loadPortfolioState);
-    await safeInit(loadPredictions);
-    await safeInit(loadAnalytics);
-    await safeInit(loadNews);
-
-    // Check for failures and hide loader after 5s anyway to ensure usability
-    setTimeout(() => {
-        const loader = document.getElementById('globalLoader');
-        if (loader && !loader.classList.contains('hidden')) {
-            console.warn('⚠️ Initialization timed out, forcing UI display');
-            loader.style.opacity = '0';
-            setTimeout(() => loader.classList.add('hidden'), 500);
-        }
-    }, 5000);
-
-
 
     // Setup search
 
@@ -7066,11 +9598,19 @@ async function initialize() {
 
 if (document.readyState === 'loading') {
 
-    document.addEventListener('DOMContentLoaded', initialize);
+    document.addEventListener('DOMContentLoaded', () => {
+        initialize().catch((error) => {
+            console.error('Initialization failed:', error);
+            hideLoader();
+        });
+    });
 
 } else {
 
-    initialize();
+    initialize().catch((error) => {
+        console.error('Initialization failed:', error);
+        hideLoader();
+    });
 
 }
 
@@ -7144,6 +9684,7 @@ async function showIntelligence(symbol) {
     loader.classList.remove('hidden');
 
     loaderFill.style.width = '0%';
+    loaderFill.style.background = '';
 
 
 
@@ -7217,9 +9758,20 @@ async function showIntelligence(symbol) {
 
         console.error('[ERROR] Cockpit Link Failed:', error);
 
-        statusText.textContent = `LINK FAILURE: ${error.message} `;
-
+        const fallbackMessage = 'INTELLIGENCE OFFLINE — showing fallback view.';
+        statusText.textContent = `LINK FAILURE: ${error.message}`;
         loaderFill.style.background = 'var(--electric-red)';
+        loader.classList.add('hidden');
+        display.classList.remove('hidden');
+
+        let offlineNotice = document.getElementById('cockpitOfflineNotice');
+        if (!offlineNotice) {
+            offlineNotice = document.createElement('div');
+            offlineNotice.id = 'cockpitOfflineNotice';
+            offlineNotice.style.cssText = 'color: var(--electric-red); font-size:12px; text-align:center; margin-bottom:1rem;';
+            display.prepend(offlineNotice);
+        }
+        offlineNotice.textContent = fallbackMessage;
 
     }
 
@@ -7540,7 +10092,12 @@ function renderMarketSentiment() {
                 </div>
                 
                 <!-- Confidence heatmap -->
-        <div class="confidence-heatmap" id="marketHeatmap" style="display:flex; gap:2px; height:8px; width:100%; margin-top:0.5rem; background:rgba(255,255,255,0.05); border-radius:4px; overflow:hidden;">
+        <div class="confidence-heatmap" id="marketHeatmap" style="display:flex; gap:2px; height:8px; width:100%; margin-top:0.5rem; background:rgba(255,255,255,0.05); border-radius:4px; overflow:hidden;"></div>
+        <div class="news-intel-quickbar" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.75rem; margin-top:0.25rem;">
+            <div><div style="color:var(--text-secondary); font-size:0.75em;">IAS</div><div id="marketIASValue" style="font-weight:700; color:var(--electric-cyan);">â€”</div></div>
+            <div><div style="color:var(--text-secondary); font-size:0.75em;">Narrative</div><div id="marketNarrativeFocus" style="font-weight:700; color:var(--electric-pink);">â€”</div></div>
+            <div><div style="color:var(--text-secondary); font-size:0.75em;">Next Event</div><div id="marketNextEvent" style="font-weight:700; color:var(--electric-yellow);">â€”</div></div>
+            <div><div style="color:var(--text-secondary); font-size:0.75em;">Regime</div><div id="marketNewsRegime" style="font-weight:700; color:var(--electric-green);">â€”</div></div>
         </div>
             </div>
         `;
@@ -7551,6 +10108,10 @@ function renderMarketSentiment() {
     const labelEl = document.getElementById('marketSentimentLabel');
     const artsEl = document.getElementById('marketSentimentArticles');
     const heatmapEl = document.getElementById('marketHeatmap');
+    const iasEl = document.getElementById('marketIASValue');
+    const narrativeEl = document.getElementById('marketNarrativeFocus');
+    const nextEventEl = document.getElementById('marketNextEvent');
+    const regimeEl = document.getElementById('marketNewsRegime');
 
     // ✅ ARTICLES COUNT
     if (artsEl) artsEl.innerText = Number(s.total_articles || 0);
@@ -7576,8 +10137,187 @@ function renderMarketSentiment() {
             </div>
         `).join('');
     }
+
+    if (iasEl) {
+        const ias = Number(dashState?.infoAdvantage?.score);
+        iasEl.textContent = Number.isFinite(ias) ? `${Math.round(ias * 100)}% ${humanizeToken(dashState?.infoAdvantage?.label)}` : 'â€”';
+    }
+    if (narrativeEl) {
+        narrativeEl.textContent = humanizeToken(dashState?.newsIntelligence?.narrative_focus || dashState?.newsNarratives?.[0]?.label || 'None');
+    }
+    if (nextEventEl) {
+        const nextEvent = dashState?.newsIntelligence?.next_market_event || {};
+        nextEventEl.textContent = nextEvent.label ? `${nextEvent.label}: ${nextEvent.bias || '--'}` : 'â€”';
+    }
+    if (regimeEl) {
+        regimeEl.textContent = humanizeToken(dashState?.newsIntelligence?.market_regime || 'Unknown');
+    }
 }
 
+
+function renderNarrativeInsightBlock() {
+    const narratives = Array.isArray(dashState.newsNarrativeMomentum) ? dashState.newsNarrativeMomentum.slice(0, 4) : [];
+    if (!narratives.length) return '';
+    return `
+        <section class="news-intel-block">
+            <h3 class="news-intel-title">Narrative Insights</h3>
+            <div class="news-intel-grid">
+                ${narratives.map((item) => `
+                    <article class="news-intel-card">
+                        <div class="news-intel-card-kicker">${escapeHtml(humanizeToken(item.momentum))}</div>
+                        <div class="news-intel-card-title">${escapeHtml(item.label || 'Narrative')}</div>
+                        <div class="news-intel-card-meta">Coverage ${Number(item.coverage || 0)} · Spread ${Number(item.spread || 0)}</div>
+                        <div class="news-intel-card-score">${Math.round(Number(item.score || 0) * 100)}%</div>
+                    </article>
+                `).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function getRankedNewsArticles() {
+    const articles = Array.isArray(dashState.news) ? dashState.news.slice() : [];
+    const query = String(window.__NEWS_QUERY || '').trim().toLowerCase();
+    return articles
+        .filter((item) => item && item.title)
+        .filter((item) => {
+            if (!query) return true;
+            const blob = [
+                item?.title,
+                item?.narrative,
+                item?.event_type,
+                item?.sector,
+                ...(Array.isArray(item?.affected_sectors) ? item.affected_sectors : [])
+            ].join(' ').toLowerCase();
+            return blob.includes(query);
+        })
+        .sort((a, b) => {
+            const impactA = Number(a?.impact_score ?? a?.impact_strength ?? 0);
+            const impactB = Number(b?.impact_score ?? b?.impact_strength ?? 0);
+            const freshA = Number(a?.freshness ?? 0);
+            const freshB = Number(b?.freshness ?? 0);
+            const relA = Number(a?.relevance ?? 0);
+            const relB = Number(b?.relevance ?? 0);
+            return (impactB - impactA) || (freshB - freshA) || (relB - relA);
+        });
+}
+
+function renderNewsCompactCard(article) {
+    const headline = escapeHtml(String(article?.title || 'Untitled'));
+    const impact = Number(article?.impact_score ?? article?.impact_strength ?? 0);
+    const sentimentScore = Number(article?.sentiment_score ?? 0);
+    const sentimentText = String(article?.sentiment || 'neutral').toUpperCase();
+    const sector = escapeHtml(String(article?.sector || article?.affected_sectors?.[0] || 'GENERAL'));
+    const eventType = escapeHtml(humanizeToken(article?.event_type || 'GENERAL'));
+    const publishedTime = formatNewsAge(article?.normalized_time || article?.published || article?.timestamp || '');
+    const impactPct = Math.round(Math.max(0, Math.min(1, impact)) * 100);
+    const sentimentColor = sentimentScore > 0.05 ? 'var(--electric-green)' : sentimentScore < -0.05 ? 'var(--electric-red)' : 'var(--electric-yellow)';
+    const impactColor = impactPct >= 70 ? 'var(--electric-red)' : impactPct >= 40 ? 'var(--electric-yellow)' : 'var(--electric-cyan)';
+    const href = escapeHtml(String(article?.url || '#'));
+
+    return `
+        <article class="news-intel-card" onclick="openNewsCard('${href}')" style="display:grid; gap:8px; cursor:${article?.url ? 'pointer' : 'default'};">
+            <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
+                <div style="color:var(--text-primary); font-weight:700; line-height:1.35;">${headline}</div>
+                <div style="white-space:nowrap; color:${impactColor}; font-weight:800;">${impactPct}%</div>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; font-size:10px;">
+                <span class="prediction-badge" style="border-color:${impactColor}; color:${impactColor};">${eventType}</span>
+                <span class="prediction-badge" style="border-color:${sentimentColor}; color:${sentimentColor};">${sentimentText}</span>
+                <span class="prediction-badge" style="border-color:var(--electric-purple); color:var(--electric-purple);">${sector}</span>
+                <span class="prediction-badge" style="border-color:rgba(255,255,255,0.18); color:var(--text-secondary);">${publishedTime}</span>
+            </div>
+        </article>
+    `;
+}
+
+function renderTopImpactNewsBlock() {
+    const topNews = getRankedNewsArticles().slice(0, 12);
+    if (!topNews.length) return '';
+    return `
+        <section class="news-intel-block">
+            <h3 class="news-intel-title">Top Impact News</h3>
+            <div class="news-intel-grid">
+                ${topNews.map(renderNewsCompactCard).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderSectorNewsBlock() {
+    const sectorwise = dashState.newsSectorwise || {};
+    const sectorEntries = Object.entries(sectorwise)
+        .map(([sector, articles]) => {
+            const rows = Array.isArray(articles) ? articles : [];
+            const ranked = rows.slice().sort((a, b) => Number(b?.impact_score ?? 0) - Number(a?.impact_score ?? 0));
+            const score = ranked.length ? ranked.reduce((sum, item) => sum + Number(item?.impact_score ?? 0), 0) / ranked.length : 0;
+            return [sector, ranked, score];
+        })
+        .filter(([, rows]) => rows.length)
+        .sort((a, b) => b[2] - a[2])
+        .slice(0, 8);
+    if (!sectorEntries.length) return '';
+    return `
+        <section class="news-intel-block">
+            <h3 class="news-intel-title">Sector Impact Map</h3>
+            <div class="news-intel-grid">
+                ${sectorEntries.map(([sector, rows, score]) => `
+                    <article class="news-intel-card">
+                        <div class="news-intel-card-kicker">${escapeHtml(sector)}</div>
+                        <div class="news-intel-card-title">${escapeHtml(rows[0]?.title || 'No active narrative')}</div>
+                        <div class="news-intel-card-meta">${rows.length} mapped items · ${(score * 100).toFixed(0)}% avg impact</div>
+                    </article>
+                `).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderNewsCommandBar() {
+    const total = getRankedNewsArticles().length;
+    return `
+        <section class="news-intel-block" style="padding:10px 12px;">
+            <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <div class="search-box intel-ticker-search" style="min-width:280px;">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="newsImpactSearch" placeholder="Search headline, sector, event, narrative" value="${escapeHtml(String(window.__NEWS_QUERY || ''))}" />
+                    </div>
+                    <div style="font-size:11px; color:var(--text-secondary);">
+                        ${total} live item${total === 1 ? '' : 's'} ranked by impact, freshness, and relevance
+                    </div>
+                </div>
+                <div style="font-size:11px; color:var(--electric-cyan); font-weight:700;">
+                    Hot flow: ${escapeHtml(humanizeToken(dashState?.newsIntelligence?.narrative_focus || dashState?.newsNarratives?.[0]?.label || 'Scanning'))}
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function renderPortfolioAlertsBlock() {
+    const alerts = Array.isArray(dashState.portfolioNewsAlerts) ? dashState.portfolioNewsAlerts.slice(0, 6) : [];
+    if (!alerts.length) return '';
+    return `
+        <section class="news-intel-block">
+            <h3 class="news-intel-title">Portfolio Alerts</h3>
+            <div class="news-alert-list">
+                ${alerts.map((alert) => `
+                    <div class="news-alert-row">
+                        <div class="news-alert-symbols">${escapeHtml((alert.symbols || []).join(', '))}</div>
+                        <div class="news-alert-headline">${escapeHtml(alert.headline || 'Portfolio narrative update')}</div>
+                        <div class="news-alert-meta">${escapeHtml(humanizeToken(alert.event_type || 'General'))} · ${Math.round(Number(alert.impact_score || 0) * 100)}%</div>
+                    </div>
+                `).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderShockPropagationBlock() {
+    // Cross-Market Shock space reallocated for additional news content
+    return '';
+}
 
 function renderNews() {
     const container = document.getElementById('newsContent');
@@ -7597,43 +10337,47 @@ function renderNews() {
     }
 
     if (!Array.isArray(dashState.news) || dashState.news.length === 0) {
+        list.innerHTML = `
+            ${renderNewsCommandBar()}
+            ${renderNarrativeInsightBlock()}
+            ${renderPortfolioAlertsBlock()}
+            ${renderShockPropagationBlock()}
+        `;
+        bindNewsSearch();
         return;
     }
 
-    list.innerHTML = '';
+    list.innerHTML = `
+        <div class="news-intel-layout">
+            ${renderNewsCommandBar()}
+            ${renderTopImpactNewsBlock()}
+            ${renderNarrativeInsightBlock()}
+            ${renderSectorNewsBlock()}
+            ${renderPortfolioAlertsBlock()}
+            ${renderShockPropagationBlock()}
+        </div>
+    `;
+    bindNewsSearch();
+}
 
-    const topNews = dashState.news.slice(0, 35);
-    const sectorWise = dashState.newsSectorwise || {};
-
-    // 🔥 Top News
-    if (topNews.length) {
-        const h = document.createElement('h3');
-        h.textContent = 'Top Market News';
-        h.style.color = 'var(--electric-orange)';
-        list.appendChild(h);
-
-        topNews.forEach(a => {
-            list.insertAdjacentHTML('beforeend', renderNewsCard(a));
-        });
-    }
-
-    // 🧠 Sector Intelligence
-    Object.entries(sectorWise).forEach(([sector, articles]) => {
-        if (!Array.isArray(articles) || articles.length === 0) return;
-
-        const h = document.createElement('h3');
-        h.textContent = `${sector} Sector`;
-        h.style.color = 'var(--text-secondary)';
-        h.style.marginTop = '1.5rem';
-        list.appendChild(h);
-
-        articles.slice(0, 5).forEach(a => {
-            list.insertAdjacentHTML('beforeend', renderNewsCard(a));
-        });
+function bindNewsSearch() {
+    const input = document.getElementById('newsImpactSearch');
+    if (!input || input.dataset.bound === 'true') return;
+    input.dataset.bound = 'true';
+    input.addEventListener('input', (event) => {
+        window.__NEWS_QUERY = event.target.value || '';
+        renderNews();
     });
 }
 
-function renderNewsCard(article) {
+function openNewsCard(url) {
+    const href = String(url || '').trim();
+    if (!href || href === '#') return;
+    window.open(href, '_blank', 'noopener,noreferrer');
+}
+window.openNewsCard = openNewsCard;
+
+function _renderNewsCardLegacyUnused(article) {
     const publishedTime = article.normalized_time
         ? new Date(article.normalized_time).toLocaleString()
         : 'Time unknown';
@@ -7821,12 +10565,14 @@ function updateLoader(progress, status) {
 
 function hideLoader() {
     const loader = document.getElementById('globalLoader');
-    if (loader) {
+    if (loader && loader.dataset.loaderHidden !== '1') {
+        loader.dataset.loaderHidden = '1';
         loader.style.transition = 'opacity 0.8s ease, visibility 0.8s';
         loader.style.opacity = '0';
         setTimeout(() => {
             loader.style.visibility = 'hidden';
             loader.style.display = 'none';
+            loader.classList.add('hidden');
             console.log("🧠 Neural Interface Synced (Loader Hidden)");
         }, 800);
     }
@@ -7834,6 +10580,9 @@ function hideLoader() {
 
 // Loader integration hook - call from initialize()
 function integrateLoaderSequence() {
+    if (window.__LOADER_SEQUENCE_STARTED) return;
+    window.__LOADER_SEQUENCE_STARTED = true;
+
     updateLoader(20, "Establishing Neural Link...");
 
     setTimeout(() => updateLoader(40, "Loading Market Intelligence..."), 400);
@@ -7841,14 +10590,15 @@ function integrateLoaderSequence() {
     setTimeout(() => updateLoader(80, "Calibrating Quantum Predictions..."), 1200);
     setTimeout(() => {
         updateLoader(100, "Deep Restoration Complete");
-        setTimeout(hideLoader, 500);
     }, 1800);
 }
 
-// Auto-start loader sequence when DOM ready
-document.addEventListener('DOMContentLoaded', () => {
+// Auto-start loader - guard: app.js loads at bottom of body so DOMContentLoaded may have already fired
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', integrateLoaderSequence);
+} else {
     integrateLoaderSequence();
-});
+}
 
 // ============================================================================
 // PROFESSIONAL COCKPIT - RESEARCH AI TAB
@@ -8227,8 +10977,15 @@ function drawCockpitChart(prediction) {
         cockpitChart.destroy();
     }
 
-    // Generate price data from prediction
-    const priceHistory = prediction.price_history || generatePriceData(prediction.current_price || 1000);
+    // Use only real price history supplied by the model or API.
+    const priceHistory = Array.isArray(prediction.price_history) && prediction.price_history.length
+        ? prediction.price_history
+        : Array.isArray(prediction.history) && prediction.history.length
+            ? prediction.history
+            : [];
+    if (!priceHistory.length) {
+        return;
+    }
 
     cockpitChart = new Chart(ctx, {
         type: 'line',
@@ -8264,15 +11021,9 @@ function drawCockpitChart(prediction) {
     });
 }
 
-// Generate mock price data
+// Real-history fallback intentionally returns no synthetic series.
 function generatePriceData(basePrice) {
-    const data = [];
-    let price = basePrice;
-    for (let i = 0; i < 30; i++) {
-        price = price * (1 + (Math.random() - 0.48) * 0.02);
-        data.push(price);
-    }
-    return data;
+    return [];
 }
 
 // Helper functions
@@ -8385,17 +11136,21 @@ function startCognitionStream() {
     cognitionSocket.on('cognition_update', cognitionUpdateHandler);
 
     // Initial fetch to populate immediately
-    fetch('/api/system/cognition')
-        .then(r => r.json())
+    api.fetch('/system/cognition', { cache: false, timeout: Math.max(1, Math.floor(CONFIG.TIMEOUT * 0.5)) })
         .then(json => {
             // Handle both wrapped {success: true, data: ...} and direct object
             const data = (json.success && json.data) ? json.data : json;
-            if (data && data.opportunities) {
+            if (data && (data.opportunities || data.market_state)) {
                 window.AI_COGNITION = data; // Cache initial load
                 renderCognitivePanel(data);
+            } else {
+                renderCognitivePanel(buildCognitiveFallbackState(window.NEURAL_STATE || {}));
             }
         })
-        .catch(e => console.error('Initial cognition fetch failed:', e));
+        .catch(e => {
+            console.error('Initial cognition fetch failed:', e);
+            renderCognitivePanel(buildCognitiveFallbackState(window.NEURAL_STATE || {}));
+        });
 }
 
 function stopCognitionStream() {
@@ -8413,17 +11168,63 @@ function stopCognitionStream() {
 }
 
 
+function buildCognitiveFallbackState(state) {
+    const predictions = Array.isArray(dashState.predictions) ? dashState.predictions : [];
+    const marketSentiment = dashState.marketSentiment || {};
+    const systemConfidence = predictions.length
+        ? predictions.reduce((sum, row) => sum + Number(row?.confidence ?? row?.confidences15d ?? row?.prediction?.confidence ?? 0), 0) / predictions.length
+        : Number(state?.ai_performance?.prediction_accuracy || 0);
+
+    const opportunities = predictions
+        .slice()
+        .sort((a, b) => Number(b?.opportunity_score ?? b?.reliability_score ?? b?.confidence ?? 0) - Number(a?.opportunity_score ?? a?.reliability_score ?? a?.confidence ?? 0))
+        .slice(0, 10)
+        .map((row, index) => {
+            const signal = String(row?.decision || row?.signal || row?.ai_signal || row?.prediction?.signal || 'HOLD').toUpperCase();
+            return {
+                rank: index + 1,
+                symbol: String(row?.symbol || '').replace('.NS', '').replace('.BO', ''),
+                edge: `${Number(row?.predicted_return ?? row?.prediction?.predicted_return ?? 0).toFixed(2)}%`,
+                agreement: Math.max(0, Math.min(1, Number(row?.reliability_score ?? 0) / 100)),
+                risk: Number(row?.volatility ?? row?.prediction?.volatility ?? 0).toFixed(2),
+                allocation_pct: Number(row?.ai_size ?? row?.ai_size_pct ?? 0).toFixed(1),
+                action: signal
+            };
+        });
+
+    const consensus = opportunities.slice(0, 5).map((item) => ({
+        symbol: item.symbol,
+        direction: /BUY|ENTER|ADD/.test(item.action) ? 'UP' : /SELL|EXIT|REDUCE/.test(item.action) ? 'DOWN' : 'FLAT',
+        agreement: item.agreement,
+        confidence: Math.round(item.agreement * 100)
+    }));
+
+    return {
+        market_state: {
+            regime: state?.ai_engine?.regime || state?.market_state?.regime || document.getElementById('marketRegimeValue')?.textContent?.trim() || 'UNKNOWN',
+            volatility: Number(state?.ai_engine?.volatility ?? state?.market_state?.volatility ?? 0).toFixed(2),
+            ai_mode: state?.ai_mode || state?.market_state?.ai_mode || '--',
+            system_confidence: Number(systemConfidence || 0).toFixed(1)
+        },
+        consensus,
+        opportunities,
+        market_sentiment: marketSentiment
+    };
+}
+
+
 function renderCognitivePanel(state) {
     const container = document.getElementById('aiCognitivePanel');
     if (!container) return;
 
-    if (!state || !state.market_state) {
-        container.innerHTML = '<div class="panel-loading">Waiting for Neural Link...</div>';
+    const effectiveState = (state && state.market_state) ? state : buildCognitiveFallbackState(window.NEURAL_STATE || {});
+    if (!effectiveState || !effectiveState.market_state) {
+        container.innerHTML = '<div class="panel-loading">Live intelligence is syncing...</div>';
         return;
     }
 
     // Module 1: Signal Consensus
-    const consensusRows = state.consensus ? state.consensus.slice(0, 5).map(item => `
+    const consensusRows = effectiveState.consensus ? effectiveState.consensus.slice(0, 5).map(item => `
         <tr >
             <td style="color:var(--text-primary); font-weight:700;">${item.symbol}</td>
             <td style="color:${item.direction === 'UP' ? 'var(--electric-green)' : item.direction === 'DOWN' ? 'var(--electric-red)' : 'var(--text-secondary)'}">${item.direction}</td>
@@ -8459,7 +11260,7 @@ function renderCognitivePanel(state) {
         `;
 
     // Module 2: Market State Engine
-    const ms = state.market_state;
+    const ms = effectiveState.market_state;
     const regimeColor = ms.regime.includes('BULL') ? 'var(--electric-green)' :
         ms.regime.includes('VOLATILE') ? 'var(--electric-yellow)' :
             ms.regime.includes('STABLE') ? 'var(--electric-blue)' : 'var(--electric-purple)';
@@ -8492,7 +11293,7 @@ function renderCognitivePanel(state) {
         `;
 
     // Module 3: Opportunity Radar
-    const oppRows = state.opportunities ? state.opportunities.slice(0, 10).map(opp => `
+    const oppRows = effectiveState.opportunities ? effectiveState.opportunities.slice(0, 10).map(opp => `
         <div class="opp-row action-${opp.action}" style="display: grid; grid-template-columns: 0.4fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.6fr; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
             <div class="opp-rank" style="color:var(--text-secondary); font-size:10px;">#${opp.rank}</div>
             <div class="opp-symbol" style="font-weight:bold; color:var(--text-primary);">${opp.symbol}</div>

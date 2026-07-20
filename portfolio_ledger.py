@@ -1,4 +1,7 @@
 
+# -*- coding: utf-8 -*-
+from utils import encoding
+
 class PortfolioLedger:
     """
     STRICT LEDGER LAYER

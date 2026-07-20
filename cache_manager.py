@@ -3,6 +3,8 @@
 NEXUS AI QUANTUM™ - Enhanced Cache Manager
 """
 
+from utils import encoding
+
 import time
 import json
 from functools import wraps

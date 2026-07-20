@@ -5,6 +5,9 @@ LSTM/Transformer Models + SHAP/LIME Explainability
 Copyright © 2025 Future Financial AI. All rights reserved.
 """
 
+# -*- coding: utf-8 -*-
+from utils import encoding
+
 import pandas as pd
 import numpy as np
 import warnings

@@ -3,6 +3,9 @@
 NEXUS AI QUANTUM™ - Dynamic Database Manager
 """
 
+from utils import encoding
+
+import sys
 import sqlite3
 import os
 import json
@@ -14,12 +17,11 @@ import requests  # For optional automatic symbol info fetching
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
 
 class DatabaseManager:
     _initialized = False
@@ -36,7 +38,8 @@ class DatabaseManager:
 
     @contextmanager
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
+        # ensure the connection uses UTF-8-compatible text handling
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -207,7 +210,7 @@ class DatabaseManager:
         qty = float(agg['qty'] or 0)
         cost = float(agg['cost'] or 0)
         first_buy_date = agg['first_buy_date'] or datetime.now().isoformat()
-        if qty <= 0:
+        if qty <= 1e-9:
             conn.execute('DELETE FROM portfolio WHERE symbol = ?', (symbol,))
             return
         avg_price = (cost / qty) if qty > 0 else 0.0
@@ -249,6 +252,10 @@ class DatabaseManager:
             raise ValueError("avg_price must be > 0")
         trade_date = self._to_iso_datetime(purchase_date)
         now_iso = datetime.now().isoformat()
+        
+        # Future date validation
+        if trade_date > now_iso:
+            raise ValueError(f"Purchase date {trade_date} cannot be in the future (current time: {now_iso})")
         with self.get_connection() as conn:
             cur = conn.execute(
                 '''
@@ -331,6 +338,11 @@ class DatabaseManager:
 
         sell_dt = self._to_iso_datetime(sell_date)
         now_iso = datetime.now().isoformat()
+        
+        # Future date validation
+        if sell_dt > now_iso:
+            raise ValueError(f"Sell date {sell_dt} cannot be in the future (current time: {now_iso})")
+        
         with self.get_connection() as conn:
             order_clause = 'buy_date ASC'
             if method == 'LIFO':
@@ -430,17 +442,20 @@ class DatabaseManager:
 
     def remove_from_portfolio(self, symbol):
         symbol = symbol.upper().strip()
+        # Create a list of potential variations to ensure thorough deletion
+        variations = [symbol]
+        if not symbol.endswith(('.NS', '.BO')):
+            variations.extend([f"{symbol}.NS", f"{symbol}.BO"])
+        else:
+            variations.append(symbol.replace(".NS", "").replace(".BO", ""))
+        
         with self.get_connection() as conn:
-            conn.execute('DELETE FROM portfolio WHERE symbol = ?', (symbol,))
-            conn.execute('DELETE FROM portfolio_lots WHERE symbol = ? AND remaining_quantity > 0', (symbol,))
-            conn.execute(
-                '''
-                INSERT INTO portfolio_transactions
-                (symbol, side, quantity, price, trade_date, fees, notes, created_at)
-                VALUES (?, 'REMOVE', 0, 0, ?, 0, ?, ?)
-                ''',
-                (symbol, datetime.now().isoformat(), 'MANUAL_REMOVE_OPEN_LOTS', datetime.now().isoformat())
-            )
+            for s in variations:
+                conn.execute('DELETE FROM portfolio WHERE symbol = ?', (s,))
+                conn.execute('DELETE FROM portfolio_lots WHERE symbol = ?', (s,))
+                conn.execute('DELETE FROM portfolio_transactions WHERE symbol = ?', (s,))
+                conn.execute('DELETE FROM portfolio_realized_gains WHERE symbol = ?', (s,))
+            logger.info(f"Targeted deletion of entire history for {symbol} (and variations {variations}) completed")
 
     def delete_portfolio_position(self, symbol):
         """Production alias for remove_from_portfolio"""
