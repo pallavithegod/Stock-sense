@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AppShell } from './layouts/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
 import { PredictionsPage } from './pages/PredictionsPage'
+import { PortfolioPage } from './pages/PortfolioPage'
 import { StocksPage } from './pages/StocksPage'
 import { StatePanel } from './components/StatePanel'
 import type { AppPage } from './types/navigation'
@@ -18,14 +19,7 @@ function App() {
       case 'predictions':
         return <PredictionsPage />
       case 'portfolio':
-        return (
-          <div className="mx-auto max-w-4xl">
-            <StatePanel
-              description="Portfolio migration starts in Phase 4. The navigation is active now so the shell already matches the target app."
-              title="Portfolio page pending"
-            />
-          </div>
-        )
+        return <PortfolioPage />
       case 'news':
         return (
           <div className="mx-auto max-w-4xl">

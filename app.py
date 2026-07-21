@@ -6940,6 +6940,14 @@ def api_cognition():
 # DELETED LEGACY SNAPSHOT
 
 def trigger_ai_recompute():
+    with cache_lock:
+        pf_state = STATE_CACHE.get("PORTFOLIO_STATE", {})
+        snapshots = pf_state.get("snapshots")
+        pf_state.clear()
+        if snapshots is not None:
+            pf_state["snapshots"] = snapshots
+        pf_state["portfolio_intelligence"] = None
+        pf_state["last_updated"] = None
     holdings = quantum_ai.db.get_portfolio()
     quantum_ai.load_portfolio(holdings)
     quantum_ai.request_refresh_cycle()
