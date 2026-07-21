@@ -1,15 +1,31 @@
 import { apiClient } from './client'
 import type { LivePrediction, PredictionRow } from '../types/prediction'
 
-export function getPredictions() {
-  return apiClient.get<PredictionRow[]>('/predictions', { timeoutMs: 20000 })
+type PredictionsPayload = {
+  rows?: PredictionRow[]
+  predictions?: PredictionRow[]
+  stocks?: PredictionRow[]
+  opportunities?: PredictionRow[]
 }
 
-export function getPredictionIntelligence() {
-  return apiClient.get<{ rows?: PredictionRow[]; predictions?: PredictionRow[] }>(
+function extractPredictions(payload: PredictionsPayload | PredictionRow[]) {
+  if (Array.isArray(payload)) return payload
+  return payload.rows ?? payload.predictions ?? payload.stocks ?? payload.opportunities ?? []
+}
+
+export async function getPredictions() {
+  const payload = await apiClient.get<PredictionsPayload | PredictionRow[]>('/predictions', {
+    timeoutMs: 20000,
+  })
+  return extractPredictions(payload)
+}
+
+export async function getPredictionIntelligence() {
+  const payload = await apiClient.get<PredictionsPayload>(
     '/predictions/intelligence?top_n=100',
     { timeoutMs: 25000 },
   )
+  return extractPredictions(payload)
 }
 
 export function getLivePrediction(symbol: string) {

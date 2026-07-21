@@ -1,9 +1,23 @@
 import { APP_NAME, API_BASE_URL } from '../config/env'
 import type { ReactNode } from 'react'
+import type { AppPage } from '../types/navigation'
 
-const navItems = ['Dashboard', 'Stocks', 'Portfolio', 'Predictions', 'News', 'Research']
+const navItems: Array<{ id: AppPage; label: string }> = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'stocks', label: 'Stocks' },
+  { id: 'portfolio', label: 'Portfolio' },
+  { id: 'predictions', label: 'Predictions' },
+  { id: 'news', label: 'News' },
+  { id: 'research', label: 'Research' },
+]
 
-export function AppShell({ children }: { children: ReactNode }) {
+type AppShellProps = {
+  activePage: AppPage
+  children: ReactNode
+  onPageChange: (page: AppPage) => void
+}
+
+export function AppShell({ activePage, children, onPageChange }: AppShellProps) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-white/10 bg-slate-950/95 px-5 py-6 lg:block">
@@ -13,17 +27,18 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="mt-8 space-y-1">
-          {navItems.map((item, index) => (
+          {navItems.map((item) => (
             <button
               className={`w-full rounded-md px-3 py-2 text-left text-sm ${
-                index === 0
+                activePage === item.id
                   ? 'bg-cyan-400/10 text-cyan-200'
                   : 'text-slate-400 hover:bg-white/[0.04] hover:text-white'
               }`}
-              key={item}
+              key={item.id}
+              onClick={() => onPageChange(item.id)}
               type="button"
             >
-              {item}
+              {item.label}
             </button>
           ))}
         </nav>
