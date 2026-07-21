@@ -9,6 +9,7 @@ import sys
 import warnings
 import logging
 import json
+import re
 import importlib.util
 import time
 from utils import encoding
@@ -37,7 +38,7 @@ EMOTION_ENGINE = FORESIGHT_SYSTEM.emotion_engine
 kelly_engine = KellyAllocator()
 
 # Flask & web frameworks
-from flask import Flask, request, jsonify, send_from_directory, render_template_string, send_file
+from flask import Flask, request, jsonify, send_from_directory, render_template_string, send_file, has_request_context
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
@@ -1117,8 +1118,15 @@ def api_cache(ttl=300):
         def wrapper(*args, **kwargs):
             if cache is None:
                 return func(*args, **kwargs)
-            
-            cache_key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
+
+            if has_request_context():
+                query_items = tuple(
+                    (key, tuple(values))
+                    for key, values in sorted(request.args.lists())
+                )
+                cache_key = f"{func.__name__}:{request.method}:{request.path}:{query_items}"
+            else:
+                cache_key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
             cached_result = cache.get(cache_key)
             
             if cached_result is not None:
@@ -3859,7 +3867,7 @@ def api_search():
     })
 
 
-def _build_search_results(query: str, limit: int = 15):
+def _build_search_results(query: str, limit: int = 15, include_live_quotes: bool = False):
     ensure_market_universe_exchange_coverage()
     # quick bounds
     fetch_limit = max(1, min(limit, 60))
@@ -3915,7 +3923,7 @@ def _build_search_results(query: str, limit: int = 15):
         cp = change_percent_map.get(base)
         cv = change_value_map.get(base)
 
-        if price is None:
+        if include_live_quotes and price is None:
             try:
                 live_data = fetch_live_stock_data(display)
                 if live_data is not None and len(live_data) > 0:
@@ -3931,7 +3939,7 @@ def _build_search_results(query: str, limit: int = 15):
                 pass
 
         # For BSE, if still no price, try NSE equivalent
-        if display.upper().endswith('.BO') and price is None:
+        if include_live_quotes and display.upper().endswith('.BO') and price is None:
             try:
                 nse_symbol = display.replace('.BO', '.NS')
                 live_data = fetch_live_stock_data(nse_symbol)
@@ -4015,8 +4023,40 @@ def _build_search_results(query: str, limit: int = 15):
         except Exception:
             pass
 
-    # sort giving live quotes priority
-    results.sort(key=lambda r: (r.get("price") is None, r.get("symbol", "")))
+    def search_relevance_key(result):
+        q_raw = str(query or "").upper().strip()
+        q_base = q_raw.replace(".NS", "").replace(".BO", "")
+        q_compact = re.sub(r"[^A-Z0-9]", "", q_base)
+
+        symbol = str(result.get("symbol") or "").upper()
+        display = str(result.get("display") or symbol).upper()
+        display_base = display.replace(".NS", "").replace(".BO", "")
+        name = str(result.get("name") or "").upper()
+        name_compact = re.sub(r"[^A-Z0-9]", "", name)
+
+        if not q_compact:
+            relevance = 99
+        elif symbol == q_compact or display_base == q_compact or display == q_raw:
+            relevance = 0
+        elif symbol.startswith(q_compact) or display_base.startswith(q_compact):
+            relevance = 1
+        elif name_compact.startswith(q_compact):
+            relevance = 2
+        elif q_compact in symbol or q_compact in display_base:
+            relevance = 3
+        elif q_compact in name_compact:
+            relevance = 4
+        else:
+            relevance = 5
+
+        exchange = str(result.get("exchange") or "").upper()
+        exchange_priority = 0 if exchange == "NSE" or display.endswith(".NS") else 1 if exchange == "BSE" or display.endswith(".BO") else 2
+        price_priority = 0 if result.get("price") is not None else 1
+        length_gap = abs(len(display_base) - len(q_compact))
+
+        return (relevance, length_gap, exchange_priority, price_priority, symbol, display)
+
+    results.sort(key=search_relevance_key)
     return results[:limit]
 
 

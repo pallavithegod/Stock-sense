@@ -39,6 +39,13 @@ async function request<T>(
     }
 
     return payload as T
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Request timed out. The Flask API took too long to respond.', {
+        cause: error,
+      })
+    }
+    throw error
   } finally {
     window.clearTimeout(timeout)
   }
