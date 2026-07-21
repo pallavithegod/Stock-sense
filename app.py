@@ -5350,14 +5350,48 @@ def live_predictions(symbol):
 @app.route('/api/emotional-state/<symbol>', methods=['GET'])
 def get_emotional_state(symbol):
     """Get just the emotional analysis for a symbol"""
-    
-    df = fetch_historical_data(symbol)
-    emotional_state = foresight_system.emotion_engine.update_emotional_state(df, symbol)
-    
-    return jsonify({
-        'symbol': symbol,
-        'emotional_state': emotional_state,
-    })
+    try:
+        base_symbol = normalize_symbol(symbol)
+        if not base_symbol:
+            return jsonify({
+                "success": True,
+                "available": False,
+                "symbol": symbol,
+                "emotional_state": {"available": False, "reason": "Invalid symbol"},
+            })
+
+        yf_symbol = str(symbol).upper().strip()
+        if not (yf_symbol.endswith(".NS") or yf_symbol.endswith(".BO")):
+            yf_symbol = f"{base_symbol}.NS"
+
+        df = fetch_live_stock_data(yf_symbol, period='1y', interval='1d')
+        if df is None or getattr(df, "empty", True) or "Close" not in df:
+            return jsonify({
+                "success": True,
+                "available": False,
+                "symbol": base_symbol,
+                "emotional_state": {
+                    "available": False,
+                    "reason": f"No historical price data available for {yf_symbol}",
+                },
+            })
+
+        emotional_state = foresight_system.emotion_engine.update_emotional_state(df, base_symbol)
+
+        return jsonify({
+            'success': True,
+            'available': True,
+            'symbol': base_symbol,
+            'emotional_state': emotional_state,
+        })
+    except Exception as e:
+        logger.error(f"Emotional state endpoint failed for {symbol}: {e}", exc_info=True)
+        return jsonify({
+            "success": True,
+            "available": False,
+            "symbol": symbol,
+            "emotional_state": {"available": False, "reason": str(e)},
+        })
 
 @app.route('/api/governance-decision', methods=['POST'])
 def get_governance_decision():
@@ -5389,25 +5423,59 @@ def get_governance_decision():
 @app.route('/api/futures-analysis/<symbol>', methods=['GET'])
 def get_futures_analysis(symbol):
     """Get probabilistic futures (100 worlds) for a symbol"""
-    
-    df = fetch_historical_data(symbol)
-    current_price = get_current_price(symbol)
-    
-    base_prediction = {'signal': 'HOLD', 'confidence': 50}
-    emotional_state = foresight_system.emotion_engine.update_emotional_state(df, symbol)
-    
-    result = foresight_system.futures_engine.generate_worlds(
-        current_price=current_price,
-        historical_data=df,
-        base_prediction=base_prediction,
-        emotional_state=emotional_state,
-        prediction_horizon_days=5,
-    )
-    
-    return jsonify({
-        'symbol': symbol,
-        'futures': result,
-    })
+    try:
+        base_symbol = normalize_symbol(symbol)
+        if not base_symbol:
+            return jsonify({
+                "success": True,
+                "available": False,
+                "symbol": symbol,
+                "futures": {"success": False, "error": "Invalid symbol"},
+            })
+
+        yf_symbol = str(symbol).upper().strip()
+        if not (yf_symbol.endswith(".NS") or yf_symbol.endswith(".BO")):
+            yf_symbol = f"{base_symbol}.NS"
+
+        df = fetch_live_stock_data(yf_symbol, period='1y', interval='1d')
+        if df is None or getattr(df, "empty", True) or "Close" not in df:
+            return jsonify({
+                "success": True,
+                "available": False,
+                "symbol": base_symbol,
+                "futures": {
+                    "success": False,
+                    "error": f"No historical price data available for {yf_symbol}",
+                },
+            })
+
+        current_price = float(df['Close'].iloc[-1])
+        base_prediction = {'signal': 'HOLD', 'confidence': 50}
+        emotional_state = foresight_system.emotion_engine.update_emotional_state(df, base_symbol)
+
+        result = foresight_system.futures_engine.generate_worlds(
+            current_price=current_price,
+            historical_data=df,
+            base_prediction=base_prediction,
+            emotional_state=emotional_state,
+            prediction_horizon_days=5,
+        )
+
+        return jsonify({
+            'success': True,
+            'available': bool(result.get("success", False)) if isinstance(result, dict) else True,
+            'symbol': base_symbol,
+            'current_price': current_price,
+            'futures': result,
+        })
+    except Exception as e:
+        logger.error(f"Futures analysis endpoint failed for {symbol}: {e}", exc_info=True)
+        return jsonify({
+            "success": True,
+            "available": False,
+            "symbol": symbol,
+            "futures": {"success": False, "error": str(e)},
+        })
 
 @app.route("/api/autocomplete")
 def autocomplete():

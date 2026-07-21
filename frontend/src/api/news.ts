@@ -1,16 +1,40 @@
 import { apiClient } from './client'
-import type { NewsPayload } from '../types/news'
+import type { AlertsPayload, NewsPayload, ResearchPayload } from '../types/news'
 
-export function getMarketNews() {
-  return apiClient.get<NewsPayload>('/news/market', { timeoutMs: 20000 })
+function asNewsPayload(payload: NewsPayload | null | undefined): NewsPayload {
+  return payload ?? { articles: [] }
 }
 
-export function getNews() {
-  return apiClient.get<NewsPayload>('/news', { timeoutMs: 20000 })
+export async function getMarketNews() {
+  return asNewsPayload(await apiClient.get<NewsPayload>('/news/market', { timeoutMs: 20000 }))
+}
+
+export async function getNews() {
+  return asNewsPayload(await apiClient.get<NewsPayload>('/news', { timeoutMs: 20000 }))
 }
 
 export function getSymbolNews(symbol: string) {
   return apiClient.get<NewsPayload>(`/news/symbol/${encodeURIComponent(symbol)}`, {
     timeoutMs: 20000,
+  })
+}
+
+export function getAlerts() {
+  return apiClient.get<AlertsPayload>('/alerts', { timeoutMs: 20000 })
+}
+
+export function getResearch() {
+  return apiClient.get<ResearchPayload>('/research', { timeoutMs: 20000 })
+}
+
+export function getEmotionalState(symbol: string) {
+  return apiClient.get<Record<string, unknown>>(`/emotional-state/${encodeURIComponent(symbol)}`, {
+    timeoutMs: 25000,
+  })
+}
+
+export function getFuturesAnalysis(symbol: string) {
+  return apiClient.get<Record<string, unknown>>(`/futures-analysis/${encodeURIComponent(symbol)}`, {
+    timeoutMs: 25000,
   })
 }

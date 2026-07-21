@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { AppShell } from './layouts/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { NewsPage } from './pages/NewsPage'
 import { PredictionsPage } from './pages/PredictionsPage'
 import { PortfolioPage } from './pages/PortfolioPage'
+import { ResearchPage } from './pages/ResearchPage'
 import { StocksPage } from './pages/StocksPage'
-import { StatePanel } from './components/StatePanel'
 import type { AppPage } from './types/navigation'
 
 function App() {
@@ -21,23 +22,9 @@ function App() {
       case 'portfolio':
         return <PortfolioPage />
       case 'news':
-        return (
-          <div className="mx-auto max-w-4xl">
-            <StatePanel
-              description="News and research migration starts in Phase 5."
-              title="News page pending"
-            />
-          </div>
-        )
+        return <NewsPage />
       case 'research':
-        return (
-          <div className="mx-auto max-w-4xl">
-            <StatePanel
-              description="Research cockpit migration starts in Phase 5."
-              title="Research page pending"
-            />
-          </div>
-        )
+        return <ResearchPage />
       default:
         return <DashboardPage />
     }
