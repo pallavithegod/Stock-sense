@@ -25,7 +25,7 @@ from model_weighting import MultiWorldSimulator
 from intelligence_core import IntegratedForesightSystem
 from kelly_allocator import KellyAllocator, KellySignal
 from backend.services.research_service import build_emotional_state_payload, build_futures_analysis_payload
-from backend.services.startup_checks import collect_startup_checks
+from backend.routes.system import create_system_blueprint
 # from portfolio_ledger import PortfolioLedger # Removed in favor of DB
 
 FORESIGHT_SYSTEM = IntegratedForesightSystem()
@@ -8383,50 +8383,26 @@ def get_live_symbol_prediction(symbol):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/system/status')
-def system_status():
-    """System status with AI capabilities"""
-    startup_checks = collect_startup_checks(
-        project_root=Path(__file__).resolve().parent,
-        db_path=Path(SYSTEM_CONFIG.get('DB_PATH', 'data/nexus.db')),
-        optional_modules=[
-            'yfinance',
-            'pandas',
-            'numpy',
-            'sklearn',
-            'tensorflow',
-            'feedparser',
-            'flask_socketio',
-        ],
-    )
-    return jsonify({
-        'status': 'OPERATIONAL',
-        'timestamp': datetime.now().isoformat(),
-        'version': 'NEXUS AI QUANTUM ULTIMATE V7',
-        'ai_features': {
-            'machine_learning': ML_AVAILABLE,
-            'deep_learning': DEEP_LEARNING_AVAILABLE,
-            'technical_analysis': TECHNICAL_ANALYSIS_ADVANCED,
-            'sentiment_analysis': NEWS_AVAILABLE,
-            'reinforcement_learning': True,
-            'live_predictions': True,
-            'ensemble_models': True,
-            'zero_hardcoding': True
-        },
-        'models_loaded': list(quantum_ai.models.keys()) if quantum_ai.models else ['Technical'],
-        'data_sources': ['Yahoo Finance', 'Technical Analysis', 'News Feeds', 'AI Models'],
-        'performance': {
-            'uptime': '99.9%',
-            'prediction_accuracy': f'{np.mean([p.get("confidence", 85) for p in quantum_ai.prediction_history]):.1f}%' if quantum_ai.prediction_history else '87.5%',
-            'response_time': f'{getattr(quantum_ai, "cache_ttl", 0)//60}s',
-            'total_predictions': len(quantum_ai.prediction_history)
-        },
-        'cache_status': {
-            'entries': len(getattr(quantum_ai, "cache", {}) or {}),
-            'ttl_seconds': getattr(quantum_ai, "cache_ttl", 0)
-        },
-        'startup_checks': startup_checks,
-    })
+app.register_blueprint(create_system_blueprint(
+    project_root=Path(__file__).resolve().parent,
+    system_config=SYSTEM_CONFIG,
+    feature_flags={
+        "machine_learning": ML_AVAILABLE,
+        "deep_learning": DEEP_LEARNING_AVAILABLE,
+        "technical_analysis": TECHNICAL_ANALYSIS_ADVANCED,
+        "sentiment_analysis": NEWS_AVAILABLE,
+    },
+    quantum_ai=quantum_ai,
+    optional_modules=[
+        "yfinance",
+        "pandas",
+        "numpy",
+        "sklearn",
+        "tensorflow",
+        "feedparser",
+        "flask_socketio",
+    ],
+))
 
 @app.route('/api/test-yfinance', methods=['GET'])
 def test_yfinance():
