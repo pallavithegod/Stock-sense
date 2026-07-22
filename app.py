@@ -24,6 +24,8 @@ from regime_detector import RegimeEmbeddingEngine, RegimeMemory
 from model_weighting import MultiWorldSimulator
 from intelligence_core import IntegratedForesightSystem
 from kelly_allocator import KellyAllocator, KellySignal
+from backend.services.research_service import build_emotional_state_payload, build_futures_analysis_payload
+from backend.services.startup_checks import collect_startup_checks
 # from portfolio_ledger import PortfolioLedger # Removed in favor of DB
 
 FORESIGHT_SYSTEM = IntegratedForesightSystem()
@@ -87,6 +89,10 @@ def env_list(name: str, default: str = "*"):
         return "*"
     values = [item.strip() for item in raw.split(",") if item.strip()]
     return values or default
+
+
+def debug_endpoints_enabled() -> bool:
+    return env_bool("DEBUG_ENDPOINTS", False) or env_bool("DEBUG", False)
 
 from utils.stock_loader import load_all_stock_symbols
 
@@ -4062,6 +4068,8 @@ def _build_search_results(query: str, limit: int = 15, include_live_quotes: bool
 
 @app.route("/api/market_universe")
 def market_debug():
+    if not debug_endpoints_enabled():
+        return jsonify({"success": False, "error": "Debug endpoint disabled"}), 404
     return jsonify({
         "count": len(MARKET.symbols),
         "sample": list(MARKET.symbols.keys())[:50]
@@ -5350,48 +5358,13 @@ def live_predictions(symbol):
 @app.route('/api/emotional-state/<symbol>', methods=['GET'])
 def get_emotional_state(symbol):
     """Get just the emotional analysis for a symbol"""
-    try:
-        base_symbol = normalize_symbol(symbol)
-        if not base_symbol:
-            return jsonify({
-                "success": True,
-                "available": False,
-                "symbol": symbol,
-                "emotional_state": {"available": False, "reason": "Invalid symbol"},
-            })
-
-        yf_symbol = str(symbol).upper().strip()
-        if not (yf_symbol.endswith(".NS") or yf_symbol.endswith(".BO")):
-            yf_symbol = f"{base_symbol}.NS"
-
-        df = fetch_live_stock_data(yf_symbol, period='1y', interval='1d')
-        if df is None or getattr(df, "empty", True) or "Close" not in df:
-            return jsonify({
-                "success": True,
-                "available": False,
-                "symbol": base_symbol,
-                "emotional_state": {
-                    "available": False,
-                    "reason": f"No historical price data available for {yf_symbol}",
-                },
-            })
-
-        emotional_state = foresight_system.emotion_engine.update_emotional_state(df, base_symbol)
-
-        return jsonify({
-            'success': True,
-            'available': True,
-            'symbol': base_symbol,
-            'emotional_state': emotional_state,
-        })
-    except Exception as e:
-        logger.error(f"Emotional state endpoint failed for {symbol}: {e}", exc_info=True)
-        return jsonify({
-            "success": True,
-            "available": False,
-            "symbol": symbol,
-            "emotional_state": {"available": False, "reason": str(e)},
-        })
+    return jsonify(build_emotional_state_payload(
+        symbol,
+        normalize_symbol=normalize_symbol,
+        fetch_price_history=fetch_live_stock_data,
+        foresight_system=foresight_system,
+        logger=logger,
+    ))
 
 @app.route('/api/governance-decision', methods=['POST'])
 def get_governance_decision():
@@ -5423,59 +5396,13 @@ def get_governance_decision():
 @app.route('/api/futures-analysis/<symbol>', methods=['GET'])
 def get_futures_analysis(symbol):
     """Get probabilistic futures (100 worlds) for a symbol"""
-    try:
-        base_symbol = normalize_symbol(symbol)
-        if not base_symbol:
-            return jsonify({
-                "success": True,
-                "available": False,
-                "symbol": symbol,
-                "futures": {"success": False, "error": "Invalid symbol"},
-            })
-
-        yf_symbol = str(symbol).upper().strip()
-        if not (yf_symbol.endswith(".NS") or yf_symbol.endswith(".BO")):
-            yf_symbol = f"{base_symbol}.NS"
-
-        df = fetch_live_stock_data(yf_symbol, period='1y', interval='1d')
-        if df is None or getattr(df, "empty", True) or "Close" not in df:
-            return jsonify({
-                "success": True,
-                "available": False,
-                "symbol": base_symbol,
-                "futures": {
-                    "success": False,
-                    "error": f"No historical price data available for {yf_symbol}",
-                },
-            })
-
-        current_price = float(df['Close'].iloc[-1])
-        base_prediction = {'signal': 'HOLD', 'confidence': 50}
-        emotional_state = foresight_system.emotion_engine.update_emotional_state(df, base_symbol)
-
-        result = foresight_system.futures_engine.generate_worlds(
-            current_price=current_price,
-            historical_data=df,
-            base_prediction=base_prediction,
-            emotional_state=emotional_state,
-            prediction_horizon_days=5,
-        )
-
-        return jsonify({
-            'success': True,
-            'available': bool(result.get("success", False)) if isinstance(result, dict) else True,
-            'symbol': base_symbol,
-            'current_price': current_price,
-            'futures': result,
-        })
-    except Exception as e:
-        logger.error(f"Futures analysis endpoint failed for {symbol}: {e}", exc_info=True)
-        return jsonify({
-            "success": True,
-            "available": False,
-            "symbol": symbol,
-            "futures": {"success": False, "error": str(e)},
-        })
+    return jsonify(build_futures_analysis_payload(
+        symbol,
+        normalize_symbol=normalize_symbol,
+        fetch_price_history=fetch_live_stock_data,
+        foresight_system=foresight_system,
+        logger=logger,
+    ))
 
 @app.route("/api/autocomplete")
 def autocomplete():
@@ -8459,6 +8386,19 @@ def get_live_symbol_prediction(symbol):
 @app.route('/api/system/status')
 def system_status():
     """System status with AI capabilities"""
+    startup_checks = collect_startup_checks(
+        project_root=Path(__file__).resolve().parent,
+        db_path=Path(SYSTEM_CONFIG.get('DB_PATH', 'data/nexus.db')),
+        optional_modules=[
+            'yfinance',
+            'pandas',
+            'numpy',
+            'sklearn',
+            'tensorflow',
+            'feedparser',
+            'flask_socketio',
+        ],
+    )
     return jsonify({
         'status': 'OPERATIONAL',
         'timestamp': datetime.now().isoformat(),
@@ -8473,18 +8413,19 @@ def system_status():
             'ensemble_models': True,
             'zero_hardcoding': True
         },
-        'models_loaded': quantum_ai.models.keys() if quantum_ai.models else ['Technical'],
+        'models_loaded': list(quantum_ai.models.keys()) if quantum_ai.models else ['Technical'],
         'data_sources': ['Yahoo Finance', 'Technical Analysis', 'News Feeds', 'AI Models'],
         'performance': {
             'uptime': '99.9%',
             'prediction_accuracy': f'{np.mean([p.get("confidence", 85) for p in quantum_ai.prediction_history]):.1f}%' if quantum_ai.prediction_history else '87.5%',
-            'response_time': f'{quantum_ai.cache_ttl//60}s',
+            'response_time': f'{getattr(quantum_ai, "cache_ttl", 0)//60}s',
             'total_predictions': len(quantum_ai.prediction_history)
         },
         'cache_status': {
-            'entries': len(quantum_ai.cache),
-            'ttl_seconds': quantum_ai.cache_ttl
-        }
+            'entries': len(getattr(quantum_ai, "cache", {}) or {}),
+            'ttl_seconds': getattr(quantum_ai, "cache_ttl", 0)
+        },
+        'startup_checks': startup_checks,
     })
 
 @app.route('/api/test-yfinance', methods=['GET'])
@@ -8493,6 +8434,8 @@ def test_yfinance():
     Diagnostic endpoint to test yfinance connectivity
     Access at: http://localhost:5000/api/test-yfinance
     """
+    if not debug_endpoints_enabled():
+        return jsonify({"success": False, "error": "Debug endpoint disabled"}), 404
     import yfinance as yf
     
     results = {}
@@ -9470,6 +9413,8 @@ def dashboard_data_debug():
     Lightweight echo endpoint for verifying which live fields are present
     before the dashboard iframe renders them.
     """
+    if not debug_endpoints_enabled():
+        return jsonify({"success": False, "error": "Debug endpoint disabled"}), 404
     try:
         live_data = ws_manager.get_dashboard_data() or {}
         with cache_lock:
