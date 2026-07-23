@@ -998,6 +998,55 @@ def ensure_runtime_services_started():
 confidence_memory = confidence_memory_system.memory
 stock_bundle_cache = StockBundleCache()
 
+
+def update_confidence_memory(symbol, confidence, outcome):
+    """Compatibility wrapper around the unified confidence memory system."""
+    try:
+        confidence_memory_system.update_online(float(confidence) / 100.0, int(outcome))
+        confidence_memory_system.update_symbol(str(symbol).upper(), int(outcome))
+    except Exception as exc:
+        logger.debug(f"Confidence memory update skipped for {symbol}: {exc}")
+
+
+def apply_confidence_decay(symbol, confidence):
+    """Apply symbol-level confidence decay while preserving percent scale."""
+    try:
+        decayed = confidence_memory_system.apply_decay(str(symbol).upper(), float(confidence) / 100.0)
+        return round(float(decayed) * 100.0, 2)
+    except Exception:
+        return confidence
+
+
+def apply_capital_weighting(confidence, capital):
+    """Small bounded confidence adjustment based on demo capital size."""
+    try:
+        capital_factor = min(max(float(capital or 0) / 100000.0, 0.5), 2.0)
+        adjusted = float(confidence) * (0.95 + (0.05 / capital_factor))
+        return round(max(0.0, min(95.0, adjusted)), 2)
+    except Exception:
+        return confidence
+
+
+def calculate_position_size(symbol, capital, confidence):
+    """Conservative position-size helper for legacy prediction responses."""
+    try:
+        confidence_fraction = max(0.0, min(float(confidence) / 100.0, 0.95))
+        risk_cap = min(0.10, max(0.01, confidence_fraction * 0.10))
+        return round(float(capital or 0) * risk_cap, 2)
+    except Exception:
+        return 0.0
+
+
+def explain_confidence_change(symbol, previous_confidence, current_confidence):
+    try:
+        delta = float(current_confidence) - float(previous_confidence)
+    except Exception:
+        delta = 0.0
+    if abs(delta) < 0.01:
+        return f"{symbol} confidence unchanged after calibration."
+    direction = "increased" if delta > 0 else "decreased"
+    return f"{symbol} confidence {direction} by {abs(delta):.2f} points after calibration."
+
 logger.info("o. All NEXUS AI QUANTUM features initialized (Modular Mode)")
 
 # Create required directories
@@ -1631,10 +1680,20 @@ def generate_ensemble_prediction(symbol: str, df: pd.DataFrame) -> Dict[str, Any
 
         try:
             simulator = MultiWorldSimulator()
+            signal_score = {"BUY": 1, "STRONG BUY": 1, "HOLD": 0, "SELL": -1, "STRONG SELL": -1}
+            model_names = ["rsi", "macd", "moving_average", "momentum"]
+            model_signals = {
+                name: signal_score.get(signal, 0)
+                for name, signal in zip(model_names, signals)
+            }
+            model_confidences = {
+                name: round(float(confidence) * 100, 2)
+                for name, confidence in zip(model_names, confidences)
+            }
 
             multi_world = simulator.simulate(
-                predictions=model_signals,       # e.g. {rf:1, gb:0, lstm:1, rl:1}
-                confidences=model_confidences     # e.g. {rf:62, gb:55, lstm:71, rl:60}
+                predictions=model_signals,
+                confidences=model_confidences
             )
 
             if multi_world and multi_world.get("fragility") in ("EXTREME", "HIGH"):
@@ -8239,15 +8298,15 @@ def api_alerts():
 def api_learning_stats():
     """Lightweight continuous-learning stats for predictions UI."""
     try:
+        engine = learning_engine if LEARNING_AVAILABLE else None
         payload = {
             "success": True,
             "data": {
-                "enabled": bool(CONTINUOUS_LEARNING),
+                "enabled": bool(engine),
                 "queue_size": 0,
                 "last_update": datetime.now().isoformat(),
             }
         }
-        engine = CONTINUOUS_LEARNING
         if engine is not None:
             payload["data"]["queue_size"] = int(getattr(engine, "pending_count", 0) or 0)
             payload["data"]["last_update"] = str(getattr(engine, "last_update", payload["data"]["last_update"]))
@@ -8771,7 +8830,7 @@ def execute_prediction(symbol):
     Fully Meta-Intelligent | Self-Restrained | Production-Safe
     """
     try:
-        data = validate_prediction_execution(request.get_json(silent=True) or {})
+        data = validate_prediction_execution(request.get_json(silent=True))
         current_price = data["current_price"]
         volume = data["volume"]
         timestamp = data["timestamp"]
@@ -8787,11 +8846,11 @@ def execute_prediction(symbol):
         # FETCH HISTORICAL DATA
         # -------------------------------------------------
         try:
-            stock = yf.Ticker(f'{symbol_clean}.NS')
-            hist = stock.history(period='1y')
+            stock_info = yf.Ticker(f'{symbol_clean}.NS')
+            hist = stock_info.history(period='1y')
             if hist.empty:
-                stock = yf.Ticker(f'{symbol_clean}.BO')
-                hist = stock.history(period='1y')
+                stock_info = yf.Ticker(f'{symbol_clean}.BO')
+                hist = stock_info.history(period='1y')
         except Exception as e:
             logger.error(f'Data fetch failed for {symbol_clean}: {e}')
             return jsonify({'success': False, 'error': 'Data fetch failed'}), 500
@@ -8804,13 +8863,13 @@ def execute_prediction(symbol):
         # -------------------------------------------------
         try:
             if (
-                hasattr(self, "regime_embedding")
-                and hasattr(self, "regime_memory")
-                and self.regime_embedding
-                and self.regime_memory
+                hasattr(quantum_ai, "regime_embedding")
+                and hasattr(quantum_ai, "regime_memory")
+                and quantum_ai.regime_embedding
+                and quantum_ai.regime_memory
             ):
-                embedding = self.regime_embedding.transform(hist)
-                self.regime_memory.update(embedding)
+                embedding = quantum_ai.regime_embedding.transform(hist)
+                quantum_ai.regime_memory.update(embedding)
         except Exception:
             pass
 
@@ -8843,8 +8902,8 @@ def execute_prediction(symbol):
         # META-MODEL TRUST
         try:
             learned_weights = (
-                self.meta_weighter.compute_weights()
-                if hasattr(self, "meta_weighter") and self.meta_weighter
+                quantum_ai.meta_weighter.compute_weights()
+                if hasattr(quantum_ai, "meta_weighter") and quantum_ai.meta_weighter
                 else {}
             )
         except Exception:
@@ -8951,10 +9010,10 @@ def execute_prediction(symbol):
         # -------------------------------------------------
         # INTELLIGENCE CORE ?" Advanced Reasoning
         # -------------------------------------------------
-        regime = intelligence_core.update_regime(hist)
-        weights = intelligence_core.compute_model_weights()
-        uncertainty = intelligence_core.simulate_worlds(predictions, confidences)
-        allow_trade, trade_reason = intelligence_core.should_trade(predictions)
+        regime = INTELLIGENCE_CORE.update_regime(hist)
+        weights = INTELLIGENCE_CORE.compute_model_weights()
+        uncertainty = INTELLIGENCE_CORE.simulate_worlds(predictions, confidences)
+        allow_trade, trade_reason = INTELLIGENCE_CORE.should_trade(predictions)
 
         # -------------------------------------------------
         # AI SELF-RESTRAINT
@@ -9470,27 +9529,26 @@ def get_ai_metrics():
     """
     try:
         logger.info("[METRICS] Fetching AI metrics...")
-        
-        db = get_db_connection()
-        
-        # Get total predictions stored
-        cursor = db.execute('SELECT COUNT(*) as total FROM predictions WHERE timestamp > ?', 
-                          (int(time.time()) - 86400,))  # Last 24 hours
-        total_predictions = cursor.fetchone()
-        
-        # Get accuracy from last 100 predictions
-        cursor = db.execute('''
-            SELECT signal, confidence 
-            FROM predictions 
-            ORDER BY timestamp DESC 
-            LIMIT 100
-        ''')
-        
-        predictions = cursor.fetchall()
-        db.close()
+
+        since_iso = (datetime.now() - timedelta(days=1)).isoformat()
+        with dynamic_db.get_connection() as db:
+            total_row = db.execute(
+                'SELECT COUNT(*) as total FROM predictions WHERE timestamp > ?',
+                (since_iso,)
+            ).fetchone()
+            total_predictions = int(total_row["total"] or 0) if total_row else 0
+
+            predictions = db.execute(
+                '''
+                SELECT confidence
+                FROM predictions
+                ORDER BY timestamp DESC
+                LIMIT 100
+                '''
+            ).fetchall()
         
         if predictions:
-            avg_accuracy = np.mean([p for p in predictions])
+            avg_accuracy = np.mean([float(row["confidence"] or 0) for row in predictions])
         else:
             avg_accuracy = 0.0
         
@@ -9505,7 +9563,7 @@ def get_ai_metrics():
         metrics = {
             'accuracy': round(avg_accuracy, 2),
             'active_models': active_models,
-            'data_points': total_predictions,  # Accumulating count!
+            'data_points': total_predictions,
             'timestamp': int(time.time())
         }
         
@@ -9943,13 +10001,15 @@ def get_symbol_accuracy(symbol):
             return jsonify({'symbol': symbol, 'status': 'no_data'})
         
         data = confidence_memory[symbol]
-        accuracy = (data['correct_predictions'] / max(1, data['total_predictions'])) * 100
+        total = int(data.get('total_predictions', data.get('total', 0)) or 0)
+        correct = int(data.get('correct_predictions', data.get('correct', 0)) or 0)
+        accuracy = (correct / max(1, total)) * 100
         
         return jsonify({
             'symbol': symbol,
             'accuracy': round(accuracy, 2),
-            'total': data['total_predictions'],
-            'correct': data['correct_predictions'],
+            'total': total,
+            'correct': correct,
             'last_updated': data.get('last_updated')
         })
     except Exception as e:
