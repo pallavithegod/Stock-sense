@@ -1,4 +1,4 @@
-import { APP_NAME, API_BASE_URL } from '../config/env'
+import { APP_NAME } from '../config/env'
 import type { ReactNode } from 'react'
 import type { AppPage } from '../types/navigation'
 
@@ -50,9 +50,6 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <div>
               <div className="text-sm font-medium text-cyan-200">Frontend migration phase 1</div>
               <h1 className="text-xl font-semibold text-white">Dashboard Shell</h1>
-            </div>
-            <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-400">
-              API: <span className="text-slate-200">{API_BASE_URL}</span>
             </div>
           </div>
         </header>

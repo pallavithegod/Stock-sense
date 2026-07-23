@@ -110,6 +110,13 @@ except ImportError:
 for d in ['data', 'logs', 'cache', 'models']:
     os.makedirs(d, exist_ok=True)
 
+try:
+    os.makedirs('cache/yfinance', exist_ok=True)
+    if hasattr(yf, 'set_tz_cache_location'):
+        yf.set_tz_cache_location(os.path.abspath('cache/yfinance'))
+except Exception as exc:
+    logging.getLogger('NEXUS-AI').debug(f"YFinance cache setup skipped: {exc}")
+
 log_handler = logging.FileHandler('logs/nexus_ai.log', encoding='utf-8')
 log_handler.setFormatter(logging.Formatter('%(asctime)s - ...'))
 
@@ -1243,6 +1250,68 @@ def fetch_live_stock_data(symbol: str, period: str = '5d', interval: str = '1d')
         return None
 
 
+def _coerce_float(value, default=0.0):
+    try:
+        if value is None:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _dashboard_index_fallback_rows(indices_config=None, now=None, reason="provider-unavailable"):
+    """
+    Last-resort local/demo rows so dashboards do not render blank when Yahoo is down.
+    Override values with NEXUS_INDEX_FALLBACK_VALUES JSON if desired.
+    """
+    now = now or datetime.now(ZoneInfo("UTC"))
+    if not indices_config:
+        indices_config = [
+            {'symbol': '^NSEI', 'name': 'NIFTY 50'},
+            {'symbol': '^BSESN', 'name': 'SENSEX'},
+            {'symbol': '^NSEBANK', 'name': 'BANK NIFTY'},
+        ]
+
+    defaults = {
+        '^NSEI': {'value': 0.0, 'change_points': 0.0, 'change_percent': 0.0},
+        '^BSESN': {'value': 0.0, 'change_points': 0.0, 'change_percent': 0.0},
+        '^NSEBANK': {'value': 0.0, 'change_points': 0.0, 'change_percent': 0.0},
+    }
+    try:
+        configured = json.loads(os.getenv('NEXUS_INDEX_FALLBACK_VALUES', '{}') or '{}')
+        if isinstance(configured, dict):
+            for symbol, values in configured.items():
+                if isinstance(values, dict):
+                    defaults[str(symbol).upper()] = values
+                    defaults[str(symbol)] = values
+    except Exception as exc:
+        logger.debug(f"Index fallback config ignored: {exc}")
+
+    rows = []
+    for item in indices_config:
+        symbol = str(item.get('symbol') or '').upper()
+        if not symbol:
+            continue
+        values = defaults.get(symbol) or defaults.get(item.get('symbol')) or {}
+        change_percent = _coerce_float(values.get('change_percent', values.get('change', 0.0)), 0.0)
+        change_points = _coerce_float(values.get('change_points', values.get('changepoints', 0.0)), 0.0)
+        rows.append({
+            'symbol': item.get('symbol') or symbol,
+            'name': item.get('name') or symbol,
+            'value': round(_coerce_float(values.get('value'), 0.0), 2),
+            'changepoints': round(change_points, 2),
+            'change_points': round(change_points, 2),
+            'change': round(change_percent, 2),
+            'changepercent': round(change_percent, 2),
+            'change_percent': round(change_percent, 2),
+            'status': 'positive' if change_percent > 0 else 'negative' if change_percent < 0 else 'neutral',
+            'timestamp': now.isoformat(),
+            'source': f'local-fallback:{reason}',
+            'is_fallback': True,
+        })
+    return rows
+
+
 @api_cache(ttl=300)
 def fetch_live_indices():
     """
@@ -1309,6 +1378,10 @@ def fetch_live_indices():
             logger.warning(f"Failed to fetch index {idx_config['symbol']}: {e}")
             continue
     
+    if not indices_data:
+        logger.warning("YFinance returned no index rows; using local dashboard fallback indices")
+        return _dashboard_index_fallback_rows(indices_config, reason="yfinance-empty")
+
     logger.info(f"Fetched {len(indices_data)} live indices")
     return indices_data
 
@@ -6369,6 +6442,18 @@ def _refresh_market_snapshot():
         except Exception as exc:
             logger.debug(f"[MONITOR] Index backfill skipped: {exc}")
 
+        if not indices_data:
+            logger.warning("[MONITOR] No provider index data available; using local fallback indices")
+            fallback_config = [
+                {'symbol': symbol, 'name': name}
+                for symbol, name in (index_symbols or {}).items()
+            ]
+            indices_data = _dashboard_index_fallback_rows(
+                fallback_config,
+                now=now.replace(tzinfo=ZoneInfo("UTC")) if now.tzinfo is None else now,
+                reason="snapshot-provider-empty",
+            )
+
         economic_indicators = fetch_india_economic_indicators()
         macro_watch = []
         cpi = economic_indicators.get('inflation', 4.85)
@@ -6608,6 +6693,39 @@ def _resolve_dashboard_ai_performance(now):
     }
 
 
+def _derive_dashboard_liquidity_score(*, indices=None, top_stocks=None, performance=None):
+    """Build a 0-100 liquidity proxy from dashboard market movement when no service value exists."""
+    performance = performance if isinstance(performance, dict) else {}
+    existing = _safe_float(
+        performance.get("liquidity_score", performance.get("liquidityScore")),
+        None,
+    )
+    if existing is not None:
+        return round(max(0.0, min(100.0, existing)), 2)
+
+    market_rows = []
+    for collection in (indices, top_stocks):
+        if isinstance(collection, list):
+            market_rows.extend(item for item in collection if isinstance(item, dict))
+
+    change_values = [
+        abs(_safe_float(
+            item.get("change_percent", item.get("changePercent", item.get("percent"))),
+            0.0,
+        ))
+        for item in market_rows
+    ]
+    change_values = [value for value in change_values if value > 0]
+
+    if not change_values:
+        return 50.0
+
+    avg_move = min(float(np.mean(change_values)), 5.0)
+    coverage_bonus = min(len(change_values) * 2.5, 20.0)
+    stability_score = max(0.0, 80.0 - (avg_move * 10.0))
+    return round(max(0.0, min(100.0, stability_score + coverage_bonus)), 2)
+
+
 def _build_dashboard_top_stocks(snapshot, prediction_rows, limit=10):
     """Build dashboard recommendations from live prediction rows, with dynamic market fallbacks only."""
     snapshot = snapshot if isinstance(snapshot, dict) else {}
@@ -6752,10 +6870,51 @@ def get_dashboard_data():
         with cache_lock:
             portfolio_state = dict(STATE_CACHE.get("PORTFOLIO_STATE", {}) or {})
             pred_state = list(STATE_CACHE.get("PREDICTION_STATE", {}).get("system_cache", {}).get("recent_predictions", []) or [])
+        try:
+            portfolio_intelligence = _get_portfolio_intelligence_payload() or {}
+            if isinstance(portfolio_intelligence, dict):
+                portfolio_state = portfolio_intelligence
+        except Exception as portfolio_err:
+            logger.warning(f"[DASHBOARD] Portfolio state refresh failed: {portfolio_err}")
+            portfolio_intelligence = portfolio_state if isinstance(portfolio_state, dict) else {}
+        if not isinstance(portfolio_state, dict):
+            portfolio_state = {}
+        portfolio_metrics = portfolio_state.get('account_metrics') if isinstance(portfolio_state.get('account_metrics'), dict) else {}
+        portfolio_positions = portfolio_state.get('positions') if isinstance(portfolio_state.get('positions'), list) else []
+        positions_value = sum(
+            _safe_float(
+                position.get('current_value', position.get('market_value', position.get('value'))),
+                0.0,
+            )
+            for position in portfolio_positions
+            if isinstance(position, dict)
+        )
+        portfolio_value = next(
+            (
+                value for value in [
+                    portfolio_metrics.get('total_value'),
+                    portfolio_metrics.get('portfolio_value'),
+                    portfolio_metrics.get('current_value'),
+                    portfolio_metrics.get('market_value'),
+                    portfolio_state.get('total_value'),
+                    portfolio_state.get('portfolio_value'),
+                    positions_value if positions_value > 0 else None,
+                ]
+                if value not in (None, '')
+            ),
+            0,
+        )
 
         prediction_rows = _get_prediction_rows()
         ai_performance = _resolve_dashboard_ai_performance(now)
         top_stocks = _build_dashboard_top_stocks(snapshot, prediction_rows, limit=10)
+        liquidity_score = _derive_dashboard_liquidity_score(
+            indices=snapshot.get('indices') if isinstance(snapshot, dict) else [],
+            top_stocks=top_stocks,
+            performance=ai_performance,
+        )
+        ai_performance['liquidity_score'] = liquidity_score
+        ai_performance['liquidityScore'] = liquidity_score
 
         macro_sections = _build_dashboard_macro_sections(snapshot)
         news_intelligence = _build_dashboard_news_intelligence(snapshot, prediction_rows or pred_state)
@@ -6771,6 +6930,40 @@ def get_dashboard_data():
         response_data = {
             'success': True,
             'timestamp': now.isoformat(),
+            'portfolio_value': portfolio_value,
+            'portfolioValue': portfolio_value,
+            'active_positions': len(portfolio_positions),
+            'activePositions': len(portfolio_positions),
+            'liquidity_score': liquidity_score,
+            'liquidityScore': liquidity_score,
+            'live_indices': snapshot['indices'],
+            'market_status': market_status,
+            'top_stocks': top_stocks,
+            'topStocks': top_stocks,
+            'stocks': prediction_rows[:100],
+            'predictions': prediction_rows[:100],
+            'ai_performance': ai_performance,
+            'aiPerformance': ai_performance,
+            'ai_engine': dict(AI_ENGINE_STATE.get("cognitive_state", {}) or {}),
+            'cognitive_state': dict(AI_ENGINE_STATE.get("cognitive_state", {}) or {}),
+            'news_intelligence': news_intelligence,
+            'PORTFOLIO_STATE': portfolio_state,
+            'portfolio_intelligence': portfolio_state,
+            'portfolio_metrics': portfolio_metrics,
+            'portfolioMetrics': portfolio_metrics,
+            'positions': portfolio_positions,
+            'signal_quality': {
+                'liquidity_score': liquidity_score,
+                'liquidityScore': liquidity_score,
+                'directional_accuracy': ai_performance.get('accuracy'),
+                'directionalAccuracy': ai_performance.get('accuracy'),
+            },
+            'signalQuality': {
+                'liquidity_score': liquidity_score,
+                'liquidityScore': liquidity_score,
+                'directional_accuracy': ai_performance.get('accuracy'),
+                'directionalAccuracy': ai_performance.get('accuracy'),
+            },
             'data': {
                 'live_indices': snapshot['indices'],
                 'market_status': market_status,
@@ -6787,6 +6980,28 @@ def get_dashboard_data():
                 },
                 'MARKET_STATE': snapshot,
                 'PORTFOLIO_STATE': portfolio_state,
+                'portfolio_intelligence': portfolio_state,
+                'portfolio_metrics': portfolio_metrics,
+                'portfolioMetrics': portfolio_metrics,
+                'positions': portfolio_positions,
+                'portfolio_value': portfolio_value,
+                'portfolioValue': portfolio_value,
+                'active_positions': len(portfolio_positions),
+                'activePositions': len(portfolio_positions),
+                'liquidity_score': liquidity_score,
+                'liquidityScore': liquidity_score,
+                'signal_quality': {
+                    'liquidity_score': liquidity_score,
+                    'liquidityScore': liquidity_score,
+                    'directional_accuracy': ai_performance.get('accuracy'),
+                    'directionalAccuracy': ai_performance.get('accuracy'),
+                },
+                'signalQuality': {
+                    'liquidity_score': liquidity_score,
+                    'liquidityScore': liquidity_score,
+                    'directional_accuracy': ai_performance.get('accuracy'),
+                    'directionalAccuracy': ai_performance.get('accuracy'),
+                },
                 'system_health': {'status': 'ONLINE', 'api_status': 'REACTIVE'},
                 'macro': macro_sections,
                 'metadata': {
@@ -8523,6 +8738,17 @@ def _get_prediction_rows():
             rows = [p for p in hist[-100:] if isinstance(p, dict) and p.get("symbol")]
         except Exception:
             rows = []
+    if not rows:
+        for db_source in (getattr(quantum_ai, "db", None), globals().get("dynamic_db")):
+            if not db_source or not hasattr(db_source, "get_recent_predictions"):
+                continue
+            try:
+                recent_db_rows = db_source.get_recent_predictions(limit=100) or []
+                rows = [p for p in recent_db_rows if isinstance(p, dict) and p.get("symbol")]
+                if rows:
+                    break
+            except Exception as exc:
+                logger.debug(f"SQLite prediction fallback skipped: {exc}")
     return [
         row for row in rows
         if isinstance(row, dict)
@@ -9087,11 +9313,8 @@ def dashboard_data_endpoint():
                 )
 
         if not indices:
-            try:
-                indices = fetch_live_indices()
-            except Exception as idx_err:
-                logger.warning(f"Fallback live indices fetch failed: {idx_err}")
-                indices = []
+            logger.warning("Dashboard request has no live indices; using immediate local fallback")
+            indices = _dashboard_index_fallback_rows(reason="dashboard-request-empty")
 
         # 3. Construct Response
         with cache_lock:
@@ -9142,12 +9365,29 @@ def dashboard_data_endpoint():
             portfolio_metrics = portfolio_intelligence.get('account_metrics') or {}
             if not isinstance(portfolio_metrics, dict):
                 portfolio_metrics = {}
+        portfolio_positions = portfolio_intelligence.get('positions', []) if isinstance(portfolio_intelligence, dict) else []
+        if not isinstance(portfolio_positions, list):
+            portfolio_positions = []
+        positions_value = sum(
+            _safe_float(
+                position.get('current_value', position.get('market_value', position.get('value'))),
+                0.0,
+            )
+            for position in portfolio_positions
+            if isinstance(position, dict)
+        )
 
         portfolio_value = first_value(
             live_data.get('portfolio_value'),
+            live_data.get('portfolioValue'),
             portfolio_metrics.get('total_value') if isinstance(portfolio_metrics, dict) else None,
             portfolio_metrics.get('portfolio_value') if isinstance(portfolio_metrics, dict) else None,
+            portfolio_metrics.get('current_value') if isinstance(portfolio_metrics, dict) else None,
+            portfolio_metrics.get('market_value') if isinstance(portfolio_metrics, dict) else None,
             portfolio_intelligence.get('total_value') if isinstance(portfolio_intelligence, dict) else None,
+            portfolio_intelligence.get('portfolio_value') if isinstance(portfolio_intelligence, dict) else None,
+            positions_value if positions_value > 0 else None,
+            0,
         )
 
         news_items = first_value(
@@ -9215,6 +9455,13 @@ def dashboard_data_endpoint():
             _build_dashboard_top_stocks(market_snapshot, prediction_rows),
         )
         top_stocks = ensure_list(top_stocks) if top_stocks is not None else []
+        liquidity_score = _derive_dashboard_liquidity_score(
+            indices=indices,
+            top_stocks=top_stocks,
+            performance=performance,
+        )
+        performance['liquidity_score'] = liquidity_score
+        performance['liquidityScore'] = liquidity_score
 
         alerts = first_value(
             live_data.get('alerts'),
@@ -9331,7 +9578,7 @@ def dashboard_data_endpoint():
                 'strategy': cognitive_state.get('strategy', live_data.get('strategy', '')),
                 'risk_alert': cognitive_state.get('risk_alert', live_data.get('risk_alert', '')),
                 'portfolio_value': portfolio_value,
-                'active_positions': len(portfolio_intelligence.get('positions', [])) if isinstance(portfolio_intelligence, dict) else 0,
+                'active_positions': len(portfolio_positions),
                 'var_95': portfolio_metrics.get('var_95', portfolio_metrics.get('var95', '')),
             },
             'marketSnapshot': {
@@ -9341,20 +9588,20 @@ def dashboard_data_endpoint():
                 'strategy': cognitive_state.get('strategy', live_data.get('strategy', '')),
                 'risk_alert': cognitive_state.get('risk_alert', live_data.get('risk_alert', '')),
                 'portfolio_value': portfolio_value,
-                'active_positions': len(portfolio_intelligence.get('positions', [])) if isinstance(portfolio_intelligence, dict) else 0,
+                'active_positions': len(portfolio_positions),
                 'var_95': portfolio_metrics.get('var_95', portfolio_metrics.get('var95', '')),
             },
             'signal_quality': {
                 'directional_accuracy': performance.get('directional_accuracy', performance.get('accuracy', performance.get('prediction_accuracy', ''))),
-                'liquidity_score': performance.get('liquidity_score', performance.get('liquidityScore', '')),
+                'liquidity_score': liquidity_score,
                 'directionalAccuracy': performance.get('directional_accuracy', performance.get('accuracy', performance.get('prediction_accuracy', ''))),
-                'liquidityScore': performance.get('liquidity_score', performance.get('liquidityScore', '')),
+                'liquidityScore': liquidity_score,
             },
             'signalQuality': {
                 'directional_accuracy': performance.get('directional_accuracy', performance.get('accuracy', performance.get('prediction_accuracy', ''))),
-                'liquidity_score': performance.get('liquidity_score', performance.get('liquidityScore', '')),
+                'liquidity_score': liquidity_score,
                 'directionalAccuracy': performance.get('directional_accuracy', performance.get('accuracy', performance.get('prediction_accuracy', ''))),
-                'liquidityScore': performance.get('liquidity_score', performance.get('liquidityScore', '')),
+                'liquidityScore': liquidity_score,
             },
             'bull': news_intelligence.get('bullish_count', news_intelligence.get('bull', 0)),
             'neutral': news_intelligence.get('neutral_count', news_intelligence.get('neutral', 0)),
@@ -9363,9 +9610,11 @@ def dashboard_data_endpoint():
             'risk_alert': cognitive_state.get('risk_alert', live_data.get('risk_alert', '')),
             'riskAlert': cognitive_state.get('risk_alert', live_data.get('risk_alert', '')),
             'directionalAccuracy': performance.get('directional_accuracy', performance.get('accuracy', performance.get('prediction_accuracy', ''))),
-            'liquidityScore': performance.get('liquidity_score', performance.get('liquidityScore', '')),
+            'liquidity_score': liquidity_score,
+            'liquidityScore': liquidity_score,
             'portfolioValue': portfolio_value,
-            'activePositions': len(portfolio_intelligence.get('positions', [])) if isinstance(portfolio_intelligence, dict) else 0,
+            'active_positions': len(portfolio_positions),
+            'activePositions': len(portfolio_positions),
             'var95': portfolio_metrics.get('var_95', portfolio_metrics.get('var95', '')),
             'lastUpdate': dashboard_data['timestamp'],
             'last_update': dashboard_data['timestamp'],

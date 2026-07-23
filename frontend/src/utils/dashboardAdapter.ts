@@ -23,6 +23,11 @@ function firstValue(...values: unknown[]) {
   return values.find((value) => value !== undefined && value !== null && value !== '')
 }
 
+function recordValue(record: unknown, ...keys: string[]) {
+  if (!isRecord(record)) return undefined
+  return firstValue(...keys.map((key) => record[key]))
+}
+
 function toNumber(value: unknown): number | undefined {
   const num = Number(value)
   return Number.isFinite(num) ? num : undefined
@@ -38,8 +43,8 @@ function normalizeIndices(raw: AnyRecord): MarketIndex[] {
     name: toText(firstValue(item.name, item.label, item.symbol)) ?? 'Index',
     symbol: toText(item.symbol),
     price: toNumber(firstValue(item.price, item.value, item.last, item.close)),
-    change: toNumber(firstValue(item.change, item.change_value)),
-    changePercent: toNumber(firstValue(item.change_percent, item.changePercent, item.percent)),
+    change: toNumber(firstValue(item.change_points, item.changepoints, item.change_value, item.change)),
+    changePercent: toNumber(firstValue(item.change_percent, item.changePercent, item.changepercent, item.percent, item.change)),
   }))
 }
 
@@ -49,7 +54,7 @@ function normalizeSignals(raw: AnyRecord): DashboardSignal[] {
     .map((item) => ({
       symbol: toText(firstValue(item.symbol, item.ticker, item.name)) ?? 'UNKNOWN',
       price: toNumber(firstValue(item.current_price, item.price, item.last_price)),
-      changePercent: toNumber(firstValue(item.change_percent, item.changePercent, item.return_percent)),
+      changePercent: toNumber(firstValue(item.price_change_percent, item.change_percent, item.changePercent, item.return_percent)),
       signal: toText(firstValue(item.signal, item.action, item.recommendation)),
       confidence: toNumber(firstValue(item.confidence, item.score, item.probability)),
     }))
@@ -78,12 +83,46 @@ function normalizeNews(raw: AnyRecord): DashboardAlert[] {
 }
 
 function buildMetrics(raw: AnyRecord): DashboardMetric[] {
-  const portfolioValue = firstValue(raw.portfolioValue, raw.portfolio_value)
-  const activePositions = firstValue(raw.activePositions, raw.active_positions)
-  const accuracy = firstValue(raw.directionalAccuracy, raw.directional_accuracy)
-  const liquidity = firstValue(raw.liquidityScore, raw.liquidity_score)
-  const bull = firstValue(raw.bull, isRecord(raw.marketSnapshot) ? raw.marketSnapshot.bull : undefined)
-  const bear = firstValue(raw.bear, isRecord(raw.marketSnapshot) ? raw.marketSnapshot.bear : undefined)
+  const data = isRecord(raw.data) ? raw.data : {}
+  const marketSnapshot = firstValue(raw.marketSnapshot, raw.market_snapshot, data.marketSnapshot, data.market_snapshot)
+  const signalQuality = firstValue(raw.signalQuality, raw.signal_quality, data.signalQuality, data.signal_quality)
+  const portfolioMetrics = firstValue(raw.portfolioMetrics, raw.portfolio_metrics, data.portfolioMetrics, data.portfolio_metrics)
+  const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence, data.PORTFOLIO_STATE, data.portfolio_intelligence)
+
+  const portfolioValue = firstValue(
+    raw.portfolioValue,
+    raw.portfolio_value,
+    data.portfolioValue,
+    data.portfolio_value,
+    recordValue(portfolioMetrics, 'total_value', 'portfolio_value', 'current_value', 'market_value'),
+    recordValue(marketSnapshot, 'portfolio_value', 'portfolioValue'),
+    recordValue(portfolioState, 'total_value', 'portfolio_value'),
+    recordValue(recordValue(portfolioState, 'account_metrics'), 'total_value', 'portfolio_value', 'current_value', 'market_value'),
+    0,
+  )
+  const activePositions = firstValue(
+    raw.activePositions,
+    raw.active_positions,
+    data.activePositions,
+    data.active_positions,
+    recordValue(marketSnapshot, 'active_positions', 'activePositions'),
+  )
+  const accuracy = firstValue(
+    raw.directionalAccuracy,
+    raw.directional_accuracy,
+    data.directionalAccuracy,
+    data.directional_accuracy,
+    recordValue(signalQuality, 'directionalAccuracy', 'directional_accuracy'),
+  )
+  const liquidity = firstValue(
+    raw.liquidityScore,
+    raw.liquidity_score,
+    data.liquidityScore,
+    data.liquidity_score,
+    recordValue(signalQuality, 'liquidityScore', 'liquidity_score'),
+  )
+  const bull = firstValue(raw.bull, data.bull, recordValue(marketSnapshot, 'bull'))
+  const bear = firstValue(raw.bear, data.bear, recordValue(marketSnapshot, 'bear'))
 
   return [
     {
@@ -112,7 +151,8 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
 }
 
 export function normalizeDashboard(payload: unknown): NormalizedDashboard {
-  const raw = isRecord(payload) ? payload : {}
+  const base = isRecord(payload) ? payload : {}
+  const raw = isRecord(base.data) ? { ...base.data, ...base } : base
   return {
     metrics: buildMetrics(raw),
     indices: normalizeIndices(raw),

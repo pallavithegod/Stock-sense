@@ -25,6 +25,54 @@ if not logger.handlers:
 
 class DatabaseManager:
     _initialized = False
+    REQUIRED_SCHEMA = {
+        "portfolio": {"id", "symbol", "quantity", "avg_price", "added_date"},
+        "predictions": {
+            "id",
+            "symbol",
+            "predicted_price",
+            "current_price",
+            "target_price",
+            "signal",
+            "confidence",
+            "models_used",
+            "timestamp",
+        },
+        "model_performance": {"id", "model_name", "accuracy", "weight", "updated_at"},
+        "dynamic_symbols": {"id", "symbol", "name", "sector", "last_updated"},
+        "portfolio_transactions": {
+            "id",
+            "symbol",
+            "side",
+            "quantity",
+            "price",
+            "trade_date",
+            "fees",
+            "created_at",
+        },
+        "portfolio_lots": {
+            "id",
+            "symbol",
+            "buy_txn_id",
+            "buy_date",
+            "buy_price",
+            "original_quantity",
+            "remaining_quantity",
+            "created_at",
+        },
+        "portfolio_realized_gains": {
+            "id",
+            "symbol",
+            "sell_txn_id",
+            "lot_id",
+            "quantity",
+            "buy_price",
+            "sell_price",
+            "gain",
+            "gain_type",
+            "realized_at",
+        },
+    }
 
     def __init__(self, db_path='data/nexus.db'):
         self.db_path = db_path
@@ -33,6 +81,7 @@ class DatabaseManager:
             os.makedirs(db_dir, exist_ok=True)
         if not DatabaseManager._initialized:
             self.init_database()
+            self.validate_schema()
             logger.info(f"Database initialized at: {db_path}")
             DatabaseManager._initialized = True
 
@@ -238,6 +287,43 @@ class DatabaseManager:
         """
         with self.get_connection() as conn:
             conn.execute(query)
+
+    def validate_schema(self):
+        """
+        Lightweight startup check for the local SQLite schema.
+        This catches missing tables/columns early without changing data.
+        """
+        missing = {}
+        with self.get_connection() as conn:
+            tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            for table, required_columns in self.REQUIRED_SCHEMA.items():
+                if table not in tables:
+                    missing[table] = sorted(required_columns)
+                    continue
+                columns = {
+                    row["name"]
+                    for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                absent_columns = sorted(required_columns - columns)
+                if absent_columns:
+                    missing[table] = absent_columns
+
+            quick_check = conn.execute("PRAGMA quick_check").fetchone()
+            if quick_check and str(quick_check[0]).lower() != "ok":
+                missing["database_integrity"] = [str(quick_check[0])]
+
+        if missing:
+            details = "; ".join(
+                f"{table}: {', '.join(columns)}"
+                for table, columns in missing.items()
+            )
+            raise RuntimeError(f"SQLite schema validation failed: {details}")
+        return True
 
     # ----------------------------
     # PORTFOLIO MANAGEMENT

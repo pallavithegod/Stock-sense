@@ -18,6 +18,8 @@ venv/
 logs/
 cache/
 models/
+data/backups/
+data/exports/
 *.log
 server_stdout.log
 server_stderr.log
