@@ -30,12 +30,16 @@ from backend.services.portfolio_service import (
     calculate_portfolio_volatility as calculate_portfolio_volatility_from_service,
     enrich_holdings_with_prices,
 )
+from backend.services.prediction_service import get_prediction_rows as collect_prediction_rows
 from backend.services.security import (
     debug_endpoints_enabled,
     get_allowed_origins,
     install_security_headers,
     mutation_guard_error,
 )
+from backend.routes.dashboard import create_dashboard_blueprint
+from backend.routes.market_routes import create_market_blueprint
+from backend.routes.portfolio import create_portfolio_blueprint
 from backend.routes.predictions import create_predictions_blueprint
 from backend.routes.research import create_research_blueprint
 from backend.routes.system import create_system_blueprint
@@ -3947,7 +3951,6 @@ class QuantumAINexusAI(QuantumAI):
 # SEARCH & UTILS
 # ...........................................................................
 
-@app.route("/api/search")
 @api_cache(ttl=30)
 def api_search():
     q = request.args.get("q", "")
@@ -4154,7 +4157,6 @@ def _build_search_results(query: str, limit: int = 15, include_live_quotes: bool
     return results[:limit]
 
 
-@app.route("/api/market_universe")
 def market_debug():
     if not debug_endpoints_enabled():
         return jsonify({"success": False, "error": "Debug endpoint disabled"}), 404
@@ -4587,7 +4589,6 @@ def smart_symbol_normalize(query: str) -> str:
 
 
 
-@app.route('/api/stocks', methods=['GET'])
 def get_stocks():
     """
     Get top stocks with REAL predictions
@@ -4715,7 +4716,6 @@ def get_stocks():
         }), 500
 
 
-@app.route('/api/user_tickers', methods=['POST'])
 def save_user_tickers():
     """Save user-managed ticker lists (added & hidden)"""
     data = request.json
@@ -4738,7 +4738,6 @@ def save_user_tickers():
 
 
 # ...............................................................................
-@app.route('/api/stock/<symbol>', methods=['GET'])
 def get_stock_prediction(symbol):
     """
     Get detailed prediction for single stock
@@ -4851,7 +4850,6 @@ def intelligence_status():
         return jsonify({"ready": False, "error": str(e)}), 500
 
 # ...............................................................................
-@app.route('/api/indicators/<symbol>', methods=['GET'])
 def get_technical_indicators(symbol):
     """
     Get detailed technical indicators
@@ -4904,7 +4902,6 @@ def get_technical_indicators(symbol):
 
 
 # ...............................................................................
-@app.route('/api/historical/<symbol>', methods=['GET'])
 def get_historical_data(symbol):
     """
     Get historical OHLCV data
@@ -4948,7 +4945,6 @@ def get_historical_data(symbol):
 
 
 # ...............................................................................
-@app.route('/api/compare', methods=['POST'])
 def compare_stocks():
     """
     Compare multiple stocks
@@ -5002,7 +4998,6 @@ def compare_stocks():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ...............................................................................
-@app.get("/api/search/comprehensive")
 def comprehensive_search():
     q = request.args.get("q", "").strip().upper()
     limit = int(request.args.get("limit", 10))
@@ -5010,7 +5005,6 @@ def comprehensive_search():
         return jsonify({"success": True, "results": []})
     return jsonify({"success": True, "results": _build_search_results(q, limit)})
 
-@app.route('/api/stock/analysis/<symbol>')
 def stock_analysis(symbol):
     """Complete AI + Technical + Fundamental stock analysis (Dynamic & Clean)"""
     try:
@@ -6605,6 +6599,18 @@ def _resolve_dashboard_ai_performance(now):
     }
 
 
+def _get_prediction_rows(limit=100):
+    """Compatibility adapter for legacy dashboard/chart helpers."""
+    return collect_prediction_rows(
+        ai_engine_state=AI_ENGINE_STATE,
+        system_cache=system_cache,
+        quantum_ai=quantum_ai,
+        dynamic_db=dynamic_db,
+        logger=logger,
+        limit=limit,
+    )
+
+
 def _derive_dashboard_liquidity_score(*, indices=None, top_stocks=None, performance=None):
     """Build a 0-100 liquidity proxy from dashboard market movement when no service value exists."""
     performance = performance if isinstance(performance, dict) else {}
@@ -6751,7 +6757,6 @@ def is_market_actually_active(market="NSE"):
         pass
     return False
 
-@app.route('/api/dashboard-data', methods=['GET'])
 def get_dashboard_data():
     """
     QuantumAI NEXUS Reactive Dashboard API (V12 - SNAPSHOT BASED)
@@ -7074,7 +7079,6 @@ def trigger_ai_recompute():
     quantum_ai.load_portfolio(holdings)
     quantum_ai.request_refresh_cycle()
 
-@app.route("/api/portfolio", methods=["POST"])
 def create_portfolio():
     """Portfolio REST create"""
     try:
@@ -7121,12 +7125,10 @@ def create_portfolio():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/add", methods=["POST"])
 def create_portfolio_legacy():
     return create_portfolio()
 
 
-@app.route("/api/portfolio/state", methods=["GET"])
 def api_portfolio_state():
     """Reactive portfolio snapshot endpoint sourced from STATE_CACHE."""
     started_at = time.perf_counter()
@@ -7175,7 +7177,6 @@ def api_portfolio_state():
         return jsonify({"success": False, "positions": [], "error": str(e)}), 500
 
 
-@app.route("/api/portfolio", methods=["GET"])
 def api_get_portfolio():
     """Debug holdings list"""
     try:
@@ -7185,7 +7186,6 @@ def api_get_portfolio():
         logger.error(f"Portfolio List error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/lots", methods=["GET"])
 def api_get_portfolio_lots():
     """Return open/all tax lots for one symbol or entire portfolio."""
     try:
@@ -7212,7 +7212,6 @@ def api_get_portfolio_lots():
         logger.error(f"Portfolio lots error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/lots/<int:lot_id>", methods=["PUT"])
 def api_update_portfolio_lot(lot_id):
     """Update specific open lot (purchase date/price/qty)."""
     try:
@@ -7233,7 +7232,6 @@ def api_update_portfolio_lot(lot_id):
         logger.error(f"Portfolio lot update error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/lots/<int:lot_id>", methods=["DELETE"])
 def api_delete_portfolio_lot(lot_id):
     """Delete one unsold open lot."""
     try:
@@ -7244,7 +7242,6 @@ def api_delete_portfolio_lot(lot_id):
         logger.error(f"Portfolio lot delete error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/realized-gains", methods=["GET"])
 def api_get_realized_gains():
     """Return realized gains ledger (STCG/LTCG) from matched sell lots."""
     try:
@@ -7275,7 +7272,6 @@ def api_get_realized_gains():
         logger.error(f"Realized gains error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/<symbol>", methods=["DELETE"])
 def api_delete_portfolio(symbol):
     """Portfolio REST delete"""
     try:
@@ -7292,7 +7288,6 @@ def api_delete_portfolio(symbol):
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/<symbol>", methods=["PUT"])
 def api_modify_portfolio(symbol):
     """Portfolio REST modify ?" update qty, price, or date for existing position"""
     try:
@@ -7317,7 +7312,6 @@ def api_modify_portfolio(symbol):
         logger.error(f"Portfolio Modify error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/sell", methods=["POST"])
 def api_sell_portfolio():
     """Sell lots with FIFO/LIFO/HIFO matching and realized gain accounting."""
     try:
@@ -7365,7 +7359,6 @@ def api_sell_portfolio():
         logger.error(f"Portfolio Sell error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/sell/simulate", methods=["POST"])
 def api_sell_simulation():
     """Simulate sell outcomes across FIFO/LIFO/HIFO without mutating holdings."""
     try:
@@ -7397,7 +7390,6 @@ def api_sell_simulation():
         logger.error(f"Portfolio sell simulation error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/tax-summary", methods=["GET"])
 def api_portfolio_tax_summary():
     """Financial year realized STCG/LTCG summary from lot-matched ledger."""
     try:
@@ -7409,7 +7401,6 @@ def api_portfolio_tax_summary():
         logger.error(f"Portfolio tax summary error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/ltcg-alerts", methods=["GET"])
 def api_portfolio_ltcg_alerts():
     """Lots that are close to LTCG threshold (default <= 30 days)."""
     try:
@@ -7421,7 +7412,6 @@ def api_portfolio_ltcg_alerts():
         logger.error(f"Portfolio LTCG alerts error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-@app.route("/api/portfolio/lot-insights", methods=["GET"])
 def api_portfolio_lot_insights():
     """Compact lot intelligence packet for expander and reports."""
     try:
@@ -7948,7 +7938,6 @@ def _compute_portfolio_intelligence_suite():
     return suite
 
 
-@app.route("/api/portfolio/forecast", methods=["GET"])
 def api_portfolio_forecast():
     """Read-only probabilistic portfolio forecast."""
     try:
@@ -7964,7 +7953,6 @@ def api_portfolio_forecast():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/survival", methods=["GET"])
 def api_portfolio_survival():
     """Read-only survival stress engine."""
     try:
@@ -7980,7 +7968,6 @@ def api_portfolio_survival():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/intelligence-suite", methods=["GET"])
 def api_portfolio_intelligence_suite():
     """Read-only suite: forecast + survival + backtesting + drift + governance + explainability."""
     try:
@@ -8001,7 +7988,6 @@ def _suite_slice_response(slice_key):
     })
 
 
-@app.route("/api/portfolio/backtesting", methods=["GET"])
 def api_portfolio_backtesting():
     """Read-only portfolio backtesting diagnostics."""
     try:
@@ -8011,7 +7997,6 @@ def api_portfolio_backtesting():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/drift", methods=["GET"])
 def api_portfolio_drift():
     """Read-only drift detection snapshot."""
     try:
@@ -8021,7 +8006,6 @@ def api_portfolio_drift():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/governance", methods=["GET"])
 def api_portfolio_governance():
     """Read-only capital governance layer."""
     try:
@@ -8031,7 +8015,6 @@ def api_portfolio_governance():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/explainability", methods=["GET"])
 def api_portfolio_explainability():
     """Read-only explainability layer for portfolio recommendations."""
     try:
@@ -8041,7 +8024,6 @@ def api_portfolio_explainability():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/portfolio/scorecard", methods=["GET"])
 def api_portfolio_scorecard():
     """Read-only capital intelligence module scorecard."""
     try:
@@ -8065,7 +8047,6 @@ def api_chart_by_type(chart_type):
     return jsonify({"success": True, "data": data})
 
 
-@app.route('/api/portfolio/allocation', methods=['GET'])
 def api_portfolio_allocation_chart():
     """Portfolio allocation chart data."""
     try:
@@ -8104,7 +8085,6 @@ def api_sector_chart_data():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/api/stock/<symbol>/history', methods=['GET'])
 def api_stock_history_chart(symbol):
     """Stock price history chart endpoint expected by chart.js."""
     try:
@@ -8167,7 +8147,6 @@ def api_risk_return_chart():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/api/analytics/market-trends', methods=['GET'])
 def api_market_trends_chart():
     """Index trend data for the multi-line market trend chart."""
     try:
@@ -8509,43 +8488,6 @@ def get_live_symbol_prediction(symbol):
         logger.error(f"Live prediction error {symbol}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-app.register_blueprint(create_system_blueprint(
-    project_root=Path(__file__).resolve().parent,
-    system_config=SYSTEM_CONFIG,
-    feature_flags={
-        "machine_learning": ML_AVAILABLE,
-        "deep_learning": DEEP_LEARNING_AVAILABLE,
-        "technical_analysis": TECHNICAL_ANALYSIS_ADVANCED,
-        "sentiment_analysis": NEWS_AVAILABLE,
-    },
-    quantum_ai=quantum_ai,
-    optional_modules=[
-        "yfinance",
-        "pandas",
-        "numpy",
-        "sklearn",
-        "tensorflow",
-        "feedparser",
-        "flask_socketio",
-    ],
-))
-app.register_blueprint(create_research_blueprint(
-    normalize_symbol=normalize_symbol,
-    fetch_price_history=fetch_live_stock_data,
-    foresight_system=foresight_system,
-    logger=logger,
-))
-app.register_blueprint(create_predictions_blueprint(
-    ai_engine_state=AI_ENGINE_STATE,
-    state_cache=STATE_CACHE,
-    system_cache=system_cache,
-    quantum_ai=quantum_ai,
-    dynamic_db=dynamic_db,
-    normalize_symbol=normalize_symbol,
-    realtime_state_builder=lambda rows: get_realtime_cognitive_state(rows),
-    logger=logger,
-))
 
 @app.route('/api/test-yfinance', methods=['GET'])
 def test_yfinance():
@@ -9083,7 +9025,6 @@ def execute_prediction(symbol):
         logger.error(f'O Prediction error: {e}', exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/dashboard-data/live')
 def dashboard_data_endpoint():
     """
     Real-time Dashboard Endpoint.
@@ -9442,7 +9383,6 @@ def dashboard_data_endpoint():
             return jsonify(cached)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/dashboard-data/debug', methods=['GET'])
 def dashboard_data_debug():
     """
     Lightweight echo endpoint for verifying which live fields are present
@@ -10294,6 +10234,94 @@ def get_realtime_cognitive_state(predictions=None):
     except Exception as e:
         logger.error(f"Failed to build cognitive state: {e}")
         return {"status": "error", "error": str(e)}
+
+
+def register_backend_blueprints():
+    """Register extracted route modules after legacy handlers are defined."""
+    app.register_blueprint(create_system_blueprint(
+        project_root=Path(__file__).resolve().parent,
+        system_config=SYSTEM_CONFIG,
+        feature_flags={
+            "machine_learning": ML_AVAILABLE,
+            "deep_learning": DEEP_LEARNING_AVAILABLE,
+            "technical_analysis": TECHNICAL_ANALYSIS_ADVANCED,
+            "sentiment_analysis": NEWS_AVAILABLE,
+        },
+        quantum_ai=quantum_ai,
+        optional_modules=[
+            "yfinance",
+            "pandas",
+            "numpy",
+            "sklearn",
+            "tensorflow",
+            "feedparser",
+            "flask_socketio",
+        ],
+    ))
+    app.register_blueprint(create_research_blueprint(
+        normalize_symbol=normalize_symbol,
+        fetch_price_history=fetch_live_stock_data,
+        foresight_system=foresight_system,
+        logger=logger,
+    ))
+    app.register_blueprint(create_predictions_blueprint(
+        ai_engine_state=AI_ENGINE_STATE,
+        state_cache=STATE_CACHE,
+        system_cache=system_cache,
+        quantum_ai=quantum_ai,
+        dynamic_db=dynamic_db,
+        normalize_symbol=normalize_symbol,
+        realtime_state_builder=lambda rows: get_realtime_cognitive_state(rows),
+        logger=logger,
+    ))
+    app.register_blueprint(create_dashboard_blueprint(
+        dashboard_data_handler=get_dashboard_data,
+        live_dashboard_handler=dashboard_data_endpoint,
+        debug_dashboard_handler=dashboard_data_debug,
+    ))
+    app.register_blueprint(create_market_blueprint(handlers={
+        "api_search": api_search,
+        "comprehensive_search": comprehensive_search,
+        "market_debug": market_debug,
+        "get_stocks": get_stocks,
+        "save_user_tickers": save_user_tickers,
+        "get_stock_prediction": get_stock_prediction,
+        "api_stock_history_chart": api_stock_history_chart,
+        "stock_analysis": stock_analysis,
+        "get_technical_indicators": get_technical_indicators,
+        "get_historical_data": get_historical_data,
+        "compare_stocks": compare_stocks,
+        "api_market_trends_chart": api_market_trends_chart,
+    }))
+    app.register_blueprint(create_portfolio_blueprint(handlers={
+        "create_portfolio": create_portfolio,
+        "create_portfolio_legacy": create_portfolio_legacy,
+        "api_portfolio_state": api_portfolio_state,
+        "api_get_portfolio": api_get_portfolio,
+        "api_get_portfolio_lots": api_get_portfolio_lots,
+        "api_update_portfolio_lot": api_update_portfolio_lot,
+        "api_delete_portfolio_lot": api_delete_portfolio_lot,
+        "api_get_realized_gains": api_get_realized_gains,
+        "api_delete_portfolio": api_delete_portfolio,
+        "api_modify_portfolio": api_modify_portfolio,
+        "api_sell_portfolio": api_sell_portfolio,
+        "api_sell_simulation": api_sell_simulation,
+        "api_portfolio_tax_summary": api_portfolio_tax_summary,
+        "api_portfolio_ltcg_alerts": api_portfolio_ltcg_alerts,
+        "api_portfolio_lot_insights": api_portfolio_lot_insights,
+        "api_portfolio_forecast": api_portfolio_forecast,
+        "api_portfolio_survival": api_portfolio_survival,
+        "api_portfolio_intelligence_suite": api_portfolio_intelligence_suite,
+        "api_portfolio_backtesting": api_portfolio_backtesting,
+        "api_portfolio_drift": api_portfolio_drift,
+        "api_portfolio_governance": api_portfolio_governance,
+        "api_portfolio_explainability": api_portfolio_explainability,
+        "api_portfolio_scorecard": api_portfolio_scorecard,
+        "api_portfolio_allocation_chart": api_portfolio_allocation_chart,
+    }))
+
+
+register_backend_blueprints()
 
 
 @app.route('/<path:path>')
