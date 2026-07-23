@@ -24,14 +24,20 @@ from regime_detector import RegimeEmbeddingEngine, RegimeMemory
 from model_weighting import MultiWorldSimulator
 from intelligence_core import IntegratedForesightSystem
 from kelly_allocator import KellyAllocator, KellySignal
-from backend.services.prediction_presenter import normalize_prediction_rows
-from backend.services.research_service import build_emotional_state_payload, build_futures_analysis_payload
+from backend.services.market_data import configure_yfinance_cache
+from backend.services.portfolio_service import (
+    calculate_portfolio_metrics,
+    calculate_portfolio_volatility as calculate_portfolio_volatility_from_service,
+    enrich_holdings_with_prices,
+)
 from backend.services.security import (
     debug_endpoints_enabled,
     get_allowed_origins,
     install_security_headers,
     mutation_guard_error,
 )
+from backend.routes.predictions import create_predictions_blueprint
+from backend.routes.research import create_research_blueprint
 from backend.routes.system import create_system_blueprint
 # from portfolio_ledger import PortfolioLedger # Removed in favor of DB
 
@@ -115,9 +121,7 @@ for d in ['data', 'logs', 'cache', 'models']:
     os.makedirs(d, exist_ok=True)
 
 try:
-    os.makedirs('cache/yfinance', exist_ok=True)
-    if hasattr(yf, 'set_tz_cache_location'):
-        yf.set_tz_cache_location(os.path.abspath('cache/yfinance'))
+    configure_yfinance_cache(yf)
 except Exception as exc:
     logging.getLogger('NEXUS-AI').debug(f"YFinance cache setup skipped: {exc}")
 
@@ -5439,17 +5443,6 @@ def live_predictions(symbol):
         logger.error(f"Live predictions error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/emotional-state/<symbol>', methods=['GET'])
-def get_emotional_state(symbol):
-    """Get just the emotional analysis for a symbol"""
-    return jsonify(build_emotional_state_payload(
-        symbol,
-        normalize_symbol=normalize_symbol,
-        fetch_price_history=fetch_live_stock_data,
-        foresight_system=foresight_system,
-        logger=logger,
-    ))
-
 @app.route('/api/governance-decision', methods=['POST'])
 def get_governance_decision():
     """
@@ -5476,17 +5469,6 @@ def get_governance_decision():
     )
     
     return jsonify(decision)
-
-@app.route('/api/futures-analysis/<symbol>', methods=['GET'])
-def get_futures_analysis(symbol):
-    """Get probabilistic futures (100 worlds) for a symbol"""
-    return jsonify(build_futures_analysis_payload(
-        symbol,
-        normalize_symbol=normalize_symbol,
-        fetch_price_history=fetch_live_stock_data,
-        foresight_system=foresight_system,
-        logger=logger,
-    ))
 
 @app.route("/api/autocomplete")
 def autocomplete():
@@ -5693,35 +5675,12 @@ def get_user_portfolio():
         if quantum_ai.db is None:
             return []
 
-        # Get from database
         holdings = quantum_ai.db.get_portfolio()
-
-        # Enrich with current prices
-        enriched = []
-        for holding in holdings:
-            try:
-                symbol = holding.get('symbol')
-                if not symbol:
-                    continue
-
-                df = quantum_ai.get_live_stock_data(symbol, period='1d')
-                if df is not None and len(df) > 0:
-                    current_price = float(df['Close'].iloc[-1])
-                else:
-                    current_price = holding.get('avg_price', 0)
-
-                enriched.append({
-                    **holding,
-                    'current_price': current_price,
-                    'pnl': (current_price - holding.get('avg_price', 0)) * holding.get('quantity', 0),
-                    'pnl_percent': ((current_price - holding.get('avg_price', 0)) / holding.get('avg_price', 1) * 100)
-                                   if holding.get('avg_price', 0) > 0 else 0
-                })
-            except Exception as e:
-                logger.warning(f"Portfolio enrichment failed: {e}")
-                enriched.append(holding)
-
-        return enriched
+        return enrich_holdings_with_prices(
+            holdings,
+            price_fetcher=lambda symbol, period: quantum_ai.get_live_stock_data(symbol, period=period),
+            logger=logger,
+        )
     except Exception as e:
         logger.error(f"Portfolio fetch error: {e}")
         return []
@@ -5730,56 +5689,9 @@ def get_user_portfolio():
 def calculate_portfolio_live():
     """Calculate portfolio from REAL database holdings - ZERO hardcoding"""
     try:
-        # Get holdings from database
         holdings = get_user_portfolio()
-        if not holdings or len(holdings) == 0:
-            return {
-                'total_value': 0,
-                'day_pnl': 0,
-                'day_pnl_percent': 0,
-                'active_positions': 0,
-                'winners': 0,
-                'losers': 0,
-                'risk_level': 'LOW'
-            }
-
-        total_value = 0
-        total_invested = 0
-        winners = 0
-        losers = 0
-
-        for holding in holdings:
-            qty = holding.get('quantity', 0)
-            current = holding.get('current_price', 0)
-            avg = holding.get('avg_price', 0)
-
-            # Calculate values
-            total_value += qty * current
-            total_invested += qty * avg
-
-            # Count winners/losers
-            pnl = (current - avg) * qty
-            if pnl > 0:
-                winners += 1
-            elif pnl < 0:
-                losers += 1
-
-        day_pnl = total_value - total_invested
-        day_pnl_percent = (day_pnl / total_invested * 100) if total_invested > 0 else 0
-
-        # Calculate risk dynamically based on volatility
         volatility = calculate_portfolio_volatility(holdings)
-        risk_level = 'HIGH' if volatility > 0.3 else 'MEDIUM' if volatility > 0.15 else 'LOW'
-
-        return {
-            'total_value': round(total_value, 2),
-            'day_pnl': round(day_pnl, 2),
-            'day_pnl_percent': round(day_pnl_percent, 2),
-            'active_positions': len(holdings),
-            'winners': winners,
-            'losers': losers,
-            'risk_level': risk_level
-        }
+        return calculate_portfolio_metrics(holdings, volatility=volatility)
 
     except Exception as e:
         logger.error(f"Portfolio calculation error: {e}")
@@ -5797,22 +5709,11 @@ def calculate_portfolio_live():
 def calculate_portfolio_volatility(holdings):
     """Calculate portfolio volatility from real price data"""
     try:
-        if not holdings or len(holdings) == 0:
-            return 0.0
-
-        returns = []
-        for holding in holdings:
-            symbol = holding.get('symbol', '')
-            df = quantum_ai.get_live_stock_data(symbol, period='1mo')
-            if df is not None and len(df) > 1:
-                daily_returns = df['Close'].pct_change().dropna()
-                returns.extend(daily_returns.tolist())
-
-        if len(returns) > 0:
-            return np.std(returns)
-
-        return 0.0
-    except:
+        return calculate_portfolio_volatility_from_service(
+            holdings,
+            price_fetcher=lambda symbol, period: quantum_ai.get_live_stock_data(symbol, period=period),
+        )
+    except Exception:
         return 0.0
 
 
@@ -8629,6 +8530,22 @@ app.register_blueprint(create_system_blueprint(
         "flask_socketio",
     ],
 ))
+app.register_blueprint(create_research_blueprint(
+    normalize_symbol=normalize_symbol,
+    fetch_price_history=fetch_live_stock_data,
+    foresight_system=foresight_system,
+    logger=logger,
+))
+app.register_blueprint(create_predictions_blueprint(
+    ai_engine_state=AI_ENGINE_STATE,
+    state_cache=STATE_CACHE,
+    system_cache=system_cache,
+    quantum_ai=quantum_ai,
+    dynamic_db=dynamic_db,
+    normalize_symbol=normalize_symbol,
+    realtime_state_builder=lambda rows: get_realtime_cognitive_state(rows),
+    logger=logger,
+))
 
 @app.route('/api/test-yfinance', methods=['GET'])
 def test_yfinance():
@@ -8722,124 +8639,6 @@ def endpoint_status():
         })
 
 # DELETED LEGACY PORTFOLIO ROUTE
-
-@app.route("/api/predictions")
-def api_predictions():
-    """Read-only predictions from Global AI State."""
-    rows = normalize_prediction_rows(_get_prediction_rows())
-    return jsonify({
-        "success": True,
-        "stocks": rows, # Using 'stocks' for frontend compatibility
-        "predictions": rows, # Keep'predictions' for backward compatibility
-        "timestamp": AI_ENGINE_STATE["last_update"]
-    })
-
-
-def _get_prediction_rows():
-    rows = list(AI_ENGINE_STATE.get("predictions", {}).values())
-    if not rows:
-        try:
-            recent = system_cache.get("recent_predictions", []) or []
-            rows = [p for p in recent if isinstance(p, dict) and p.get("symbol")]
-        except Exception:
-            rows = []
-    if not rows:
-        try:
-            hist = list(getattr(quantum_ai, "prediction_history", []) or [])
-            rows = [p for p in hist[-100:] if isinstance(p, dict) and p.get("symbol")]
-        except Exception:
-            rows = []
-    if not rows:
-        for db_source in (getattr(quantum_ai, "db", None), globals().get("dynamic_db")):
-            if not db_source or not hasattr(db_source, "get_recent_predictions"):
-                continue
-            try:
-                recent_db_rows = db_source.get_recent_predictions(limit=100) or []
-                rows = [p for p in recent_db_rows if isinstance(p, dict) and p.get("symbol")]
-                if rows:
-                    break
-            except Exception as exc:
-                logger.debug(f"SQLite prediction fallback skipped: {exc}")
-    return [
-        row for row in rows
-        if isinstance(row, dict)
-        and row.get("symbol")
-        and str(row.get("data_source") or "").lower() != "synthetic"
-    ]
-
-
-def _merge_prediction_rows_with_intelligence(rows, opportunities):
-    rows = [row for row in (rows or []) if isinstance(row, dict) and row.get("symbol")]
-    opportunities = [row for row in (opportunities or []) if isinstance(row, dict) and row.get("symbol")]
-    opportunity_map = {
-        normalize_symbol(item.get("symbol")): item
-        for item in opportunities
-        if normalize_symbol(item.get("symbol"))
-    }
-    merged = []
-    for row in rows:
-        base = normalize_symbol(row.get("symbol"))
-        intelligence = opportunity_map.get(base, {})
-        enriched = dict(row)
-        if intelligence:
-            enriched.update({
-                "action": intelligence.get("action", enriched.get("action")),
-                "allocation_pct": intelligence.get("allocation_pct", enriched.get("allocation_pct")),
-                "weight_pct": intelligence.get("allocation_pct", enriched.get("weight_pct")),
-                "ai_size": intelligence.get("allocation_pct", enriched.get("ai_size")),
-                "kelly_fraction": intelligence.get("kelly_fraction", enriched.get("kelly_fraction")),
-                "edge_score": intelligence.get("edge_score", enriched.get("edge_score")),
-                "recommended_position_size": intelligence.get("allocation_pct", enriched.get("recommended_position_size")),
-            })
-        merged.append(enriched)
-
-    used = {normalize_symbol(item.get("symbol")) for item in merged if normalize_symbol(item.get("symbol"))}
-    for intelligence in opportunities:
-        base = normalize_symbol(intelligence.get("symbol"))
-        if not base or base in used:
-            continue
-        merged.append(dict(intelligence))
-    return merged
-
-
-@app.route("/api/predictions/intelligence")
-def api_predictions_intelligence():
-    """Compatibility endpoint for the dashboard intelligence table."""
-    try:
-        top_n = max(1, min(int(request.args.get("top_n", 100) or 100), 250))
-    except (TypeError, ValueError):
-        top_n = 100
-
-    rows = _get_prediction_rows()
-
-    state = AI_ENGINE_STATE.get("cognitive_state", {}) or {}
-    opportunities = [row for row in (state.get("opportunities") or []) if isinstance(row, dict)]
-    if not opportunities and rows:
-        try:
-            state = get_realtime_cognitive_state(rows) or {}
-            opportunities = [row for row in (state.get("opportunities") or []) if isinstance(row, dict)]
-        except Exception as exc:
-            logger.debug(f"Predictions intelligence fallback used: {exc}")
-
-    enriched_rows = normalize_prediction_rows(_merge_prediction_rows_with_intelligence(rows, opportunities))
-
-    payload = {
-        "success": True,
-        "opportunities": opportunities[:top_n],
-        "rows": enriched_rows[:top_n],
-        "stocks": enriched_rows[:top_n],
-        "predictions": enriched_rows[:top_n],
-        "market_regime": (
-            state.get("current_regime")
-            or ((state.get("market_state") or {}).get("regime"))
-            or ((STATE_CACHE.get("PREDICTION_STATE", {}).get("system_cache", {}).get("ai_performance", {}) or {}).get("regime"))
-            or "UNKNOWN"
-        ),
-        "global_accuracy": ((STATE_CACHE.get("PREDICTION_STATE", {}).get("system_cache", {}).get("ai_performance", {}) or {}).get("accuracy", 0.0)),
-        "models_active": ((STATE_CACHE.get("PREDICTION_STATE", {}).get("system_cache", {}).get("ai_performance", {}) or {}).get("active_models", 0)),
-        "timestamp": AI_ENGINE_STATE.get("last_update") or datetime.now(ZoneInfo("UTC")).isoformat(),
-    }
-    return jsonify(encoding.sanitize_json(payload))
 
 @app.route('/api/research')
 def api_research():
