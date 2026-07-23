@@ -36,6 +36,20 @@ from backend.services.security import (
     get_allowed_origins,
     install_security_headers,
     mutation_guard_error,
+    rate_limit_error,
+    request_size_error,
+)
+from backend.services.validation import (
+    ValidationError,
+    validate_feedback,
+    validate_governance_decision,
+    validate_lot_update,
+    validate_portfolio_create,
+    validate_portfolio_update,
+    validate_prediction_execution,
+    validate_sell_order,
+    validate_user_tickers,
+    validation_error_payload,
 )
 from backend.routes.dashboard import create_dashboard_blueprint
 from backend.routes.market_routes import create_market_blueprint
@@ -165,6 +179,12 @@ install_security_headers(app)
 
 @app.before_request
 def enforce_demo_write_protection():
+    size_error = request_size_error()
+    if size_error:
+        return size_error
+    limited = rate_limit_error()
+    if limited:
+        return limited
     return mutation_guard_error()
 
 
@@ -4718,17 +4738,17 @@ def get_stocks():
 
 def save_user_tickers():
     """Save user-managed ticker lists (added & hidden)"""
-    data = request.json
-    
-    # Handle both new structure {added: [], hidden: []} and old {tickers: []}
+    try:
+        data = validate_user_tickers(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+    except ValidationError as exc:
+        return jsonify(validation_error_payload(exc)), 400
+
     if "added" in data:
-        quantum_ai.user_tickers = data.get("added", [])
+        quantum_ai.user_tickers = data["added"]
     if "hidden" in data:
-        quantum_ai.hidden_tickers = data.get("hidden", [])
-        
-    # Backward compatibility
+        quantum_ai.hidden_tickers = data["hidden"]
     if "tickers" in data and "added" not in data:
-        quantum_ai.user_tickers = data.get("tickers", [])
+        quantum_ai.user_tickers = data["tickers"]
         
     return jsonify({
         "success": True, 
@@ -5452,7 +5472,10 @@ def get_governance_decision():
     }
     """
     
-    data = request.json
+    try:
+        data = validate_governance_decision(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+    except ValidationError as exc:
+        return jsonify(validation_error_payload(exc)), 400
     
     decision = foresight_system.governance_engine.make_governed_decision(
         symbol=data['symbol'],
@@ -7082,12 +7105,16 @@ def trigger_ai_recompute():
 def create_portfolio():
     """Portfolio REST create"""
     try:
-        data = request.get_json(force=True)
-
-        symbol = normalize_symbol(data.get("symbol"))
-        qty = float(data.get("qty", data.get("quantity", 0)))
-        price = float(data.get("avg_price", 0))
-        date = data.get("purchase_date")
+        ensure_market_universe_loaded()
+        data = validate_portfolio_create(
+            request.get_json(silent=True),
+            normalize_symbol=normalize_symbol,
+            known_symbols=set(MARKET.symbols.keys()),
+        )
+        symbol = data["symbol"]
+        qty = data["quantity"]
+        price = data["avg_price"]
+        date = data["purchase_date"]
 
         if not symbol:
             return jsonify({"status": "error", "error": "invalid symbol"}), 400
@@ -7120,6 +7147,8 @@ def create_portfolio():
         # inform caller which exchange symbol was used (helps with BSE vs NSE)
         return jsonify({"status": "ok", "exchange_symbol": exchange_symbol})
 
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.exception("PORTFOLIO ADD FAILED")
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -7215,19 +7244,18 @@ def api_get_portfolio_lots():
 def api_update_portfolio_lot(lot_id):
     """Update specific open lot (purchase date/price/qty)."""
     try:
-        data = request.get_json(force=True) or {}
-        quantity = data.get("qty", data.get("quantity"))
-        buy_price = data.get("buy_price", data.get("avg_price", data.get("price")))
-        buy_date = data.get("buy_date", data.get("purchase_date", data.get("added_date")))
+        data = validate_lot_update(request.get_json(silent=True))
 
         result = quantum_ai.db.update_open_lot(
             lot_id=lot_id,
-            quantity=quantity,
-            buy_price=buy_price,
-            buy_date=buy_date
+            quantity=data["quantity"],
+            buy_price=data["buy_price"],
+            buy_date=data["buy_date"]
         )
         trigger_ai_recompute()
         return jsonify({"status": "ok", "data": result})
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.error(f"Portfolio lot update error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -7291,23 +7319,23 @@ def api_delete_portfolio(symbol):
 def api_modify_portfolio(symbol):
     """Portfolio REST modify ?" update qty, price, or date for existing position"""
     try:
-        base_symbol = normalize_symbol(symbol)
-        if not base_symbol:
-            return jsonify({"status": "error", "error": "invalid symbol"}), 400
-
-        data = request.get_json(force=True)
-        qty = float(data.get("qty", data.get("quantity", 0)))
-        price = float(data.get("avg_price", data.get("price", 0)))
-        date = data.get("purchase_date", data.get("added_date", None))
-
-        if qty <= 0:
-            return jsonify({"status": "error", "error": "quantity must be > 0"}), 400
+        data = validate_portfolio_update(
+            request.get_json(silent=True),
+            normalize_symbol=normalize_symbol,
+            symbol=symbol,
+        )
+        base_symbol = data["symbol"]
+        qty = data["quantity"]
+        price = data["avg_price"]
+        date = data["purchase_date"]
 
         # INSERT OR REPLACE keyed on symbol ?" effectively an update
         quantum_ai.db.update_portfolio_position_summary(base_symbol, qty, price, date)
         trigger_ai_recompute()
 
         return jsonify({"status": "ok", "message": f"{base_symbol} updated"})
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.error(f"Portfolio Modify error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -7315,22 +7343,14 @@ def api_modify_portfolio(symbol):
 def api_sell_portfolio():
     """Sell lots with FIFO/LIFO/HIFO matching and realized gain accounting."""
     try:
-        data = request.get_json(force=True) or {}
-        base_symbol = normalize_symbol(data.get("symbol"))
-        if not base_symbol:
-            return jsonify({"status": "error", "error": "invalid symbol"}), 400
-
-        qty = float(data.get("qty", data.get("quantity", 0)))
-        price = float(data.get("sell_price", data.get("price", 0)))
-        sell_date = data.get("sell_date")
-        method = str(data.get("method", "FIFO")).upper()
-        fees = float(data.get("fees", 0) or 0)
-        notes = data.get("notes")
-
-        if qty <= 0:
-            return jsonify({"status": "error", "error": "quantity must be > 0"}), 400
-        if price <= 0:
-            return jsonify({"status": "error", "error": "sell_price must be > 0"}), 400
+        data = validate_sell_order(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+        base_symbol = data["symbol"]
+        qty = data["quantity"]
+        price = data["sell_price"]
+        sell_date = data["sell_date"]
+        method = data["method"]
+        fees = data["fees"]
+        notes = data["notes"]
 
         result = quantum_ai.db.sell_from_portfolio(
             base_symbol,
@@ -7355,6 +7375,8 @@ def api_sell_portfolio():
         }
         trigger_ai_recompute()
         return jsonify({"status": "ok", "data": result, "journal": journal})
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.error(f"Portfolio Sell error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -7362,20 +7384,13 @@ def api_sell_portfolio():
 def api_sell_simulation():
     """Simulate sell outcomes across FIFO/LIFO/HIFO without mutating holdings."""
     try:
-        data = request.get_json(force=True) or {}
-        base_symbol = normalize_symbol(data.get("symbol"))
-        if not base_symbol:
-            return jsonify({"status": "error", "error": "invalid symbol"}), 400
-
-        qty = float(data.get("qty", data.get("quantity", 0)))
-        price = float(data.get("sell_price", data.get("price", 0)))
-        sell_date = data.get("sell_date")
-        fees = float(data.get("fees", 0) or 0)
-        methods = data.get("methods") or ["FIFO", "LIFO", "HIFO"]
-        if qty <= 0:
-            return jsonify({"status": "error", "error": "quantity must be > 0"}), 400
-        if price <= 0:
-            return jsonify({"status": "error", "error": "sell_price must be > 0"}), 400
+        data = validate_sell_order(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+        base_symbol = data["symbol"]
+        qty = data["quantity"]
+        price = data["sell_price"]
+        sell_date = data["sell_date"]
+        fees = data["fees"]
+        methods = data["methods"]
 
         result = quantum_ai.db.compare_sell_methods(
             symbol=base_symbol,
@@ -7386,6 +7401,8 @@ def api_sell_simulation():
             methods=methods
         )
         return jsonify({"status": "ok", "data": result})
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.error(f"Portfolio sell simulation error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -8754,10 +8771,10 @@ def execute_prediction(symbol):
     Fully Meta-Intelligent | Self-Restrained | Production-Safe
     """
     try:
-        data = request.json or {}
-        current_price = float(data.get('current_price', 0))
-        volume = float(data.get('volume', 0))
-        timestamp = data.get('timestamp', datetime.now().isoformat())
+        data = validate_prediction_execution(request.get_json(silent=True) or {})
+        current_price = data["current_price"]
+        volume = data["volume"]
+        timestamp = data["timestamp"]
 
         logger.info(f'Y Executing AI prediction for {symbol}...')
 
@@ -9021,6 +9038,8 @@ def execute_prediction(symbol):
 
         return jsonify({'success': True, 'data': result})
 
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.error(f'O Prediction error: {e}', exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -9940,20 +9959,16 @@ def get_symbol_accuracy(symbol):
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback_endpoint():
     try:
-        data = request.json
-        symbol = data.get('symbol')
-        evolved_prediction = data.get('evolved_prediction')
-        realized_return = data.get('realized_return')
-        
-        if not all([symbol, evolved_prediction, realized_return]):
-            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        data = validate_feedback(request.get_json(silent=True), normalize_symbol=normalize_symbol)
             
         foresight_system.feedback(
-            symbol=symbol,
-            evolved_prediction=evolved_prediction,
-            realized_return=float(realized_return)
+            symbol=data["symbol"],
+            evolved_prediction=data["evolved_prediction"],
+            realized_return=data["realized_return"]
         )
         return jsonify({'success': True, 'message': 'Feedback processed'})
+    except ValidationError as e:
+        return jsonify(validation_error_payload(e)), 400
     except Exception as e:
         logger.error(f"Feedback failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
