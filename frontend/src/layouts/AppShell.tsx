@@ -57,6 +57,9 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
         </header>
 
         <main className="px-5 py-6">{children}</main>
+        <footer className="border-t border-white/10 px-5 py-4 text-xs leading-5 text-slate-500">
+          StockSense is a demo research tool. Signals, forecasts, and portfolio metrics are not financial advice.
+        </footer>
       </div>
     </div>
   )

@@ -26,6 +26,12 @@ from intelligence_core import IntegratedForesightSystem
 from kelly_allocator import KellyAllocator, KellySignal
 from backend.services.prediction_presenter import normalize_prediction_rows
 from backend.services.research_service import build_emotional_state_payload, build_futures_analysis_payload
+from backend.services.security import (
+    debug_endpoints_enabled,
+    get_allowed_origins,
+    install_security_headers,
+    mutation_guard_error,
+)
 from backend.routes.system import create_system_blueprint
 # from portfolio_ledger import PortfolioLedger # Removed in favor of DB
 
@@ -92,9 +98,6 @@ def env_list(name: str, default: str = "*"):
     return values or default
 
 
-def debug_endpoints_enabled() -> bool:
-    return env_bool("DEBUG_ENDPOINTS", False) or env_bool("DEBUG", False)
-
 from utils.stock_loader import load_all_stock_symbols
 
 from utils.fuzzy import fuzzy_filter
@@ -142,12 +145,19 @@ logger.addHandler(log_handler)
 # ==============================================================================
 app = Flask(__name__, static_folder='.', static_url_path='/static')
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'change-me-local-dev-secret')
-CORS(app, resources={r"/*": {"origins": env_list("CORS_ALLOWED_ORIGINS")}})
+CORS(app, resources={r"/*": {"origins": get_allowed_origins("CORS_ALLOWED_ORIGINS")}})
 socketio = SocketIO(
     app,
-    cors_allowed_origins=env_list("SOCKETIO_CORS_ALLOWED_ORIGINS"),
+    cors_allowed_origins=get_allowed_origins("SOCKETIO_CORS_ALLOWED_ORIGINS"),
     async_mode=os.getenv("SOCKETIO_ASYNC_MODE", "eventlet")
 )
+
+install_security_headers(app)
+
+
+@app.before_request
+def enforce_demo_write_protection():
+    return mutation_guard_error()
 
 
 # Confirm environment loading

@@ -64,6 +64,17 @@ python scripts/sqlite_maintenance.py export
 
 Backup files go to `data/backups/` and JSON exports go to `data/exports/` by default.
 
+## Demo Security
+
+Local CORS is restricted to Flask and Vite localhost origins by default. For public demos, protect portfolio and feedback mutation routes with:
+
+```env
+REQUIRE_MUTATION_TOKEN=True
+DEMO_WRITE_TOKEN=replace_with_a_private_demo_token
+```
+
+Clients must then send the token as `X-Demo-Token` or `Authorization: Bearer <token>`. Keep this disabled for normal local development unless you are testing public-demo behavior.
+
 ## Phase 7 Manual Validation
 
 1. Run `python app.py`.

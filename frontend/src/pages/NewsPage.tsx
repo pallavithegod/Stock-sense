@@ -5,6 +5,7 @@ import { SectionHeader } from '../components/SectionHeader'
 import { StatePanel } from '../components/StatePanel'
 import { useAsync } from '../hooks/useAsync'
 import { cx, formatNumber } from '../utils/format'
+import { safeExternalUrl } from '../utils/url'
 import type { AlertItem, NewsArticle } from '../types/news'
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -31,7 +32,7 @@ function articleSource(article: NewsArticle) {
 }
 
 function ArticleCard({ article }: { article: NewsArticle }) {
-  const href = article.url ?? article.link
+  const href = safeExternalUrl(article.url ?? article.link)
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs uppercase text-slate-500">
