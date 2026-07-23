@@ -24,6 +24,7 @@ from regime_detector import RegimeEmbeddingEngine, RegimeMemory
 from model_weighting import MultiWorldSimulator
 from intelligence_core import IntegratedForesightSystem
 from kelly_allocator import KellyAllocator, KellySignal
+from backend.services.prediction_presenter import normalize_prediction_rows
 from backend.services.research_service import build_emotional_state_payload, build_futures_analysis_payload
 from backend.routes.system import create_system_blueprint
 # from portfolio_ledger import PortfolioLedger # Removed in favor of DB
@@ -8715,7 +8716,7 @@ def endpoint_status():
 @app.route("/api/predictions")
 def api_predictions():
     """Read-only predictions from Global AI State."""
-    rows = _get_prediction_rows()
+    rows = normalize_prediction_rows(_get_prediction_rows())
     return jsonify({
         "success": True,
         "stocks": rows, # Using 'stocks' for frontend compatibility
@@ -8810,7 +8811,7 @@ def api_predictions_intelligence():
         except Exception as exc:
             logger.debug(f"Predictions intelligence fallback used: {exc}")
 
-    enriched_rows = _merge_prediction_rows_with_intelligence(rows, opportunities)
+    enriched_rows = normalize_prediction_rows(_merge_prediction_rows_with_intelligence(rows, opportunities))
 
     payload = {
         "success": True,

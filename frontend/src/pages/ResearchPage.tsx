@@ -151,7 +151,7 @@ export function ResearchPage() {
         <h1 className="mt-1 text-2xl font-semibold text-white">Research Cockpit</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
           Review AI research reports, model performance, market insights, and symbol-level emotional
-          futures analysis from Flask.
+          futures analysis.
         </p>
       </div>
 
@@ -187,7 +187,7 @@ export function ResearchPage() {
           <SectionHeader eyebrow="Reports" title="AI research" />
           <div className="mt-4 space-y-3">
             {research.loading ? (
-              <StatePanel title="Loading research" description="Fetching research output from Flask." />
+              <StatePanel title="Loading research" description="Fetching research output." />
             ) : research.error ? (
               <StatePanel title="Research unavailable" description={research.error} />
             ) : reports.length ? (

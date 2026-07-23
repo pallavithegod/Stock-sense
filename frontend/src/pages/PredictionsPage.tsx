@@ -34,9 +34,6 @@ export function PredictionsPage() {
         <div>
           <div className="text-sm font-medium uppercase text-cyan-300">Signals</div>
           <h1 className="mt-1 text-2xl font-semibold text-white">Prediction Console</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            A typed React view over the current Flask prediction intelligence endpoints.
-          </p>
         </div>
         <button
           className="h-10 rounded-md border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-medium text-cyan-100 hover:bg-cyan-300/15"
@@ -69,7 +66,7 @@ export function PredictionsPage() {
 
         {primary.loading ? (
           <div className="mt-5">
-            <StatePanel description="Loading prediction intelligence from Flask." title="Syncing" />
+            <StatePanel description="Loading prediction intelligence." title="Syncing" />
           </div>
         ) : rows.length ? (
           <div className="mt-5 overflow-hidden rounded-lg border border-white/10">
@@ -115,7 +112,7 @@ export function PredictionsPage() {
         ) : (
           <div className="mt-5">
             <StatePanel
-              description={primary.error ?? 'No prediction rows are available yet. Start Flask and let the prediction engine warm up.'}
+              description={primary.error ?? 'No prediction rows are available yet. Let the prediction engine warm up.'}
               title="No predictions"
             />
           </div>

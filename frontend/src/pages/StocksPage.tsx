@@ -47,10 +47,6 @@ export function StocksPage() {
       <div className="mb-6">
         <div className="text-sm font-medium uppercase text-cyan-300">Universe</div>
         <h1 className="mt-1 text-2xl font-semibold text-white">Stock Search</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-          Search NSE/BSE symbols through the existing Flask market universe, then inspect live
-          prediction horizons without leaving the React shell.
-        </p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
@@ -65,10 +61,10 @@ export function StocksPage() {
 
           <div className="mt-4 space-y-2">
             {searchIsPending || (popular.loading && normalizedQuery.length < 2) ? (
-              <StatePanel description="Loading stock universe from Flask." title="Syncing" />
+              <StatePanel description="Loading stock universe." title="Syncing" />
             ) : searchHasError ? (
               <StatePanel
-                description={`Search API failed: ${search.error}. Confirm Flask is running at http://127.0.0.1:5000.`}
+                description={`Search failed: ${search.error}. Confirm the backend is running.`}
                 title="Search unavailable"
               />
             ) : results.length ? (
@@ -163,7 +159,7 @@ export function StocksPage() {
                   </div>
                 ) : (
                   <StatePanel
-                    description="No live prediction payload is available for this symbol yet."
+                    description="No live prediction is available for this symbol yet."
                     title="Prediction unavailable"
                   />
                 )}

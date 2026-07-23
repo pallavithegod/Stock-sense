@@ -23,10 +23,6 @@ export function DashboardPage() {
         <div>
           <div className="text-sm font-medium uppercase text-cyan-300">Live command center</div>
           <h1 className="mt-1 text-2xl font-semibold text-white">Market Dashboard</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            React now consumes the existing Flask dashboard APIs. This page intentionally keeps
-            business logic in the backend and focuses on a cleaner presentation layer.
-          </p>
         </div>
         <button
           className="h-10 rounded-md border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-medium text-cyan-100 hover:bg-cyan-300/15"
@@ -39,8 +35,7 @@ export function DashboardPage() {
 
       {error ? (
         <div className="mb-5 rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
-          Flask API is not reachable yet: {error}. Run `python app.py` in the project root, then
-          refresh this page.
+          Market data is not reachable yet: {error}. Start the backend, then refresh this page.
         </div>
       ) : null}
 
@@ -55,7 +50,7 @@ export function DashboardPage() {
           <SectionHeader
             action={
               <div className="rounded-md bg-white/[0.04] px-2 py-1 text-xs text-slate-400">
-                {loading ? 'Syncing' : dashboard.source ?? 'Flask API'}
+                {loading ? 'Syncing' : dashboard.source ?? 'Live'}
               </div>
             }
             eyebrow="Market"
@@ -123,7 +118,7 @@ export function DashboardPage() {
               ))
             ) : (
               <StatePanel
-                description={loading ? 'Signals are loading from Flask.' : 'No signals are available yet.'}
+                description={loading ? 'Signals are loading.' : 'No signals are available yet.'}
                 title="No opportunities"
               />
             )}
@@ -143,7 +138,7 @@ export function DashboardPage() {
                 </div>
               ))
             ) : (
-              <StatePanel description="No active alerts in the dashboard payload." title="Clear" />
+              <StatePanel description="No active alerts right now." title="Clear" />
             )}
           </div>
         </section>
@@ -159,18 +154,11 @@ export function DashboardPage() {
                 </div>
               ))
             ) : (
-              <StatePanel description="News will appear here once the Flask feed responds." title="No feed" />
+              <StatePanel description="News will appear here once the feed responds." title="No feed" />
             )}
           </div>
         </section>
       </div>
-
-      <section className="mt-6 rounded-lg border border-white/10 bg-white/[0.04] p-5">
-        <SectionHeader eyebrow="Debug" title="Dashboard API payload" />
-        <pre className="mt-4 max-h-96 overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-6 text-slate-300">
-          {loading ? 'Loading...' : JSON.stringify(dashboard.raw, null, 2)}
-        </pre>
-      </section>
     </div>
   )
 }

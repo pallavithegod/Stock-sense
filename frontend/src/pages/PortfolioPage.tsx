@@ -164,7 +164,7 @@ function KeyValueList({ data, limit = 6 }: { data: Record<string, unknown> | nul
     .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
     .slice(0, limit)
   if (!entries.length) {
-    return <StatePanel title="No data" description="This backend payload is empty right now." />
+    return <StatePanel title="No data" description="No readable fields are available yet." />
   }
   return (
     <div className="space-y-2">
@@ -436,10 +436,6 @@ export function PortfolioPage() {
       <div className="mb-6">
         <div className="text-sm font-medium uppercase text-cyan-300">Portfolio</div>
         <h1 className="mt-1 text-2xl font-semibold text-white">Portfolio Desk</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-          Manage SQLite-backed demo holdings, inspect lots, and simulate sell outcomes through the
-          existing Flask portfolio engine.
-        </p>
       </div>
 
       {mutationError ? (
@@ -476,7 +472,7 @@ export function PortfolioPage() {
         <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
           <SectionHeader eyebrow="Holdings" title="Open positions" />
           {portfolio.loading ? (
-            <StatePanel title="Loading portfolio" description="Reading holdings from Flask and SQLite." />
+            <StatePanel title="Loading portfolio" description="Reading holdings." />
           ) : portfolio.error ? (
             <StatePanel title="Portfolio unavailable" description={portfolio.error} />
           ) : positions.length ? (

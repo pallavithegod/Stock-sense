@@ -18,6 +18,8 @@ type AppShellProps = {
 }
 
 export function AppShell({ activePage, children, onPageChange }: AppShellProps) {
+  const currentPageLabel = navItems.find((item) => item.id === activePage)?.label ?? APP_NAME
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-white/10 bg-slate-950/95 px-5 py-6 lg:block">
@@ -48,8 +50,8 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
         <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/90 px-5 py-4 backdrop-blur">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-sm font-medium text-cyan-200">Frontend migration phase 1</div>
-              <h1 className="text-xl font-semibold text-white">Dashboard Shell</h1>
+              <div className="text-sm font-medium text-cyan-200">{APP_NAME}</div>
+              <h1 className="text-xl font-semibold text-white">{currentPageLabel}</h1>
             </div>
           </div>
         </header>

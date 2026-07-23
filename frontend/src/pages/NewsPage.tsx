@@ -117,10 +117,6 @@ export function NewsPage() {
       <div className="mb-6">
         <div className="text-sm font-medium uppercase text-cyan-300">News</div>
         <h1 className="mt-1 text-2xl font-semibold text-white">Market News Desk</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-          Track market news, sentiment, symbol-specific coverage, and backend alerts from the Flask
-          news intelligence layer.
-        </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -159,7 +155,7 @@ export function NewsPage() {
           <SectionHeader eyebrow="Market" title="Latest articles" />
           <div className="mt-4 space-y-3">
             {marketNews.loading ? (
-              <StatePanel title="Loading news" description="Fetching market news from Flask." />
+              <StatePanel title="Loading news" description="Fetching market news." />
             ) : marketNews.error ? (
               <StatePanel title="News unavailable" description={marketNews.error} />
             ) : articles.length ? (

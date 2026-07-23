@@ -1,6 +1,7 @@
 import type { LivePrediction, PredictionRow } from '../types/prediction'
 
 type AnyRecord = Record<string, unknown>
+const DISPLAY_HORIZON = '6m'
 
 function toNumber(value: unknown): number | undefined {
   const num = Number(value)
@@ -16,6 +17,40 @@ function isRecord(value: unknown): value is AnyRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function isPresent(value: unknown) {
+  if (value === undefined || value === null) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  if (Array.isArray(value)) return value.length > 0
+  return true
+}
+
+function firstValue(...values: unknown[]) {
+  return values.find(isPresent)
+}
+
+function horizonValue(row: AnyRecord, ...keys: string[]) {
+  const predictions = isRecord(row.predictions) ? row.predictions : {}
+  for (const horizon of [DISPLAY_HORIZON, '1y', '3m', '15d', '1d']) {
+    const item = predictions[horizon]
+    if (!isRecord(item)) continue
+    for (const key of keys) {
+      if (isPresent(item[key])) return item[key]
+    }
+  }
+  return undefined
+}
+
+function positiveNumber(...values: unknown[]) {
+  let fallback: number | undefined
+  for (const value of values) {
+    const numeric = toNumber(value)
+    if (numeric === undefined) continue
+    fallback = numeric
+    if (numeric > 0) return numeric
+  }
+  return fallback
+}
+
 export type PredictionViewRow = {
   symbol: string
   signal: string
@@ -29,16 +64,71 @@ export type PredictionViewRow = {
 }
 
 export function normalizePredictionRow(row: PredictionRow): PredictionViewRow {
+  const record = row as AnyRecord
+  const prediction = isRecord(record.prediction) ? record.prediction : {}
+  const price = toNumber(firstValue(
+    row.current_price,
+    row.price,
+    record.actual_price,
+    record.currentPrice,
+    prediction.current_price,
+  ))
+  const target = toNumber(firstValue(
+    row.target_6m,
+    prediction.target_6m,
+    horizonValue(record, 'target_price', 'target'),
+    horizonValue(prediction, 'target_price', 'target'),
+    row.target_price,
+    prediction.target_price,
+    record.target,
+    row.target_1y,
+    prediction.target_1y,
+  ))
+  const explicitReturn = toNumber(firstValue(
+    horizonValue(record, 'return_percent', 'return_pct', 'expected_return'),
+    horizonValue(prediction, 'return_percent', 'return_pct', 'expected_return'),
+    record.expected_return,
+    record.expectedReturn,
+    prediction.expected_return,
+    row.predicted_return,
+    prediction.predicted_return,
+    row.return_percent,
+    record.return_pct,
+  ))
+  const derivedReturn =
+    explicitReturn !== undefined
+      ? explicitReturn
+      : price !== undefined && target !== undefined && price !== 0
+        ? ((target - price) / price) * 100
+        : undefined
+  const risk = toText(firstValue(
+    row.risk,
+    row.risk_level,
+    record.riskLevel,
+    prediction.risk_level,
+    prediction.risk,
+    record.no_trade_reason,
+    `${String(record.models_used ?? '')} ${String(prediction.models_used ?? '')}`.includes('FAILED') ? 'DEGRADED' : undefined,
+    'LOW',
+  ))
+
   return {
     symbol: toText(row.symbol) ?? 'UNKNOWN',
     signal: toText(row.signal ?? row.action ?? row.direction) ?? 'WATCH',
-    confidence: toNumber(row.confidence ?? row.confidence_score),
-    price: toNumber(row.current_price ?? row.price),
-    target: toNumber(row.target_price ?? row.target_6m ?? row.target_1y),
-    expectedReturn: toNumber(row.predicted_return ?? row.return_percent),
-    risk: toText(row.risk ?? row.risk_level),
-    allocation: toNumber(row.allocation_pct ?? row.ai_size),
-    edge: toNumber(row.edge_score),
+    confidence: positiveNumber(row.confidence, row.confidence_score, prediction.confidence, record.probability, record.certainty),
+    price,
+    target,
+    expectedReturn: derivedReturn,
+    risk,
+    allocation: toNumber(firstValue(
+      row.allocation_pct,
+      row.ai_size,
+      record.weight_pct,
+      record.recommended_position_size,
+      record.kelly_fraction,
+      record.allocation,
+    )),
+    edge: toNumber(firstValue(row.edge_score, record.edge)),
   }
 }
 

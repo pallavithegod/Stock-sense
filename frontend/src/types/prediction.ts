@@ -17,6 +17,19 @@ export type PredictionRow = {
   allocation_pct?: number
   ai_size?: number
   edge_score?: number
+  prediction?: {
+    confidence?: number
+    current_price?: number
+    expected_return?: number
+    predicted_return?: number
+    return_percent?: number
+    risk?: string
+    risk_level?: string
+    target_price?: number
+    target_6m?: number
+    target_1y?: number
+    predictions?: Record<string, unknown>
+  }
 }
 
 export type LivePrediction = {

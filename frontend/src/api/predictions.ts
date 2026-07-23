@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import type { LivePrediction, PredictionRow } from '../types/prediction'
 
 type PredictionsPayload = {
+  data?: PredictionsPayload | PredictionRow[]
   rows?: PredictionRow[]
   predictions?: PredictionRow[]
   stocks?: PredictionRow[]
@@ -10,6 +11,7 @@ type PredictionsPayload = {
 
 function extractPredictions(payload: PredictionsPayload | PredictionRow[]) {
   if (Array.isArray(payload)) return payload
+  if (payload.data) return extractPredictions(payload.data)
   return payload.rows ?? payload.predictions ?? payload.stocks ?? payload.opportunities ?? []
 }
 
