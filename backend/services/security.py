@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import time
 from collections import defaultdict, deque
@@ -30,6 +32,15 @@ PROTECTED_MUTATION_PREFIXES = (
 
 _RATE_LIMIT_LOCK = Lock()
 _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
+
+_INSECURE_SECRET_VALUES = {
+    "",
+    "change-me",
+    "change-me-local-dev-secret",
+    "changeme",
+    "replace-me",
+    "replace_with_a_long_random_secret",
+}
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -64,10 +75,34 @@ def debug_endpoints_enabled() -> bool:
     return _env_bool("DEBUG_ENDPOINTS", False) or _env_bool("DEBUG", False)
 
 
+def is_production_environment() -> bool:
+    return os.getenv("APP_ENV", "development").strip().lower() == "production"
+
+
+def validate_security_configuration() -> None:
+    """Reject unsafe secrets when the process is explicitly in production."""
+    if not is_production_environment():
+        return
+
+    secret = os.getenv("FLASK_SECRET_KEY", "").strip()
+    if secret.lower() in _INSECURE_SECRET_VALUES or len(secret) < 32:
+        raise RuntimeError(
+            "FLASK_SECRET_KEY must be a non-placeholder value of at least "
+            "32 characters when APP_ENV=production."
+        )
+
+    if _env_bool("REQUIRE_MUTATION_TOKEN", False):
+        token = os.getenv("DEMO_WRITE_TOKEN", "").strip()
+        if len(token) < 24:
+            raise RuntimeError(
+                "DEMO_WRITE_TOKEN must contain at least 24 characters when "
+                "write protection is enabled in production."
+            )
+
+
 def _client_identity() -> str:
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
+    # ProxyFix, when explicitly enabled by the application, safely resolves
+    # trusted forwarding headers before this helper runs.
     return request.remote_addr or "local"
 
 
@@ -75,7 +110,8 @@ def _rate_limit_key(scope: str) -> str:
     token_hash = ""
     token = _request_token()
     if token:
-        token_hash = f":token:{hash(token)}"
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        token_hash = f":token:{digest}"
     return f"{scope}:{_client_identity()}{token_hash}:{request.path}"
 
 
@@ -164,7 +200,8 @@ def mutation_guard_error() -> Response | None:
         return None
 
     expected = os.getenv("DEMO_WRITE_TOKEN", "").strip()
-    if expected and _request_token() == expected:
+    supplied = _request_token()
+    if expected and supplied and hmac.compare_digest(supplied, expected):
         return None
 
     return jsonify(
@@ -186,3 +223,9 @@ def install_security_headers(app) -> None:
         if request.path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
         return response
+
+
+def clear_rate_limit_state() -> None:
+    """Clear process-local limiter state between isolated tests."""
+    with _RATE_LIMIT_LOCK:
+        _RATE_LIMIT_BUCKETS.clear()

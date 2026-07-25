@@ -38,6 +38,7 @@ from backend.services.security import (
     mutation_guard_error,
     rate_limit_error,
     request_size_error,
+    validate_security_configuration,
 )
 from backend.services.validation import (
     ValidationError,
@@ -71,9 +72,10 @@ EMOTION_ENGINE = FORESIGHT_SYSTEM.emotion_engine
 kelly_engine = KellyAllocator()
 
 # Flask & web frameworks
-from flask import Flask, request, jsonify, send_from_directory, render_template_string, send_file, has_request_context
+from flask import Flask, request, jsonify, render_template_string, send_file, has_request_context
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 # Core libraries
@@ -98,6 +100,8 @@ try:
     load_dotenv()  # Load .env variables ONCE at app startup
 except ImportError:
     pass  # logger not defined yet, will warn later if needed
+
+validate_security_configuration()
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -171,8 +175,17 @@ logger.addHandler(log_handler)
 # ==============================================================================
 # FLASK APP INITIALIZATION (Unified V12)
 # ==============================================================================
-app = Flask(__name__, static_folder='.', static_url_path='/static')
+app = Flask(__name__, static_folder=None)
+app.config["TESTING"] = env_bool("TESTING", False)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'change-me-local-dev-secret')
+if env_bool("TRUST_PROXY_HEADERS", False):
+    trusted_proxy_count = max(1, env_int("TRUSTED_PROXY_COUNT", 1))
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=trusted_proxy_count,
+        x_proto=trusted_proxy_count,
+        x_host=trusted_proxy_count,
+    )
 CORS(app, resources={r"/*": {"origins": get_allowed_origins("CORS_ALLOWED_ORIGINS")}})
 socketio = SocketIO(
     app,
@@ -469,15 +482,18 @@ SYSTEM_CONFIG = {
     'MAX_WORKERS': 4,
     'UPDATE_FREQUENCY': 30,  # seconds
     'PREDICTION_UPDATE_THRESHOLD': 50,
-    'DB_PATH': 'data/nexus.db',
+    'DB_PATH': os.getenv('STOCKSENSE_DB_PATH', 'data/nexus.db'),
     'LOG_PATH': 'logs/nexus.log',
     
     # New Configs
     'data_dir': 'data',
-    'DB_MAIN': 'data/nexus.db',
+    'DB_MAIN': os.getenv('STOCKSENSE_DB_PATH', 'data/nexus.db'),
     'DB_PERFORMANCE': 'data/performance_metrics.db',
     'confidence_memory_file': 'data/confidence_memory.json',
-    'audit_log_file': 'prediction_audit.jsonl', # o. User requested root file
+    'audit_log_file': os.getenv(
+        'STOCKSENSE_AUDIT_LOG_PATH',
+        'data/prediction_audit.jsonl',
+    ),
     'dashboard_cache_ttl': 25,  # seconds
     'max_position_size': 0.25,  # 25% max per stock
     'confidence_decay_rate': 0.95,  # Per day
@@ -1930,7 +1946,13 @@ class AdaptiveThresholds:
     
     def __init__(self, db=None):
         self.db = db
-        self.db_path = 'adaptive_thresholds.db'
+        self.db_path = os.getenv(
+            'STOCKSENSE_ADAPTIVE_DB_PATH',
+            'data/adaptive_thresholds.db',
+        )
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         self.init_database()
         self.thresholds = self.load_latest_thresholds()
         self.calculation_history = []
@@ -2004,6 +2026,9 @@ class AdaptiveThresholds:
     
     def calculate_market_based_thresholds(self):
         """Calculate thresholds based on CURRENT market volatility"""
+        if env_bool("DISABLE_STARTUP_NETWORK", False):
+            return self._default_thresholds()
+
         try:
             import yfinance as yf
             
@@ -2040,7 +2065,11 @@ class AdaptiveThresholds:
         except Exception as e:
             logger.debug(f"Market calculation: {e}")
         
-        # Fallback to defaults
+        return self._default_thresholds()
+
+    @staticmethod
+    def _default_thresholds():
+        """Return deterministic thresholds when live volatility is unavailable."""
         return {
             'strong_buy_threshold': 2.0,
             'buy_threshold': 0.5,
@@ -3221,7 +3250,14 @@ def generate_chart_datasets():
 
 @app.route('/')
 def index():
-    """Serve the main HTML file"""
+    """Describe the API service or serve the explicitly enabled legacy UI."""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({
+            "service": "StockSense API",
+            "status": "operational",
+            "frontend": "Run the Vite application from the frontend directory.",
+        })
+
     try:
         html_files = ['index.html', 'working_system.html']
         for html_file in html_files:
@@ -3258,6 +3294,8 @@ def index():
 @app.route('/app.js')
 def serve_app_js():
     """Serve app.js from root folder"""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file('app.js', mimetype='application/javascript')
     except:
@@ -3266,6 +3304,8 @@ def serve_app_js():
 @app.route('/chart.js')
 def serve_chart_js():
     """Serve chart.js from root folder"""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file('chart.js', mimetype='application/javascript')
     except:
@@ -3274,6 +3314,8 @@ def serve_chart_js():
 @app.route('/style.css')
 def serve_style_css():
     """Serve style.css from root folder"""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file('style.css', mimetype='text/css')
     except:
@@ -3282,6 +3324,8 @@ def serve_style_css():
 @app.route('/nexus-ai.css')
 def serve_nexus_ai_css():
     """Serve nexus-ai.css from root folder"""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file('nexus-ai.css', mimetype='text/css')
     except:
@@ -3290,6 +3334,8 @@ def serve_nexus_ai_css():
 @app.route('/nexus-ai.js')
 def serve_nexus_ai_js():
     """Serve nexus-ai.js from root folder"""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file('nexus-ai.js', mimetype='application/javascript')
     except:
@@ -3299,6 +3345,8 @@ def serve_nexus_ai_js():
 @app.route('/dashboard/nexus-ai.html')
 def serve_v7_nexus_ai_html():
     """Serve the exact dashboard shell inside an isolated iframe."""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file(os.path.join(os.path.dirname(__file__), 'dashboard', 'nexus-ai.html'), mimetype='text/html')
     except:
@@ -3308,6 +3356,8 @@ def serve_v7_nexus_ai_html():
 @app.route('/dashboard/nexus-ai.css')
 def serve_v7_nexus_ai_css():
     """Serve the exact dashboard stylesheet."""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file(os.path.join(os.path.dirname(__file__), 'dashboard', 'nexus-ai.css'), mimetype='text/css')
     except:
@@ -3317,6 +3367,8 @@ def serve_v7_nexus_ai_css():
 @app.route('/dashboard/nexus-ai.js')
 def serve_v7_nexus_ai_js():
     """Serve the live local dashboard script for the V7 iframe."""
+    if not env_bool("ENABLE_LEGACY_UI", False):
+        return jsonify({"success": False, "error": "Legacy UI disabled"}), 404
     try:
         return send_file(os.path.join(os.path.dirname(__file__), 'dashboard', 'nexus-ai.js'), mimetype='application/javascript')
     except:
@@ -3438,6 +3490,8 @@ configure_runtime(globals())
 @app.before_request
 def bootstrap_runtime_services():
     """Ensure live producers are running regardless of how Flask was launched."""
+    if app.config.get("TESTING"):
+        return None
     ensure_runtime_services_started()
 
 
@@ -5754,11 +5808,6 @@ def register_backend_blueprints():
 
 
 register_backend_blueprints()
-
-
-@app.route('/<path:path>')
-def serve_static(path):
-    return send_from_directory('.', path)
 
 
 if __name__ == '__main__':

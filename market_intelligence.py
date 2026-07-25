@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 DATA_DIR = "data"
-DB_PATH = os.path.join(DATA_DIR, "market_intelligence.db")
+DB_PATH = os.getenv(
+    "STOCKSENSE_MARKET_DB_PATH",
+    os.path.join(DATA_DIR, "market_intelligence.db"),
+)
 
 # ============================================================
 # MARKET DATABASE (PRIVATE, NO CONFLICT)
@@ -29,7 +32,9 @@ DB_PATH = os.path.join(DATA_DIR, "market_intelligence.db")
 
 class MarketDB:
     def __init__(self):
-        os.makedirs(DATA_DIR, exist_ok=True)
+        db_dir = os.path.dirname(DB_PATH)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         self.conn = sqlite3.connect(DB_PATH, check_same_thread=False, detect_types=sqlite3.PARSE_DECLTYPES)
         self.conn.row_factory = sqlite3.Row
         self._init_tables()

@@ -74,15 +74,19 @@ class DatabaseManager:
         },
     }
 
-    def __init__(self, db_path='data/nexus.db'):
-        self.db_path = db_path
-        db_dir = os.path.dirname(db_path)
+    def __init__(self, db_path=None):
+        self.db_path = str(
+            db_path
+            or os.getenv("STOCKSENSE_DB_PATH")
+            or "data/nexus.db"
+        )
+        db_dir = os.path.dirname(self.db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
         if not DatabaseManager._initialized:
             self.init_database()
             self.validate_schema()
-            logger.info(f"Database initialized at: {db_path}")
+            logger.info(f"Database initialized at: {self.db_path}")
             DatabaseManager._initialized = True
 
     @contextmanager
