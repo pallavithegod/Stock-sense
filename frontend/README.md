@@ -1,4 +1,25 @@
-# React + TypeScript + Vite
+# StockSense Frontend
+
+Run the Flask backend from the repository root:
+
+```powershell
+python app.py
+```
+
+Run the React frontend in a second terminal:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:5173/`. Vite proxies `/api` requests to Flask at
+`http://127.0.0.1:5000`, avoiding cross-origin differences between localhost
+and 127.0.0.1.
+
+The Flask root at port 5000 is intentionally API-only and is not the React UI.
+
+## Vite Foundation
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

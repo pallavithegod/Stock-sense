@@ -10,7 +10,9 @@ export type PortfolioPosition = {
   value?: number
   pnl?: number
   unrealized_pnl?: number
+  unrealized_total?: number
   pnl_percent?: number
+  unrealized_pnl_percent?: number
   action?: string
   confidence?: number
   sector?: string

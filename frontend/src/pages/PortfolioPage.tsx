@@ -81,11 +81,18 @@ function positionValue(position: PortfolioPosition) {
 }
 
 function positionPnl(position: PortfolioPosition) {
-  return firstNumber(position, ['pnl', 'unrealized_pnl'])
+  return firstNumber(position, ['pnl', 'unrealized_pnl', 'unrealized_total'])
 }
 
 function positionPnlPercent(position: PortfolioPosition) {
-  return firstNumber(position, ['pnl_percent'])
+  const explicit = firstNumber(position, ['pnl_percent', 'unrealized_pnl_percent'])
+  if (explicit !== undefined) return explicit
+
+  const pnl = positionPnl(position)
+  const quantity = positionQuantity(position)
+  const average = positionAverage(position)
+  const cost = quantity !== undefined && average !== undefined ? quantity * average : undefined
+  return pnl !== undefined && cost ? (pnl / cost) * 100 : undefined
 }
 
 function lotId(lot: PortfolioLot) {
@@ -433,9 +440,19 @@ export function PortfolioPage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-6">
-        <div className="text-sm font-medium uppercase text-cyan-300">Portfolio</div>
-        <h1 className="mt-1 text-2xl font-semibold text-white">Portfolio Desk</h1>
+      <div className="mb-6 flex items-end justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium uppercase text-cyan-300">Portfolio</div>
+          <h1 className="mt-1 text-2xl font-semibold text-white">Portfolio Desk</h1>
+        </div>
+        <button
+          className="h-10 rounded-md border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-medium text-cyan-100 hover:bg-cyan-300/15"
+          disabled={portfolio.loading}
+          onClick={() => setRefreshKey((key) => key + 1)}
+          type="button"
+        >
+          {portfolio.loading ? 'Syncing' : 'Refresh'}
+        </button>
       </div>
 
       {mutationError ? (

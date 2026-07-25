@@ -27,8 +27,15 @@ npm run dev
 Open:
 
 ```text
-http://127.0.0.1:5173/
+http://localhost:5173/
 ```
+
+During development, Vite proxies browser requests from `/api` to the Flask
+backend at `http://127.0.0.1:5000`. The Flask root is API-only and intentionally
+returns a small JSON status document; use the Vite URL for the dashboard.
+
+If `vite.config.ts` changes while Vite is running, restart `npm run dev` once so
+the proxy configuration is reloaded.
 
 ## SQLite Demo Mode
 
