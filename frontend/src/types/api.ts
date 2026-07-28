@@ -14,4 +14,5 @@ export type ApiError = {
 export type RequestOptions = {
   signal?: AbortSignal
   timeoutMs?: number
+  unwrapData?: boolean
 }

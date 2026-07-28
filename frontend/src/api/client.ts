@@ -34,7 +34,7 @@ async function request<T>(
       throw new Error(message)
     }
 
-    if (payload && typeof payload === 'object' && 'data' in payload) {
+    if (options.unwrapData !== false && payload && typeof payload === 'object' && 'data' in payload) {
       return payload.data as T
     }
 

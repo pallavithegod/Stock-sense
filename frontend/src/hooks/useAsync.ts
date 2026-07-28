@@ -51,11 +51,15 @@ export function useAsync<T>(
         })
     }
 
-    setState((current) => ({ ...current, error: null, loading: true }))
-    run(0)
+    const startTimer = window.setTimeout(() => {
+      if (!active) return
+      setState((current) => ({ ...current, error: null, loading: true }))
+      run(0)
+    }, 0)
 
     return () => {
       active = false
+      window.clearTimeout(startTimer)
       if (retryTimer !== undefined) window.clearTimeout(retryTimer)
     }
     // This hook intentionally accepts a caller-owned dependency list.

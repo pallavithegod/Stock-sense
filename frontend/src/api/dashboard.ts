@@ -2,7 +2,7 @@ import { apiClient } from './client'
 import type { DashboardData } from '../types/dashboard'
 
 async function getRawDashboard(path: string, timeoutMs = 20000) {
-  return apiClient.get<DashboardData>(path, { timeoutMs })
+  return apiClient.get<DashboardData>(path, { timeoutMs, unwrapData: false })
 }
 
 export function getLiveDashboard() {

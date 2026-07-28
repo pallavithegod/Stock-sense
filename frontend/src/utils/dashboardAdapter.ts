@@ -49,12 +49,14 @@ function normalizeIndices(raw: AnyRecord): MarketIndex[] {
 }
 
 function normalizeSignals(raw: AnyRecord): DashboardSignal[] {
-  return asArray(firstValue(raw.top_stocks, raw.topStocks, raw.stocks, raw.opportunities))
+  const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence)
+  const portfolioPositions = recordValue(portfolioState, 'positions')
+  return asArray(firstValue(raw.top_stocks, raw.topStocks, raw.stocks, raw.opportunities, raw.positions, portfolioPositions))
     .slice(0, 8)
     .map((item) => ({
       symbol: toText(firstValue(item.symbol, item.ticker, item.name)) ?? 'UNKNOWN',
-      price: toNumber(firstValue(item.current_price, item.price, item.last_price)),
-      changePercent: toNumber(firstValue(item.price_change_percent, item.change_percent, item.changePercent, item.return_percent)),
+      price: toNumber(firstValue(item.current_price, item.price, item.last_price, item.avg_price)),
+      changePercent: toNumber(firstValue(item.price_change_percent, item.change_percent, item.changePercent, item.return_percent, item.predicted_return)),
       signal: toText(firstValue(item.signal, item.action, item.recommendation)),
       confidence: toNumber(firstValue(item.confidence, item.score, item.probability)),
     }))
@@ -88,6 +90,7 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
   const signalQuality = firstValue(raw.signalQuality, raw.signal_quality, data.signalQuality, data.signal_quality)
   const portfolioMetrics = firstValue(raw.portfolioMetrics, raw.portfolio_metrics, data.portfolioMetrics, data.portfolio_metrics)
   const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence, data.PORTFOLIO_STATE, data.portfolio_intelligence)
+  const portfolioPositions = recordValue(portfolioState, 'positions')
 
   const portfolioValue = firstValue(
     raw.portfolioValue,
@@ -106,6 +109,7 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
     data.activePositions,
     data.active_positions,
     recordValue(marketSnapshot, 'active_positions', 'activePositions'),
+    asArray(portfolioPositions).length,
   )
   const accuracy = firstValue(
     raw.directionalAccuracy,

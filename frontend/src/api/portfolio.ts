@@ -44,8 +44,22 @@ function extractCollection<T>(payload: PortfolioEnvelope<T[]> | T[] | Record<str
   return { data: [] } satisfies PortfolioCollection<T>
 }
 
-export function getPortfolioState() {
-  return apiClient.get<PortfolioState>('/portfolio/state', { timeoutMs: 20000 })
+export async function getPortfolioState() {
+  const state = await apiClient.get<PortfolioState>('/portfolio/state', {
+    timeoutMs: 20000,
+    unwrapData: false,
+  })
+  if (Array.isArray(state.positions) && state.positions.length > 0) {
+    return state
+  }
+
+  const positions = await getPortfolio()
+  return {
+    ...state,
+    success: state.success ?? true,
+    positions,
+    account_metrics: state.account_metrics ?? {},
+  } satisfies PortfolioState
 }
 
 export async function getPortfolio() {
