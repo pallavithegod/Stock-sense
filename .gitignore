@@ -34,6 +34,7 @@ server_stderr.log
 TEMP_PROJECT_ANALYSIS.md
 API_KEYS_README.md
 IMPLEMENTATION_PLAN.md
+PROJECT_AUDIT_STOCKSENSE.md
 prediction_audit.jsonl
 data/*.db
 data/*.db-shm
