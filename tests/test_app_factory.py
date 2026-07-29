@@ -37,6 +37,34 @@ def test_create_app_uses_factory_without_importing_root_app(isolated_db_path, mo
     assert Path(services.portfolio.db_path).resolve() == isolated_db_path.resolve()
 
 
+def test_create_app_does_not_import_legacy_runtime_bridge_modules(isolated_db_path, monkeypatch):
+    runtime_dir = isolated_db_path.parent
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("TESTING", "True")
+    monkeypatch.setenv("SOCKETIO_ASYNC_MODE", "threading")
+    monkeypatch.setenv("STOCKSENSE_DB_PATH", str(isolated_db_path))
+    monkeypatch.setenv("STOCKSENSE_MARKET_DB_PATH", str(runtime_dir / "market_intelligence.db"))
+    monkeypatch.setenv("STOCKSENSE_ADAPTIVE_DB_PATH", str(runtime_dir / "adaptive_thresholds.db"))
+    monkeypatch.setenv("STOCKSENSE_AUDIT_LOG_PATH", str(runtime_dir / "prediction_audit.jsonl"))
+
+    legacy_modules = {
+        "backend.legacy.app_monolith",
+        "backend.routes.market_routes",
+        "backend.routes.portfolio",
+        "backend.routes.predictions",
+        "backend.services.dashboard_builder",
+        "backend.services.runtime",
+    }
+    for module_name in legacy_modules:
+        sys.modules.pop(module_name, None)
+
+    from backend.app import create_app
+
+    create_app()
+
+    assert legacy_modules.isdisjoint(sys.modules)
+
+
 def test_create_app_does_not_create_database_until_lifecycle_or_request(monkeypatch):
     db_path = Path.cwd() / ".pytest-runtime" / f"factory-no-startup-{uuid.uuid4().hex}" / "factory.db"
     monkeypatch.setenv("APP_ENV", "testing")

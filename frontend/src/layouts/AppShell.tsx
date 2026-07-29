@@ -48,12 +48,28 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
 
       <div className="lg:pl-64">
         <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/90 px-5 py-4 backdrop-blur">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-sm font-medium text-cyan-200">{APP_NAME}</div>
               <h1 className="text-xl font-semibold text-white">{currentPageLabel}</h1>
             </div>
           </div>
+          <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+            {navItems.map((item) => (
+              <button
+                className={`shrink-0 rounded-md border px-3 py-2 text-sm ${
+                  activePage === item.id
+                    ? 'border-cyan-300/40 bg-cyan-400/10 text-cyan-100'
+                    : 'border-white/10 text-slate-300'
+                }`}
+                key={item.id}
+                onClick={() => onPageChange(item.id)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
         </header>
 
         <main className="px-5 py-6">{children}</main>

@@ -1099,25 +1099,6 @@ dashboard_cache = STATE_CACHE["MARKET_STATE"]["dashboard_cache"]
 system_cache = STATE_CACHE["PREDICTION_STATE"]["system_cache"]
 ws_manager.state_cache = STATE_CACHE
 
-def is_dashboard_cache_valid():
-    if dashboard_cache['data'] is None:
-        return False
-    elapsed = (datetime.now() - dashboard_cache['timestamp']).total_seconds()
-    return elapsed < dashboard_cache['ttl']
-
-def get_dashboard_cache():
-    with dashboard_cache['lock']:
-        return dashboard_cache['data']
-
-def set_dashboard_cache(data):
-    with dashboard_cache['lock']:
-        dashboard_cache['data'] = data
-        dashboard_cache['timestamp'] = datetime.now()
-    with cache_lock:
-        STATE_CACHE["MARKET_STATE"]["last_dashboard_served_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-
-# ...........................................................................
-
 # ================================================================================
 # SECTION 4: DATA CACHING DECORATOR
 # ================================================================================
