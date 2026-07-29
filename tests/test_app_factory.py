@@ -58,3 +58,12 @@ def test_wsgi_entrypoint_imports_factory_app(isolated_db_path, monkeypatch):
 
     assert "app" not in sys.modules
     assert wsgi.app.name == "backend.app"
+
+
+def test_news_routes_are_registered_by_blueprint(app_module):
+    endpoints = {rule.endpoint for rule in app_module.app.url_map.iter_rules()}
+
+    assert "news.get_news" in endpoints
+    assert "news.get_symbol_news" in endpoints
+    assert "news.get_research" in endpoints
+    assert "research.get_emotional_state" in endpoints
