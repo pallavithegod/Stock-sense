@@ -13,6 +13,10 @@ def test_system_status_is_available(client):
     payload = response.get_json()
     assert payload["status"] == "OPERATIONAL"
     assert payload["startup_checks"]["database"]["ok"] is True
+    assert payload["performance"]["uptime"] is None
+    assert payload["performance"]["prediction_accuracy"] is None
+    assert payload["performance"]["accuracy_basis"] == "unavailable_until_matured_predictions_are_evaluated"
+    assert "response_time" not in payload["performance"]
 
 
 def test_search_returns_a_json_result_collection(client):

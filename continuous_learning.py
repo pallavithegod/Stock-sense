@@ -1,11 +1,43 @@
 # -*- coding: utf-8 -*-
 from utils import encoding
+import ast
+import json
 import numpy as np
 from collections import defaultdict, deque
 import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+def parse_models_used(value):
+    """Safely parse stored model names without executing database text."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(model) for model in value if str(model).strip()]
+    if not isinstance(value, str):
+        return [str(value)] if str(value).strip() else []
+
+    text = value.strip()
+    if not text:
+        return []
+
+    parsed = None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            parsed = [item.strip() for item in text.split(",") if item.strip()]
+
+    if isinstance(parsed, str):
+        return [parsed] if parsed.strip() else []
+    if isinstance(parsed, (list, tuple, set)):
+        return [str(model) for model in parsed if str(model).strip()]
+    return []
+
 
 class ContinuousLearningEngine:
     """
@@ -52,9 +84,7 @@ class ContinuousLearningEngine:
         # Dynamically discover models
         model_accuracy = defaultdict(list)
         for pred in completed:
-            models = pred.get('models_used')
-            if isinstance(models, str):
-                models = eval(models)  # safe in controlled env
+            models = parse_models_used(pred.get('models_used'))
             error = pred.get('prediction_error')
             if error is not None:
                 accuracy = max(0, 1 - error)

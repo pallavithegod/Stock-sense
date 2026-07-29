@@ -4,7 +4,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
-import numpy as np
 from flask import Blueprint, jsonify
 
 from backend.services.startup_checks import collect_startup_checks
@@ -34,12 +33,6 @@ def create_system_blueprint(
             cache = getattr(quantum_ai, "cache", {}) or {}
             cache_ttl = getattr(quantum_ai, "cache_ttl", 0) or 0
 
-            confidence_values = [
-                item.get("confidence", 85)
-                for item in prediction_history
-                if isinstance(item, dict)
-            ]
-
             return jsonify({
                 "status": "OPERATIONAL",
                 "timestamp": datetime.now().isoformat(),
@@ -57,10 +50,12 @@ def create_system_blueprint(
                 "models_loaded": list(models.keys()) if models else ["Technical"],
                 "data_sources": ["Yahoo Finance", "Technical Analysis", "News Feeds", "AI Models"],
                 "performance": {
-                    "uptime": "99.9%",
-                    "prediction_accuracy": f"{np.mean(confidence_values):.1f}%" if confidence_values else "87.5%",
-                    "response_time": f"{cache_ttl // 60}s",
+                    "uptime": None,
+                    "prediction_accuracy": None,
+                    "accuracy_basis": "unavailable_until_matured_predictions_are_evaluated",
+                    "cache_ttl_seconds": cache_ttl,
                     "total_predictions": len(prediction_history),
+                    "mode": "local_demo",
                 },
                 "cache_status": {
                     "entries": len(cache),

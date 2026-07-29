@@ -8,6 +8,7 @@ import os
 import sys
 import warnings
 import logging
+from logging.handlers import RotatingFileHandler
 import json
 import re
 import importlib.util
@@ -153,7 +154,12 @@ try:
 except Exception as exc:
     logging.getLogger('NEXUS-AI').debug(f"YFinance cache setup skipped: {exc}")
 
-log_handler = logging.FileHandler('logs/nexus_ai.log', encoding='utf-8')
+log_handler = RotatingFileHandler(
+    'logs/nexus_ai.log',
+    maxBytes=max(1024 * 1024, env_int("STOCKSENSE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+    backupCount=max(1, env_int("STOCKSENSE_LOG_BACKUP_COUNT", 3)),
+    encoding='utf-8',
+)
 log_handler.setFormatter(logging.Formatter('%(asctime)s - ...'))
 
 # Suppress warnings for clean operation
