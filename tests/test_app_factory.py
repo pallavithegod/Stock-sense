@@ -5,6 +5,14 @@ import sys
 import uuid
 from pathlib import Path
 
+from backend.app.config import Settings
+
+
+def test_default_dev_host_is_loopback():
+    settings = Settings.from_env(environ={})
+
+    assert settings.host == "127.0.0.1"
+
 
 def test_create_app_uses_factory_without_importing_root_app(isolated_db_path, monkeypatch):
     runtime_dir = isolated_db_path.parent

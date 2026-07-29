@@ -19,6 +19,25 @@ def test_system_status_is_available(client):
     assert "response_time" not in payload["performance"]
 
 
+def test_system_analytics_cognition_and_diagnostics_are_thin_boundaries(client):
+    analytics = client.get("/api/analytics")
+    cognition = client.get("/api/system/cognition")
+    diagnostics = client.get("/api/diagnostics")
+    bootstrap = client.get("/api/bootstrap/status")
+    intelligence = client.get("/api/intelligence/status")
+
+    assert analytics.status_code == 200
+    assert analytics.get_json()["data_quality"] == "unavailable"
+    assert cognition.status_code == 200
+    assert cognition.get_json()["status"] == "unavailable_without_active_cognition_worker"
+    assert diagnostics.status_code == 200
+    assert "checks" in diagnostics.get_json()
+    assert bootstrap.status_code == 200
+    assert bootstrap.get_json()["workers_started"] is False
+    assert intelligence.status_code == 200
+    assert intelligence.get_json()["mode"] == "lightweight_factory_runtime"
+
+
 def test_search_returns_a_json_result_collection(client):
     response = client.get("/api/search", query_string={"q": "INFY", "limit": 5})
 

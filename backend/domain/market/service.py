@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -80,3 +81,90 @@ class MarketService:
             return None
         return self._stock_row(base_symbol, data)
 
+    def universe_payload(self) -> dict[str, Any]:
+        rows = self.list_stocks(limit=len(self.universe.symbols) or 1)
+        return {
+            "success": True,
+            "symbols": [row["symbol"] for row in rows],
+            "stocks": rows,
+            "count": len(rows),
+            "data_quality": "unavailable",
+        }
+
+    def save_user_tickers_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        tickers = payload.get("tickers") if isinstance(payload, dict) else []
+        cleaned = [symbol for symbol in (normalize_symbol(item) for item in tickers or []) if symbol]
+        return {
+            "success": True,
+            "tickers": cleaned,
+            "message": "Ticker persistence is deferred in the app-factory runtime.",
+            "data_quality": "unavailable",
+        }
+
+    def stock_history_payload(self, symbol: str) -> dict[str, Any]:
+        base_symbol = normalize_symbol(symbol) or str(symbol).upper()
+        return {
+            "success": True,
+            "symbol": base_symbol,
+            "data": [],
+            "prices": [],
+            "labels": [],
+            "datasets": [],
+            "data_quality": "unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def stock_analysis_payload(self, symbol: str) -> dict[str, Any]:
+        stock = self.get_stock(symbol)
+        base_symbol = normalize_symbol(symbol) or str(symbol).upper()
+        return {
+            "success": stock is not None,
+            "symbol": base_symbol,
+            "stock": stock,
+            "analysis": {},
+            "indicators": {},
+            "signal": None,
+            "confidence": None,
+            "data_quality": "unavailable",
+        }
+
+    def compare_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        raw_symbols = payload.get("symbols") if isinstance(payload, dict) else []
+        symbols = [symbol for symbol in (normalize_symbol(item) for item in raw_symbols or []) if symbol]
+        return {
+            "success": True,
+            "symbols": symbols,
+            "results": [self.get_stock(symbol) for symbol in symbols if self.get_stock(symbol) is not None],
+            "data_quality": "unavailable",
+        }
+
+    def autocomplete_payload(self, query: str, limit: int = 10) -> dict[str, Any]:
+        results = self.search(query, limit=limit)
+        return {"success": True, "suggestions": results, "results": results, "data_quality": "unavailable"}
+
+    def market_trends_payload(self) -> dict[str, Any]:
+        return {
+            "success": True,
+            "labels": [],
+            "datasets": [],
+            "data": [],
+            "data_quality": "unavailable",
+        }
+
+    def sector_analytics_payload(self) -> dict[str, Any]:
+        return {
+            "success": True,
+            "labels": [],
+            "values": [],
+            "sectoranalysis": {},
+            "sector_analysis": {},
+            "data_quality": "unavailable",
+        }
+
+    def risk_return_payload(self) -> dict[str, Any]:
+        return {
+            "success": True,
+            "points": [],
+            "datasets": [],
+            "data_quality": "unavailable",
+        }

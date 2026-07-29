@@ -30,5 +30,47 @@ def create_market_blueprint(*, market_service: MarketService) -> Blueprint:
             return jsonify({"success": False, "error": f"Unknown symbol: {symbol}"}), 404
         return jsonify(stock)
 
-    return blueprint
+    @blueprint.get("/api/market_universe")
+    def api_market_universe():
+        return jsonify(market_service.universe_payload())
 
+    @blueprint.post("/api/user_tickers")
+    def save_user_tickers():
+        payload = request.get_json(silent=True) or {}
+        return jsonify(market_service.save_user_tickers_payload(payload))
+
+    @blueprint.get("/api/stock/<symbol>/history")
+    @blueprint.get("/api/historical/<symbol>")
+    def api_stock_history(symbol: str):
+        return jsonify(market_service.stock_history_payload(symbol))
+
+    @blueprint.get("/api/stock/analysis/<symbol>")
+    @blueprint.get("/api/indicators/<symbol>")
+    def api_stock_analysis(symbol: str):
+        payload = market_service.stock_analysis_payload(symbol)
+        return jsonify(payload), 200 if payload["success"] else 404
+
+    @blueprint.post("/api/compare")
+    def compare_stocks():
+        payload = request.get_json(silent=True) or {}
+        return jsonify(market_service.compare_payload(payload))
+
+    @blueprint.get("/api/autocomplete")
+    def autocomplete():
+        query = request.args.get("q", "")
+        limit = request.args.get("limit", 10, type=int) or 10
+        return jsonify(market_service.autocomplete_payload(query, limit=limit))
+
+    @blueprint.get("/api/analytics/market-trends")
+    def api_market_trends():
+        return jsonify(market_service.market_trends_payload())
+
+    @blueprint.get("/api/analytics/sectors")
+    def api_sector_analytics():
+        return jsonify(market_service.sector_analytics_payload())
+
+    @blueprint.get("/api/analytics/risk-return")
+    def api_risk_return():
+        return jsonify(market_service.risk_return_payload())
+
+    return blueprint

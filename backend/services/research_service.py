@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Optional
 
 PriceHistoryFetcher = Callable[[str, str, str], Any]
 NormalizeSymbol = Callable[[str], Optional[str]]
+ResearchDependencyError = (AttributeError, KeyError, TypeError, ValueError, RuntimeError, IndexError)
 
 
 def _to_yfinance_symbol(raw_symbol: str, base_symbol: str) -> str:
@@ -64,7 +65,7 @@ def build_emotional_state_payload(
             "symbol": base_symbol,
             "emotional_state": emotional_state,
         }
-    except Exception as exc:
+    except ResearchDependencyError as exc:
         logger.error("Emotional state build failed for %s: %s", symbol, exc, exc_info=True)
         return _empty_payload(str(symbol), "emotional_state", str(exc))
 
@@ -106,6 +107,6 @@ def build_futures_analysis_payload(
             "current_price": current_price,
             "futures": result,
         }
-    except Exception as exc:
+    except ResearchDependencyError as exc:
         logger.error("Futures analysis build failed for %s: %s", symbol, exc, exc_info=True)
         return _empty_payload(str(symbol), "futures", str(exc))

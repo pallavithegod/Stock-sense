@@ -76,6 +76,38 @@ def create_portfolio_api_blueprint(*, portfolio_service: PortfolioService, marke
     def get_portfolio_intelligence_suite():
         return jsonify(portfolio_service.intelligence_suite())
 
+    @blueprint.get("/api/portfolio/forecast")
+    def get_portfolio_forecast():
+        return jsonify(portfolio_service.forecast())
+
+    @blueprint.get("/api/portfolio/survival")
+    def get_portfolio_survival():
+        return jsonify(portfolio_service.survival())
+
+    @blueprint.get("/api/portfolio/backtesting")
+    def get_portfolio_backtesting():
+        return jsonify(portfolio_service.backtesting())
+
+    @blueprint.get("/api/portfolio/drift")
+    def get_portfolio_drift():
+        return jsonify(portfolio_service.drift())
+
+    @blueprint.get("/api/portfolio/governance")
+    def get_portfolio_governance():
+        return jsonify(portfolio_service.governance())
+
+    @blueprint.get("/api/portfolio/explainability")
+    def get_portfolio_explainability():
+        return jsonify(portfolio_service.explainability())
+
+    @blueprint.get("/api/portfolio/scorecard")
+    def get_portfolio_scorecard():
+        return jsonify(portfolio_service.scorecard())
+
+    @blueprint.get("/api/portfolio/allocation")
+    def get_portfolio_allocation():
+        return jsonify(portfolio_service.allocation_chart())
+
     @blueprint.post("/api/portfolio/sell/simulate")
     def simulate_portfolio_sell():
         try:
@@ -85,4 +117,3 @@ def create_portfolio_api_blueprint(*, portfolio_service: PortfolioService, marke
             return jsonify(validation_error_payload(exc)), 400
 
     return blueprint
-

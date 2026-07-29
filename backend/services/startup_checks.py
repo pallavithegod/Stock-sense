@@ -36,7 +36,7 @@ def collect_startup_checks(
         with sqlite3.connect(db_path) as conn:
             conn.execute("SELECT 1")
         db_ok = True
-    except Exception as exc:
+    except (OSError, sqlite3.Error) as exc:
         db_error = str(exc)
 
     runtime_dirs = {}

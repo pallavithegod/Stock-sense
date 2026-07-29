@@ -187,8 +187,40 @@ class PortfolioService:
         }
 
     def intelligence_suite(self) -> dict[str, Any]:
-        intelligence = self.compute_intelligence(self.list_positions())
-        return {"status": "ok", "data": {"generated_at": datetime.now().isoformat(), **intelligence}}
+        intelligence = self._intelligence_layers()
+        return {"status": "ok", "data": intelligence}
+
+    def forecast(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["forecast"]}
+
+    def survival(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["survival"]}
+
+    def backtesting(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["backtesting"]}
+
+    def drift(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["drift"]}
+
+    def governance(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["governance"]}
+
+    def explainability(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["explainability"]}
+
+    def scorecard(self) -> dict[str, Any]:
+        return {"status": "ok", "data": self._intelligence_layers()["scorecard"]}
+
+    def allocation_chart(self) -> dict[str, Any]:
+        positions = self.compute_intelligence(self.list_positions())["positions"]
+        return {
+            "status": "ok",
+            "data": {
+                "labels": [str(position.get("symbol")) for position in positions],
+                "values": [position.get("market_value", 0) for position in positions],
+                "data_quality": "portfolio_only",
+            },
+        }
 
     def simulate_sell(self, data: dict[str, Any]) -> dict[str, Any]:
         result = self.repository.compare_sell_methods(
@@ -220,3 +252,50 @@ class PortfolioService:
             )
         return {"positions": positions, "account_metrics": {"total_value": round(total_value, 2)}}
 
+    def _intelligence_layers(self) -> dict[str, Any]:
+        intelligence = self.compute_intelligence(self.list_positions())
+        total_value = float(intelligence["account_metrics"].get("total_value") or 0)
+        position_count = len(intelligence["positions"])
+        generated_at = datetime.now().isoformat()
+        return {
+            "generated_at": generated_at,
+            "data_quality": "portfolio_only",
+            **intelligence,
+            "forecast": {
+                "status": "unavailable_without_market_provider",
+                "expected_value": None,
+                "portfolio_value": total_value,
+                "data_quality": "portfolio_only",
+            },
+            "survival": {
+                "score": None,
+                "status": "unavailable_without_risk_model",
+                "positions_analyzed": position_count,
+                "data_quality": "portfolio_only",
+            },
+            "backtesting": {
+                "status": "unavailable_without_historical_provider",
+                "trades": 0,
+                "data_quality": "unavailable",
+            },
+            "drift": {
+                "status": "unavailable_without_benchmark",
+                "alerts": [],
+                "data_quality": "portfolio_only",
+            },
+            "governance": {
+                "status": "WATCH" if position_count else "EMPTY",
+                "alerts": [],
+                "data_quality": "portfolio_only",
+            },
+            "explainability": {
+                "summary": "Portfolio intelligence is based only on saved holdings in the app-factory runtime.",
+                "drivers": [],
+                "data_quality": "portfolio_only",
+            },
+            "scorecard": {
+                "score": None,
+                "basis": "unavailable_without_matured_outcomes",
+                "data_quality": "portfolio_only",
+            },
+        }

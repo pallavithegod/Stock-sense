@@ -8,6 +8,9 @@ def test_portfolio_routes_are_registered_by_blueprint(app_module):
     assert "portfolio_api.api_portfolio_state" in endpoints
     assert "portfolio_api.create_portfolio" in endpoints
     assert "portfolio_api.simulate_portfolio_sell" in endpoints
+    assert "portfolio_api.get_portfolio_forecast" in endpoints
+    assert "portfolio_api.get_portfolio_governance" in endpoints
+    assert "portfolio_api.get_portfolio_scorecard" in endpoints
 
 
 def test_portfolio_create_and_state_use_domain_service(client):
@@ -41,3 +44,21 @@ def test_portfolio_sell_simulation_is_read_only(client):
     payload = response.get_json()
     assert payload["status"] == "ok"
     assert payload["data"]["recommended_method"] == "FIFO"
+
+
+def test_portfolio_intelligence_slices_are_domain_service_payloads(client):
+    client.post("/api/portfolio", json={"symbol": "INFY", "quantity": 2, "avg_price": 100})
+
+    suite = client.get("/api/portfolio/intelligence-suite")
+    forecast = client.get("/api/portfolio/forecast")
+    governance = client.get("/api/portfolio/governance")
+    allocation = client.get("/api/portfolio/allocation")
+
+    assert suite.status_code == 200
+    assert suite.get_json()["data"]["data_quality"] == "portfolio_only"
+    assert forecast.status_code == 200
+    assert forecast.get_json()["data"]["status"] == "unavailable_without_market_provider"
+    assert governance.status_code == 200
+    assert governance.get_json()["data"]["status"] == "WATCH"
+    assert allocation.status_code == 200
+    assert allocation.get_json()["data"]["labels"] == ["INFY"]

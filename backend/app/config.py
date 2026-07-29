@@ -91,7 +91,7 @@ class Settings:
     ) -> "Settings":
         if environ is None:
             _load_dotenv_if_available()
-        env = dict(environ or os.environ)
+        env = dict(os.environ if environ is None else environ)
         root = Path(env.get("STOCKSENSE_PROJECT_ROOT", Path.cwd())).resolve()
 
         values: dict[str, object] = {
@@ -121,7 +121,7 @@ class Settings:
             "provider_timeout_seconds": max(1, _env_int(env, "PROVIDER_TIMEOUT_SECONDS", 10)),
             "log_max_bytes": max(1024 * 1024, _env_int(env, "STOCKSENSE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
             "log_backup_count": max(1, _env_int(env, "STOCKSENSE_LOG_BACKUP_COUNT", 3)),
-            "host": env.get("FLASK_HOST", "0.0.0.0"),
+            "host": env.get("FLASK_HOST", "127.0.0.1"),
             "port": _env_int(env, "FLASK_PORT", 5000),
         }
         values.update(overrides or {})

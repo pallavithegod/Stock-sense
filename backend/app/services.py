@@ -10,6 +10,7 @@ from backend.domain.dashboard import DashboardService
 from backend.domain.market import MarketService
 from backend.domain.predictions import PredictionQueryService
 from backend.domain.portfolio import PortfolioService
+from backend.domain.system import SystemService
 
 
 class RuntimeContext:
@@ -39,6 +40,7 @@ class AppServices:
     market: MarketService
     dashboard: DashboardService
     predictions: PredictionQueryService
+    system: SystemService
     runtime: RuntimeContext
     logger: logging.Logger
     ai_engine_state: dict[str, Any] = field(default_factory=lambda: {"predictions": {}, "last_update": None, "cognitive_state": {}})

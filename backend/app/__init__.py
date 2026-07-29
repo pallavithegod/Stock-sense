@@ -9,12 +9,14 @@ from typing import Any, Mapping
 from flask import Flask, jsonify
 
 from backend.app.config import Settings
+from backend.app.errors import register_error_handlers
 from backend.app.extensions import init_extensions, socketio
 from backend.app.services import AppServices, RuntimeContext
 from backend.domain.dashboard import DashboardService
 from backend.domain.market import MarketService, MarketUniverse, normalize_symbol
 from backend.domain.predictions import PredictionQueryService
 from backend.domain.portfolio import PortfolioService, SQLitePortfolioRepository
+from backend.domain.system import SystemService
 from backend.routes.dashboard_api import create_dashboard_api_blueprint
 from backend.routes.market import create_market_blueprint
 from backend.routes.news import create_news_blueprint
@@ -43,12 +45,25 @@ def _build_services(settings: Settings) -> AppServices:
     predictions = PredictionQueryService(ai_engine_state=ai_engine_state)
     dashboard = DashboardService(market_service=market, portfolio_service=portfolio)
     runtime.cache_ttl = settings.cache_timeout
+    system = SystemService(
+        project_root=settings.project_root,
+        db_path=settings.resolved_db_path(),
+        feature_flags={
+            "machine_learning": False,
+            "deep_learning": False,
+            "technical_analysis": True,
+            "sentiment_analysis": False,
+        },
+        runtime=runtime,
+        optional_modules=["yfinance", "pandas", "numpy", "sklearn", "tensorflow", "feedparser", "flask_socketio"],
+    )
     return AppServices(
         settings=settings,
         portfolio=portfolio,
         market=market,
         dashboard=dashboard,
         predictions=predictions,
+        system=system,
         runtime=runtime,
         logger=logger,
         ai_engine_state=ai_engine_state,
@@ -82,18 +97,7 @@ def _register_core_routes(app: Flask, services: AppServices) -> None:
 def _register_blueprints(app: Flask, services: AppServices) -> None:
     settings = services.settings
     app.register_blueprint(
-        create_system_blueprint(
-            project_root=settings.project_root,
-            system_config={"DB_PATH": str(settings.resolved_db_path())},
-            feature_flags={
-                "machine_learning": False,
-                "deep_learning": False,
-                "technical_analysis": True,
-                "sentiment_analysis": False,
-            },
-            quantum_ai=services.runtime,
-            optional_modules=["yfinance", "pandas", "numpy", "sklearn", "tensorflow", "feedparser", "flask_socketio"],
-        )
+        create_system_blueprint(system_service=services.system)
     )
     app.register_blueprint(create_dashboard_api_blueprint(dashboard_service=services.dashboard))
     app.register_blueprint(create_news_blueprint(news_service=NewsService(normalize_symbol=normalize_symbol)))
@@ -145,6 +149,7 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
     app.foresight_system = services.runtime
 
     init_extensions(app, resolved_settings)
+    register_error_handlers(app)
     _register_security(app)
     _register_core_routes(app, services)
     _register_blueprints(app, services)
