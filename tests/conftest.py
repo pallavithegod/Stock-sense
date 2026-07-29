@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-import importlib
 import os
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 
 @pytest.fixture(scope="session")
-def isolated_db_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return tmp_path_factory.mktemp("stocksense-db") / "test_nexus.db"
+def isolated_db_path() -> Path:
+    runtime_dir = Path.cwd() / ".pytest-runtime" / f"stocksense-db-{uuid.uuid4().hex}"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    return runtime_dir / "test_nexus.db"
 
 
 @pytest.fixture(scope="session")
@@ -34,10 +37,13 @@ def app_module(isolated_db_path: Path):
     }
     os.environ.update(test_environment)
 
-    module = importlib.import_module("app")
-    module.app.config.update(TESTING=True)
-    assert Path(module.dynamic_db.db_path).resolve() == isolated_db_path.resolve()
-    return module
+    from backend.app import create_app
+
+    app = create_app()
+    app.config.update(TESTING=True)
+    services = app.extensions["stocksense_services"]
+    assert Path(services.portfolio.db_path).resolve() == isolated_db_path.resolve()
+    return SimpleNamespace(app=app, services=services)
 
 
 @pytest.fixture()
