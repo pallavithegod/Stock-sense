@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-
-def normalize_symbol(value: Any) -> str | None:
-    if value is None:
-        return None
-    symbol = str(value).strip().upper().replace(".NS", "").replace(".BO", "")
-    symbol = re.sub(r"[^A-Z0-9&.-]", "", symbol)
-    return symbol or None
+from backend.services.market_data import ProviderResponse, ResilientMarketDataClient, normalize_symbol
 
 
 @dataclass
@@ -34,26 +27,38 @@ class MarketUniverse:
 
 
 class MarketService:
-    def __init__(self, universe: MarketUniverse):
+    def __init__(self, universe: MarketUniverse, *, market_data: ResilientMarketDataClient | None = None):
         self.universe = universe
+        self.market_data = market_data
 
     @property
     def symbols(self) -> dict[str, dict[str, Any]]:
         return self.universe.symbols
 
-    def _stock_row(self, symbol: str, data: dict[str, Any]) -> dict[str, Any]:
+    def _stock_row(self, symbol: str, data: dict[str, Any], quote: ProviderResponse | None = None) -> dict[str, Any]:
         display = data.get("exchange_symbols", [f"{symbol}.NS"])[0]
-        return {
+        quote_data = quote.data if quote and isinstance(quote.data, dict) else {}
+        price = quote_data.get("price")
+        current_price = quote_data.get("current_price")
+        row = {
             "symbol": symbol,
-            "display": display,
+            "display": quote_data.get("display") or display,
             "name": data.get("name", symbol),
             "exchange": "NSE" if str(display).upper().endswith(".NS") else "BSE",
-            "price": None,
-            "current_price": None,
-            "change_percent": None,
-            "change_value": None,
-            "data_quality": "unavailable",
+            "price": price,
+            "current_price": current_price,
+            "change_percent": quote_data.get("change_percent"),
+            "change_value": quote_data.get("change_value"),
+            "data_quality": quote.quality_status if quote else "unavailable",
+            "provider": quote.provider if quote else None,
+            "fetched_at": quote.fetched_at if quote else None,
+            "stale": quote.stale if quote else True,
+            "synthetic": quote.synthetic if quote else False,
+            "demo": quote.demo if quote else False,
         }
+        if quote and quote.state == "unavailable":
+            row["provider_error_code"] = quote.error_code
+        return row
 
     def search(self, query: str, limit: int = 15) -> list[dict[str, Any]]:
         needle = normalize_symbol(query)
@@ -71,6 +76,13 @@ class MarketService:
             self._stock_row(symbol, data)
             for symbol, data in list(sorted(self.universe.symbols.items()))[: max(1, min(int(limit or 20), 200))]
         ]
+
+    def dashboard_stocks(self, limit: int = 8) -> list[dict[str, Any]]:
+        rows = []
+        for symbol, data in list(sorted(self.universe.symbols.items()))[: max(1, min(int(limit or 8), 60))]:
+            quote = self.market_data.quote(symbol, allow_stale=True) if self.market_data else None
+            rows.append(self._stock_row(symbol, data, quote=quote))
+        return rows
 
     def get_stock(self, symbol: str) -> dict[str, Any] | None:
         base_symbol = normalize_symbol(symbol)
@@ -103,14 +115,21 @@ class MarketService:
 
     def stock_history_payload(self, symbol: str) -> dict[str, Any]:
         base_symbol = normalize_symbol(symbol) or str(symbol).upper()
+        response = self.market_data.history(base_symbol, period="1y", interval="1d", allow_stale=True) if self.market_data else None
+        prices = response.data.get("prices", []) if response and isinstance(response.data, dict) else []
         return {
             "success": True,
             "symbol": base_symbol,
-            "data": [],
-            "prices": [],
-            "labels": [],
-            "datasets": [],
-            "data_quality": "unavailable",
+            "data": prices,
+            "prices": prices,
+            "labels": [row.get("timestamp") for row in prices],
+            "datasets": [{"label": base_symbol, "data": [row.get("close") for row in prices]}] if prices else [],
+            "data_quality": response.quality_status if response else "unavailable",
+            "provider": response.provider if response else None,
+            "fetched_at": response.fetched_at if response else None,
+            "stale": response.stale if response else True,
+            "synthetic": response.synthetic if response else False,
+            "demo": response.demo if response else False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 

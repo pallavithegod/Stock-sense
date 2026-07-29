@@ -11,6 +11,7 @@ from backend.domain.market import MarketService
 from backend.domain.predictions import PredictionQueryService
 from backend.domain.portfolio import PortfolioService
 from backend.domain.system import SystemService
+from backend.services.market_data import ResilientMarketDataClient
 
 
 class RuntimeContext:
@@ -38,6 +39,7 @@ class AppServices:
     settings: Any
     portfolio: PortfolioService
     market: MarketService
+    market_data: ResilientMarketDataClient
     dashboard: DashboardService
     predictions: PredictionQueryService
     system: SystemService

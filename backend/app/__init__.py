@@ -25,6 +25,7 @@ from backend.routes.portfolio_api import create_portfolio_api_blueprint
 from backend.routes.prediction_api import create_prediction_api_blueprint
 from backend.routes.research import create_research_blueprint
 from backend.routes.system import create_system_blueprint
+from backend.services.market_data import build_market_data_client
 from backend.services.news_service import NewsService
 from backend.services.security import (
     mutation_guard_error,
@@ -36,7 +37,12 @@ from backend.services.security import (
 
 def _build_services(settings: Settings) -> AppServices:
     logger = logging.getLogger("stocksense.factory")
-    market = MarketService(MarketUniverse())
+    market_data = build_market_data_client(
+        disabled=settings.disable_startup_network or settings.testing,
+        timeout_seconds=settings.provider_timeout_seconds,
+        cache_ttl_seconds=settings.cache_timeout,
+    )
+    market = MarketService(MarketUniverse(), market_data=market_data)
     portfolio = PortfolioService(
         repository=SQLitePortfolioRepository(settings.resolved_db_path()),
         market_service=market,
@@ -56,12 +62,14 @@ def _build_services(settings: Settings) -> AppServices:
             "sentiment_analysis": False,
         },
         runtime=runtime,
+        provider_health=market_data.health,
         optional_modules=["yfinance", "pandas", "numpy", "sklearn", "tensorflow", "feedparser", "flask_socketio"],
     )
     return AppServices(
         settings=settings,
         portfolio=portfolio,
         market=market,
+        market_data=market_data,
         dashboard=dashboard,
         predictions=predictions,
         system=system,

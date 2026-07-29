@@ -17,14 +17,23 @@ class DashboardService:
     def snapshot(self) -> dict[str, Any]:
         holdings = self.portfolio_service.list_positions()
         intelligence = self.portfolio_service.compute_intelligence(holdings)
-        stocks = self.market_service.list_stocks(limit=8)
+        index_response = self.market_service.market_data.indices(allow_stale=True) if self.market_service.market_data else None
+        indices = index_response.data if index_response and isinstance(index_response.data, list) else []
+        stocks = self.market_service.dashboard_stocks(limit=8)
+        quality_states = [row.get("data_quality") for row in stocks]
+        if index_response:
+            quality_states.append(index_response.quality_status)
+        data_quality = "live" if any(state == "live" for state in quality_states) else "cached_stale" if any(state == "cached_stale" for state in quality_states) else "unavailable"
         return {
             "success": True,
-            "live_indices": [],
+            "live_indices": indices,
             "top_stocks": stocks,
             "positions": intelligence["positions"],
             "portfolio": intelligence,
-            "data_quality": "unavailable",
+            "data_quality": data_quality,
+            "provider": index_response.provider if index_response else None,
+            "stale": index_response.stale if index_response else True,
+            "synthetic": index_response.synthetic if index_response else False,
+            "demo": index_response.demo if index_response else False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-

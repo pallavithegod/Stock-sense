@@ -18,6 +18,7 @@ def collect_startup_checks(
     project_root: Path,
     db_path: Path,
     optional_modules: Iterable[str],
+    provider_health: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return lightweight dependency/config diagnostics for status endpoints."""
     env_keys = [
@@ -56,4 +57,5 @@ def collect_startup_checks(
             "error": db_error,
         },
         "runtime_dirs": runtime_dirs,
+        "market_data_providers": provider_health or {},
     }

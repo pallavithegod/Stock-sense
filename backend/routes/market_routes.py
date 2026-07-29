@@ -27,7 +27,7 @@ def api_search():
 
 
 
-def _build_search_results(query: str, limit: int = 15, include_live_quotes: bool = False):
+def _build_search_results(query: str, limit: int = 15):
     ensure_market_universe_exchange_coverage()
     # quick bounds
     fetch_limit = max(1, min(limit, 60))
@@ -82,38 +82,6 @@ def _build_search_results(query: str, limit: int = 15, include_live_quotes: bool
         price = price_map.get(base)
         cp = change_percent_map.get(base)
         cv = change_value_map.get(base)
-
-        if include_live_quotes and price is None:
-            try:
-                live_data = fetch_live_stock_data(display)
-                if live_data is not None and len(live_data) > 0:
-                    price = float(live_data['Close'].iloc[-1])
-                    if len(live_data) > 1:
-                        prev_close = float(live_data['Close'].iloc[-2])
-                        cp = (price - prev_close) / prev_close * 100
-                        cv = price - prev_close
-                    else:
-                        cp = 0
-                        cv = 0
-            except Exception:
-                pass
-
-        # For BSE, if still no price, try NSE equivalent
-        if include_live_quotes and display.upper().endswith('.BO') and price is None:
-            try:
-                nse_symbol = display.replace('.BO', '.NS')
-                live_data = fetch_live_stock_data(nse_symbol)
-                if live_data is not None and len(live_data) > 0:
-                    price = float(live_data['Close'].iloc[-1])
-                    if len(live_data) > 1:
-                        prev_close = float(live_data['Close'].iloc[-2])
-                        cp = (price - prev_close) / prev_close * 100
-                        cv = price - prev_close
-                    else:
-                        cp = 0
-                        cv = 0
-            except Exception:
-                pass
 
         results.append({
             "symbol": base,

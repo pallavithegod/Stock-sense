@@ -18,12 +18,14 @@ class SystemService:
         feature_flags: dict[str, Any],
         runtime: Any,
         optional_modules: Iterable[str],
+        provider_health: Any | None = None,
     ):
         self.project_root = Path(project_root)
         self.db_path = Path(db_path)
         self.feature_flags = feature_flags
         self.runtime = runtime
         self.optional_modules = tuple(optional_modules)
+        self.provider_health = provider_health
 
     def _timestamp(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -33,6 +35,7 @@ class SystemService:
             project_root=self.project_root,
             db_path=self.db_path,
             optional_modules=self.optional_modules,
+            provider_health=self.provider_health() if self.provider_health else {},
         )
 
     def status_payload(self) -> dict[str, Any]:
