@@ -52,6 +52,30 @@ def test_create_app_does_not_create_database_until_lifecycle_or_request(monkeypa
     assert not db_path.exists()
 
 
+def test_run_dev_allows_local_werkzeug_server(isolated_db_path, monkeypatch):
+    runtime_dir = isolated_db_path.parent
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("TESTING", "True")
+    monkeypatch.setenv("SOCKETIO_ASYNC_MODE", "threading")
+    monkeypatch.setenv("STOCKSENSE_DB_PATH", str(isolated_db_path))
+    monkeypatch.setenv("STOCKSENSE_MARKET_DB_PATH", str(runtime_dir / "market_intelligence.db"))
+    monkeypatch.setenv("STOCKSENSE_ADAPTIVE_DB_PATH", str(runtime_dir / "adaptive_thresholds.db"))
+    monkeypatch.setenv("STOCKSENSE_AUDIT_LOG_PATH", str(runtime_dir / "prediction_audit.jsonl"))
+
+    from backend import app as app_module
+
+    calls = {}
+
+    def fake_run(flask_app, **kwargs):
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(app_module.socketio, "run", fake_run)
+    app_module.run_dev(app_module.create_app())
+
+    assert calls["kwargs"]["allow_unsafe_werkzeug"] is True
+    assert calls["kwargs"]["host"] == "127.0.0.1"
+
+
 def test_wsgi_entrypoint_imports_factory_app(isolated_db_path, monkeypatch):
     db_path = isolated_db_path.parent / "wsgi.db"
     monkeypatch.setenv("APP_ENV", "testing")

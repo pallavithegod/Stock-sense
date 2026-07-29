@@ -61,6 +61,8 @@ export type PredictionViewRow = {
   risk?: string
   allocation?: number
   edge?: number
+  dataQuality?: string
+  sourceType?: string
 }
 
 export function normalizePredictionRow(row: PredictionRow): PredictionViewRow {
@@ -129,6 +131,8 @@ export function normalizePredictionRow(row: PredictionRow): PredictionViewRow {
       record.allocation,
     )),
     edge: toNumber(firstValue(row.edge_score, record.edge)),
+    dataQuality: toText(firstValue(row.data_quality, record.dataQuality)),
+    sourceType: toText(firstValue(row.source_type, record.sourceType, row.source)),
   }
 }
 

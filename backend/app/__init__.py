@@ -157,7 +157,13 @@ def run_dev(app: Flask | None = None) -> None:
     flask_app = app or create_app()
     settings: Settings = flask_app.config["STOCKSENSE_SETTINGS"]
     startup(flask_app)
-    socketio.run(flask_app, debug=settings.debug, host=settings.host, port=settings.port)
+    socketio.run(
+        flask_app,
+        debug=settings.debug,
+        host=settings.host,
+        port=settings.port,
+        allow_unsafe_werkzeug=True,
+    )
 
 
 __all__ = ["Settings", "create_app", "run_dev", "shutdown", "socketio", "startup"]

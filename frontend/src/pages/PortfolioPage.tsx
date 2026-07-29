@@ -77,7 +77,7 @@ function positionAverage(position: PortfolioPosition) {
 }
 
 function positionValue(position: PortfolioPosition) {
-  return firstNumber(position, ['current_value', 'value'])
+  return firstNumber(position, ['current_value', 'market_value', 'value'])
 }
 
 function positionPnl(position: PortfolioPosition) {
@@ -100,7 +100,7 @@ function lotId(lot: PortfolioLot) {
 }
 
 function lotQuantity(lot: PortfolioLot) {
-  return firstNumber(lot, ['open_qty', 'quantity', 'qty'])
+  return firstNumber(lot, ['open_qty', 'remaining_quantity', 'quantity', 'qty', 'original_quantity'])
 }
 
 function lotPrice(lot: PortfolioLot) {

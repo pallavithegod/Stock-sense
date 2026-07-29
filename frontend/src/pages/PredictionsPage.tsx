@@ -23,10 +23,12 @@ export function PredictionsPage() {
     return source.map(normalizePredictionRow)
   }, [fallback.data, primary.data])
 
+  const confidenceRows = rows.filter((row) => row.confidence !== undefined)
   const avgConfidence =
-    rows.length > 0
-      ? rows.reduce((sum, row) => sum + Number(row.confidence ?? 0), 0) / rows.length
+    confidenceRows.length > 0
+      ? confidenceRows.reduce((sum, row) => sum + Number(row.confidence), 0) / confidenceRows.length
       : undefined
+  const hasFallbackRows = rows.some((row) => row.dataQuality !== undefined && row.dataQuality !== 'live')
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -56,7 +58,7 @@ export function PredictionsPage() {
         <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
           <div className="text-xs uppercase text-slate-500">Source</div>
           <div className="mt-2 text-2xl font-semibold text-white">
-            {primary.error ? 'Fallback' : 'Intelligence'}
+            {hasFallbackRows ? 'Watchlist' : primary.error ? 'Fallback' : 'Intelligence'}
           </div>
         </div>
       </div>
@@ -108,6 +110,12 @@ export function PredictionsPage() {
                 ))}
               </tbody>
             </table>
+            {hasFallbackRows ? (
+              <div className="border-t border-white/10 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                Prediction pipeline data is unavailable. WATCH rows are based on saved portfolio or market-universe
+                entries, not model predictions.
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="mt-5">

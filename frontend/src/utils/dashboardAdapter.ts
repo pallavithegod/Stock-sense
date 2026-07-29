@@ -49,13 +49,17 @@ function normalizeIndices(raw: AnyRecord): MarketIndex[] {
 }
 
 function normalizeSignals(raw: AnyRecord): DashboardSignal[] {
-  const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence)
+  const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence, raw.portfolio)
   const portfolioPositions = recordValue(portfolioState, 'positions')
-  return asArray(firstValue(raw.top_stocks, raw.topStocks, raw.stocks, raw.opportunities, raw.positions, portfolioPositions))
+  const topRows = asArray(firstValue(raw.top_stocks, raw.topStocks, raw.stocks, raw.opportunities))
+  const positionRows = asArray(firstValue(raw.positions, portfolioPositions))
+  const usableTopRows = topRows.filter((item) => toNumber(firstValue(item.current_price, item.price, item.last_price)) !== undefined)
+  const rows = usableTopRows.length ? usableTopRows : positionRows.length ? positionRows : topRows
+  return rows
     .slice(0, 8)
     .map((item) => ({
       symbol: toText(firstValue(item.symbol, item.ticker, item.name)) ?? 'UNKNOWN',
-      price: toNumber(firstValue(item.current_price, item.price, item.last_price, item.avg_price)),
+      price: toNumber(firstValue(item.current_price, item.price, item.last_price, item.avg_price, item.market_value)),
       changePercent: toNumber(firstValue(item.price_change_percent, item.change_percent, item.changePercent, item.return_percent, item.predicted_return)),
       signal: toText(firstValue(item.signal, item.action, item.recommendation)),
       confidence: toNumber(firstValue(item.confidence, item.score, item.probability)),
@@ -89,7 +93,7 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
   const marketSnapshot = firstValue(raw.marketSnapshot, raw.market_snapshot, data.marketSnapshot, data.market_snapshot)
   const signalQuality = firstValue(raw.signalQuality, raw.signal_quality, data.signalQuality, data.signal_quality)
   const portfolioMetrics = firstValue(raw.portfolioMetrics, raw.portfolio_metrics, data.portfolioMetrics, data.portfolio_metrics)
-  const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence, data.PORTFOLIO_STATE, data.portfolio_intelligence)
+  const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence, raw.portfolio, data.PORTFOLIO_STATE, data.portfolio_intelligence, data.portfolio)
   const portfolioPositions = recordValue(portfolioState, 'positions')
 
   const portfolioValue = firstValue(
@@ -99,7 +103,7 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
     data.portfolio_value,
     recordValue(portfolioMetrics, 'total_value', 'portfolio_value', 'current_value', 'market_value'),
     recordValue(marketSnapshot, 'portfolio_value', 'portfolioValue'),
-    recordValue(portfolioState, 'total_value', 'portfolio_value'),
+    recordValue(portfolioState, 'total_value', 'portfolio_value', 'current_value', 'market_value'),
     recordValue(recordValue(portfolioState, 'account_metrics'), 'total_value', 'portfolio_value', 'current_value', 'market_value'),
     0,
   )
@@ -109,6 +113,7 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
     data.activePositions,
     data.active_positions,
     recordValue(marketSnapshot, 'active_positions', 'activePositions'),
+    asArray(raw.positions).length,
     asArray(portfolioPositions).length,
   )
   const accuracy = firstValue(

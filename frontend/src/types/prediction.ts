@@ -17,6 +17,9 @@ export type PredictionRow = {
   allocation_pct?: number
   ai_size?: number
   edge_score?: number
+  data_quality?: string
+  source_type?: string
+  source?: string
   prediction?: {
     confidence?: number
     current_price?: number
