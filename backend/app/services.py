@@ -63,6 +63,65 @@ class SQLitePortfolioRepository:
                 (symbol.upper(), float(quantity), float(avg_price), purchase_date or datetime.now().isoformat()),
             )
 
+    def update_portfolio_position_summary(self, symbol: str, quantity: float, avg_price: float, purchase_date: str | None = None) -> None:
+        self.add_to_portfolio(symbol, quantity, avg_price, purchase_date)
+
+    def delete_portfolio_position(self, symbol: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM portfolio WHERE symbol = ?", (symbol.upper(),))
+
+    def get_portfolio_lots(self, symbol: str | None = None, only_open: bool = True) -> list[dict[str, Any]]:
+        rows = self.get_portfolio()
+        if symbol:
+            rows = [row for row in rows if str(row.get("symbol", "")).upper() == symbol.upper()]
+        return [
+            {
+                "id": row.get("id"),
+                "lot_id": row.get("id"),
+                "symbol": row.get("symbol"),
+                "buy_date": row.get("added_date"),
+                "buy_price": row.get("avg_price"),
+                "original_quantity": row.get("quantity"),
+                "remaining_quantity": row.get("quantity"),
+            }
+            for row in rows
+        ]
+
+    def get_realized_gains(self, symbol: str | None = None, from_date: str | None = None, to_date: str | None = None) -> list[dict[str, Any]]:
+        return []
+
+    def get_financial_year_realized_summary(self, fy_start_year: int | None = None) -> dict[str, Any]:
+        return {
+            "fy": str(fy_start_year or datetime.now().year),
+            "realized_total": 0,
+            "stcg_realized": 0,
+            "ltcg_realized": 0,
+            "transactions": 0,
+            "symbols": [],
+        }
+
+    def compare_sell_methods(self, symbol: str, quantity: float, sell_price: float, sell_date: str | None = None, fees: float = 0.0, methods: list[str] | None = None) -> dict[str, Any]:
+        method_list = methods or ["FIFO", "LIFO", "HIFO"]
+        return {
+            "symbol": symbol.upper(),
+            "sell_quantity": float(quantity or 0),
+            "sell_price": float(sell_price or 0),
+            "scenarios": [
+                {
+                    "symbol": symbol.upper(),
+                    "method": method,
+                    "sold_quantity": float(quantity or 0),
+                    "sell_price": float(sell_price or 0),
+                    "fees": float(fees or 0),
+                    "realized_gain": 0,
+                    "matched_lots": [],
+                }
+                for method in method_list
+            ],
+            "recommended_method": method_list[0] if method_list else "FIFO",
+        }
+
 
 @dataclass
 class MarketUniverse:
@@ -98,6 +157,20 @@ class MarketUniverse:
             if needle in symbol or needle in str(data.get("name", "")).upper()
         ]
         return rows[: max(1, min(int(limit or 15), 60))]
+
+    def list_stocks(self, limit: int = 20) -> list[dict[str, Any]]:
+        return [
+            {
+                "symbol": symbol,
+                "display": data.get("exchange_symbols", [f"{symbol}.NS"])[0],
+                "name": data.get("name", symbol),
+                "exchange": "NSE",
+                "price": None,
+                "current_price": None,
+                "change_percent": None,
+            }
+            for symbol, data in list(sorted(self.symbols.items()))[: max(1, min(int(limit or 20), 200))]
+        ]
 
 
 class RuntimeContext:
@@ -140,4 +213,3 @@ class AppServices:
     ai_engine_state: dict[str, Any] = field(default_factory=lambda: {"predictions": {}, "last_update": None, "cognitive_state": {}})
     state_cache: dict[str, Any] = field(default_factory=dict)
     system_cache: dict[str, Any] = field(default_factory=dict)
-

@@ -40,6 +40,21 @@ def _env_csv(source: Mapping[str, str], name: str, default: tuple[str, ...]) -> 
     return values or list(default)
 
 
+def _load_dotenv_if_available() -> None:
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
+
+
+def _socketio_mode(source: Mapping[str, str]) -> str:
+    mode = source.get("SOCKETIO_ASYNC_MODE", "threading").strip().lower()
+    if mode == "eventlet":
+        return "threading"
+    return mode or "threading"
+
+
 @dataclass(frozen=True)
 class Settings:
     project_root: Path
@@ -74,6 +89,8 @@ class Settings:
         *,
         environ: Mapping[str, str] | None = None,
     ) -> "Settings":
+        if environ is None:
+            _load_dotenv_if_available()
         env = dict(environ or os.environ)
         root = Path(env.get("STOCKSENSE_PROJECT_ROOT", Path.cwd())).resolve()
 
@@ -90,7 +107,7 @@ class Settings:
                 "SOCKETIO_CORS_ALLOWED_ORIGINS",
                 DEFAULT_ALLOWED_ORIGINS,
             ),
-            "socketio_async_mode": env.get("SOCKETIO_ASYNC_MODE", "threading"),
+            "socketio_async_mode": _socketio_mode(env),
             "trust_proxy_headers": _env_bool(env, "TRUST_PROXY_HEADERS", False),
             "trusted_proxy_count": max(1, _env_int(env, "TRUSTED_PROXY_COUNT", 1)),
             "db_path": Path(env.get("STOCKSENSE_DB_PATH", root / "data" / "nexus.db")),
@@ -112,4 +129,3 @@ class Settings:
 
     def resolved_db_path(self) -> Path:
         return self.db_path if self.db_path.is_absolute() else self.project_root / self.db_path
-

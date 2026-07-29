@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -26,6 +27,21 @@ def test_create_app_uses_factory_without_importing_root_app(isolated_db_path, mo
     assert flask_app.url_map is not None
     services = flask_app.extensions["stocksense_services"]
     assert Path(services.portfolio.db_path).resolve() == isolated_db_path.resolve()
+
+
+def test_create_app_does_not_create_database_until_lifecycle_or_request(monkeypatch):
+    db_path = Path.cwd() / ".pytest-runtime" / f"factory-no-startup-{uuid.uuid4().hex}" / "factory.db"
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("TESTING", "True")
+    monkeypatch.setenv("SOCKETIO_ASYNC_MODE", "threading")
+    monkeypatch.setenv("STOCKSENSE_DB_PATH", str(db_path))
+    monkeypatch.setenv("DISABLE_STARTUP_NETWORK", "True")
+
+    from backend.app import create_app
+
+    create_app()
+
+    assert not db_path.exists()
 
 
 def test_wsgi_entrypoint_imports_factory_app(isolated_db_path, monkeypatch):

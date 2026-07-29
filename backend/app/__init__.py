@@ -12,11 +12,6 @@ from flask import Flask, jsonify, request
 from backend.app.config import Settings
 from backend.app.extensions import init_extensions, socketio
 from backend.app.services import AppServices, MarketUniverse, RuntimeContext, SQLitePortfolioRepository
-from backend.routes.dashboard import create_dashboard_blueprint
-from backend.routes.market_routes import create_market_blueprint
-from backend.routes.predictions import create_predictions_blueprint
-from backend.routes.portfolio import create_portfolio_blueprint
-from backend.routes.research import create_research_blueprint
 from backend.routes.system import create_system_blueprint
 from backend.services.security import (
     mutation_guard_error,
@@ -27,6 +22,8 @@ from backend.services.security import (
 from backend.services.validation import (
     ValidationError,
     validate_portfolio_create,
+    validate_portfolio_update,
+    validate_sell_order,
     validation_error_payload,
 )
 
@@ -76,27 +73,23 @@ def _register_core_routes(app: Flask, services: AppServices) -> None:
             }
         )
 
+    @app.get("/api/dashboard-data")
+    @app.get("/api/dashboard-data/live")
+    @app.get("/api/dashboard-data/debug")
     def dashboard_payload():
         holdings = services.portfolio.get_portfolio()
         intelligence = services.runtime.compute_portfolio_intelligence(holdings)
+        stocks = services.market.list_stocks(limit=8)
         return jsonify(
             {
                 "success": True,
                 "live_indices": [],
-                "top_stocks": services.market.search("", limit=5),
+                "top_stocks": stocks,
                 "positions": intelligence["positions"],
                 "portfolio": intelligence,
                 "timestamp": datetime.now().isoformat(),
             }
         )
-
-    app.register_blueprint(
-        create_dashboard_blueprint(
-            dashboard_data_handler=dashboard_payload,
-            live_dashboard_handler=dashboard_payload,
-            debug_dashboard_handler=dashboard_payload,
-        )
-    )
 
 
 def _register_blueprints(app: Flask, services: AppServices) -> None:
@@ -116,19 +109,39 @@ def _register_blueprints(app: Flask, services: AppServices) -> None:
         )
     )
 
+    @app.get("/api/search")
+    @app.get("/api/search/comprehensive")
     def api_search():
         query = request.args.get("q", "")
         limit = request.args.get("limit", 15, type=int) or 15
         return jsonify({"success": True, "results": services.market.search(query, limit=limit)})
 
+    @app.get("/api/stocks")
+    def api_stocks():
+        limit = request.args.get("limit", 20, type=int) or 20
+        stocks = services.market.list_stocks(limit=limit)
+        return jsonify({"success": True, "stocks": stocks, "data": stocks, "results": stocks})
+
+    @app.get("/api/stock/<symbol>")
+    def api_stock(symbol: str):
+        base_symbol = normalize_symbol(symbol)
+        stock = next((row for row in services.market.list_stocks(limit=200) if row["symbol"] == base_symbol), None)
+        if not stock:
+            return jsonify({"success": False, "error": f"Unknown symbol: {symbol}"}), 404
+        return jsonify(stock)
+
+    @app.get("/api/portfolio")
     def api_get_portfolio():
         return jsonify(services.portfolio.get_portfolio())
 
+    @app.get("/api/portfolio/state")
     def api_portfolio_state():
         holdings = services.portfolio.get_portfolio()
         intelligence = services.runtime.compute_portfolio_intelligence(holdings)
         return jsonify({"success": True, **intelligence})
 
+    @app.post("/api/portfolio")
+    @app.post("/api/portfolio/add")
     def create_portfolio():
         try:
             data = validate_portfolio_create(
@@ -146,37 +159,129 @@ def _register_blueprints(app: Flask, services: AppServices) -> None:
         except ValidationError as exc:
             return jsonify(validation_error_payload(exc)), 400
 
-    app.register_blueprint(create_market_blueprint(handlers={"api_search": api_search}))
-    app.register_blueprint(
-        create_portfolio_blueprint(
-            handlers={
-                "api_get_portfolio": api_get_portfolio,
-                "api_portfolio_state": api_portfolio_state,
-                "create_portfolio": create_portfolio,
-                "create_portfolio_legacy": create_portfolio,
-            }
-        )
-    )
-    app.register_blueprint(
-        create_predictions_blueprint(
-            ai_engine_state=services.ai_engine_state,
-            state_cache=services.state_cache,
-            system_cache=services.system_cache,
-            quantum_ai=services.runtime,
-            dynamic_db=services.portfolio,
-            normalize_symbol=normalize_symbol,
-            realtime_state_builder=lambda rows: {},
-            logger=services.logger,
-        )
-    )
-    app.register_blueprint(
-        create_research_blueprint(
-            normalize_symbol=normalize_symbol,
-            fetch_price_history=lambda symbol, period="1y": None,
-            foresight_system=None,
-            logger=services.logger,
-        )
-    )
+    @app.put("/api/portfolio/<symbol>")
+    def update_portfolio(symbol: str):
+        try:
+            data = validate_portfolio_update(request.get_json(silent=True), normalize_symbol=normalize_symbol, symbol=symbol)
+            services.portfolio.update_portfolio_position_summary(
+                data["symbol"],
+                data["quantity"],
+                data["avg_price"],
+                data["purchase_date"],
+            )
+            return jsonify({"status": "ok", "message": f"{data['symbol']} updated"})
+        except ValidationError as exc:
+            return jsonify(validation_error_payload(exc)), 400
+
+    @app.delete("/api/portfolio/<symbol>")
+    def delete_portfolio(symbol: str):
+        base_symbol = normalize_symbol(symbol)
+        if not base_symbol:
+            return jsonify({"status": "error", "error": "invalid symbol"}), 400
+        services.portfolio.delete_portfolio_position(base_symbol)
+        return jsonify({"status": "deleted"})
+
+    @app.get("/api/portfolio/lots")
+    def get_portfolio_lots():
+        symbol = normalize_symbol(request.args.get("symbol")) if request.args.get("symbol") else None
+        rows = services.portfolio.get_portfolio_lots(symbol=symbol)
+        return jsonify({"status": "ok", "data": rows, "count": len(rows), "total": len(rows)})
+
+    @app.get("/api/portfolio/realized-gains")
+    def get_realized_gains():
+        symbol = normalize_symbol(request.args.get("symbol")) if request.args.get("symbol") else None
+        rows = services.portfolio.get_realized_gains(symbol=symbol)
+        return jsonify({"status": "ok", "data": rows, "count": len(rows), "total": len(rows)})
+
+    @app.get("/api/portfolio/tax-summary")
+    def get_portfolio_tax_summary():
+        return jsonify({"status": "ok", "data": services.portfolio.get_financial_year_realized_summary()})
+
+    @app.get("/api/portfolio/lot-insights")
+    def get_portfolio_lot_insights():
+        symbol = normalize_symbol(request.args.get("symbol")) if request.args.get("symbol") else None
+        return jsonify({
+            "status": "ok",
+            "data": {
+                "symbol": symbol,
+                "open_lots": services.portfolio.get_portfolio_lots(symbol=symbol),
+                "all_lots": services.portfolio.get_portfolio_lots(symbol=symbol),
+                "near_ltcg": [],
+                "fy_summary": services.portfolio.get_financial_year_realized_summary(),
+            },
+        })
+
+    @app.get("/api/portfolio/intelligence-suite")
+    def get_portfolio_intelligence_suite():
+        holdings = services.portfolio.get_portfolio()
+        intelligence = services.runtime.compute_portfolio_intelligence(holdings)
+        return jsonify({"status": "ok", "data": {"generated_at": datetime.now().isoformat(), **intelligence}})
+
+    @app.post("/api/portfolio/sell/simulate")
+    def simulate_portfolio_sell():
+        try:
+            data = validate_sell_order(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+            result = services.portfolio.compare_sell_methods(
+                data["symbol"],
+                data["quantity"],
+                data["sell_price"],
+                sell_date=data["sell_date"],
+                fees=data["fees"],
+                methods=data["methods"],
+            )
+            return jsonify({"status": "ok", "data": result})
+        except ValidationError as exc:
+            return jsonify(validation_error_payload(exc)), 400
+
+    @app.get("/api/predictions")
+    def get_predictions():
+        rows = list((services.ai_engine_state.get("predictions") or {}).values())
+        return jsonify({"success": True, "rows": rows, "predictions": rows, "stocks": rows, "timestamp": services.ai_engine_state.get("last_update")})
+
+    @app.get("/api/predictions/intelligence")
+    def get_prediction_intelligence():
+        rows = list((services.ai_engine_state.get("predictions") or {}).values())
+        return jsonify({"success": True, "rows": rows, "predictions": rows, "stocks": rows, "opportunities": rows})
+
+    @app.get("/api/predictions/live/<symbol>")
+    def get_live_prediction(symbol: str):
+        base_symbol = normalize_symbol(symbol) or str(symbol).upper()
+        return jsonify({
+            "success": True,
+            "data": {
+                "symbol": base_symbol,
+                "current_price": None,
+                "predictions": {},
+                "confidences": {},
+                "market_conditions": {"status": "unavailable_without_market_provider"},
+                "data_quality": "unavailable",
+            },
+        })
+
+    @app.get("/api/news")
+    @app.get("/api/news/market")
+    def get_news():
+        return jsonify({"success": True, "articles": [], "data": [], "source": "unavailable"})
+
+    @app.get("/api/news/symbol/<symbol>")
+    def get_symbol_news(symbol: str):
+        return jsonify({"success": True, "symbol": normalize_symbol(symbol), "articles": [], "data": []})
+
+    @app.get("/api/alerts")
+    def get_alerts():
+        return jsonify({"success": True, "alerts": [], "data": []})
+
+    @app.get("/api/research")
+    def get_research():
+        return jsonify({"success": True, "reports": [], "data": []})
+
+    @app.get("/api/emotional-state/<symbol>")
+    def get_emotional_state(symbol: str):
+        return jsonify({"success": True, "symbol": normalize_symbol(symbol), "data_quality": "unavailable", "state": None})
+
+    @app.get("/api/futures-analysis/<symbol>")
+    def get_futures_analysis(symbol: str):
+        return jsonify({"success": True, "symbol": normalize_symbol(symbol), "data_quality": "unavailable", "futures": []})
 
 
 def startup(app: Flask) -> None:
@@ -213,17 +318,14 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
     _register_core_routes(app, services)
     _register_blueprints(app, services)
 
-    if not resolved_settings.testing:
-        startup(app)
-
     return app
 
 
 def run_dev(app: Flask | None = None) -> None:
     flask_app = app or create_app()
     settings: Settings = flask_app.config["STOCKSENSE_SETTINGS"]
+    startup(flask_app)
     socketio.run(flask_app, debug=settings.debug, host=settings.host, port=settings.port)
 
 
 __all__ = ["Settings", "create_app", "run_dev", "shutdown", "socketio", "startup"]
-
