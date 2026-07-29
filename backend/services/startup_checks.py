@@ -6,7 +6,7 @@ import importlib.util
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Iterable
 
 
 def _module_available(module_name: str) -> bool:
@@ -18,7 +18,7 @@ def collect_startup_checks(
     project_root: Path,
     db_path: Path,
     optional_modules: Iterable[str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return lightweight dependency/config diagnostics for status endpoints."""
     env_keys = [
         "FLASK_SECRET_KEY",

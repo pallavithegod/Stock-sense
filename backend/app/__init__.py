@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
 
 from flask import Flask, jsonify
 
@@ -95,10 +94,7 @@ def _register_core_routes(app: Flask, services: AppServices) -> None:
 
 
 def _register_blueprints(app: Flask, services: AppServices) -> None:
-    settings = services.settings
-    app.register_blueprint(
-        create_system_blueprint(system_service=services.system)
-    )
+    app.register_blueprint(create_system_blueprint(system_service=services.system))
     app.register_blueprint(create_dashboard_api_blueprint(dashboard_service=services.dashboard))
     app.register_blueprint(create_news_blueprint(news_service=NewsService(normalize_symbol=normalize_symbol)))
     app.register_blueprint(create_market_blueprint(market_service=services.market))

@@ -1,16 +1,12 @@
-"""Research and foresight service helpers.
-
-These helpers keep endpoint code thin while the project is still running on
-the legacy Flask app module.
-"""
+"""Research and foresight service helpers for the app-factory path."""
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable
 
 
 PriceHistoryFetcher = Callable[[str, str, str], Any]
-NormalizeSymbol = Callable[[str], Optional[str]]
+NormalizeSymbol = Callable[[str], str | None]
 ResearchDependencyError = (AttributeError, KeyError, TypeError, ValueError, RuntimeError, IndexError)
 
 
@@ -21,7 +17,7 @@ def _to_yfinance_symbol(raw_symbol: str, base_symbol: str) -> str:
     return f"{base_symbol}.NS"
 
 
-def _empty_payload(symbol: str, section: str, reason: str) -> Dict[str, Any]:
+def _empty_payload(symbol: str, section: str, reason: str) -> dict[str, Any]:
     return {
         "success": True,
         "available": False,
@@ -42,7 +38,7 @@ def build_emotional_state_payload(
     fetch_price_history: PriceHistoryFetcher,
     foresight_system: Any,
     logger: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a safe emotional-state payload without throwing HTTP 500s."""
     try:
         base_symbol = normalize_symbol(symbol)
@@ -77,7 +73,7 @@ def build_futures_analysis_payload(
     fetch_price_history: PriceHistoryFetcher,
     foresight_system: Any,
     logger: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a safe multi-world futures payload without throwing HTTP 500s."""
     try:
         base_symbol = normalize_symbol(symbol)
