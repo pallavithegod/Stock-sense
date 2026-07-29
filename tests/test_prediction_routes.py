@@ -5,17 +5,27 @@ from backend.domain.predictions import PredictionQueryService
 
 def test_prediction_query_service_builds_stable_payload():
     state = {
-        "last_update": "2026-07-29T00:00:00",
-        "predictions": {"INFY": {"symbol": "INFY", "signal": "WATCH"}},
+        "last_update": "2026-07-29T00:00:00+00:00",
+        "predictions": {
+            "INFY": {
+                "symbol": "INFY",
+                "signal": "WATCH",
+                "as_of": "2026-07-29T00:00:00+00:00",
+                "source_type": "heuristic",
+            }
+        },
     }
     service = PredictionQueryService(ai_engine_state=state)
 
     payload = service.predictions_payload()
 
     assert payload["success"] is True
-    assert payload["predictions"] == [{"symbol": "INFY", "signal": "WATCH"}]
+    assert payload["predictions"][0]["symbol"] == "INFY"
+    assert payload["predictions"][0]["signal"] == "WATCH"
+    assert payload["predictions"][0]["source_type"] == "heuristic"
+    assert payload["predictions"][0]["fingerprint"]
     assert payload["stocks"] == payload["predictions"]
-    assert payload["timestamp"] == "2026-07-29T00:00:00"
+    assert payload["timestamp"] == "2026-07-29T00:00:00+00:00"
 
 
 def test_prediction_routes_are_registered_by_blueprint(app_module):
@@ -41,6 +51,9 @@ def test_live_prediction_route_labels_unavailable_data(client):
     assert payload["success"] is True
     assert payload["data"]["symbol"] == "INFY"
     assert payload["data"]["data_quality"] == "unavailable"
+    assert payload["data"]["source_type"] == "unavailable"
+    assert payload["data"]["is_synthetic"] is False
+    assert payload["data"]["is_demo"] is False
 
 
 def test_prediction_execution_is_explicitly_unavailable(client):
@@ -50,6 +63,8 @@ def test_prediction_execution_is_explicitly_unavailable(client):
     payload = response.get_json()
     assert payload["success"] is False
     assert payload["status"] == "UNAVAILABLE"
+    assert payload["persisted"] is False
+    assert payload["source_type"] == "unavailable"
     assert payload["data_quality"] == "unavailable"
 
 
@@ -77,8 +92,11 @@ def test_prediction_metric_routes_do_not_claim_accuracy(client):
     assert distribution.get_json()["values"] == [0, 0, 0, 0, 0]
     assert learning.status_code == 200
     assert learning.get_json()["accuracy"] is None
+    assert learning.get_json()["coverage"] == 0
     assert model_accuracy.status_code == 200
     assert model_accuracy.get_json()["accuracy"] is None
+    assert model_accuracy.get_json()["directional_accuracy"] is None
+    assert model_accuracy.get_json()["calibration_error"] is None
     assert symbol_accuracy.status_code == 200
     assert symbol_accuracy.get_json()["basis"] == "unavailable_until_matured_predictions_are_evaluated"
     assert evolved.status_code == 200

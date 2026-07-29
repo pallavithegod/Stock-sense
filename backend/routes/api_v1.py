@@ -49,6 +49,11 @@ def _stock_dto(row: dict[str, Any]) -> StockDTO:
         current_price=_float_or_none(row.get("current_price")),
         change_value=_float_or_none(row.get("change_value")),
         change_percent=_float_or_none(row.get("change_percent")),
+        source_type=row.get("source_type"),
+        provider=row.get("provider"),
+        model_version=row.get("model_version"),
+        is_synthetic=bool(row.get("is_synthetic")),
+        is_demo=bool(row.get("is_demo")),
         data_quality=row.get("data_quality") or "unavailable",
     )
 
@@ -74,12 +79,22 @@ def _portfolio_dto(payload: dict[str, Any], *, data_quality: str = "portfolio_on
 def _prediction_dto(row: dict[str, Any]) -> PredictionDTO:
     return PredictionDTO(
         symbol=normalize_symbol(row.get("symbol")),
+        horizon=row.get("horizon"),
+        as_of=row.get("as_of"),
         signal=row.get("signal") or row.get("recommendation"),
         current_price=_float_or_none(row.get("current_price") or row.get("price")),
         target_price=_float_or_none(row.get("target_price") or row.get("predicted_price")),
+        expected_return=_float_or_none(row.get("expected_return") or row.get("predicted_return")),
         confidence=_float_or_none(row.get("confidence") or row.get("confidence_score")),
         risk=row.get("risk") or row.get("risk_level"),
         source_type=row.get("source_type"),
+        provider=row.get("provider"),
+        model_version=row.get("model_version"),
+        feature_version=row.get("feature_version"),
+        is_synthetic=bool(row.get("is_synthetic")),
+        is_demo=bool(row.get("is_demo")),
+        fingerprint=row.get("fingerprint"),
+        idempotency_key=row.get("idempotency_key"),
         data_quality=row.get("data_quality") or "unavailable",
     )
 

@@ -32,6 +32,10 @@ def test_portfolio_create_and_state_use_domain_service(client):
     state = state_response.get_json()
     assert state["success"] is True
     assert state["account_metrics"]["total_value"] == 200
+    assert state["source_type"] == "presentation_intelligence"
+    assert state["is_synthetic"] is False
+    assert state["is_demo"] is False
+    assert state["positions"][0]["source_type"] == "presentation_intelligence"
 
 
 def test_portfolio_sell_simulation_is_read_only(client):
@@ -56,6 +60,8 @@ def test_portfolio_intelligence_slices_are_domain_service_payloads(client):
 
     assert suite.status_code == 200
     assert suite.get_json()["data"]["data_quality"] == "portfolio_only"
+    assert suite.get_json()["data"]["is_synthetic"] is False
+    assert suite.get_json()["data"]["is_demo"] is False
     assert forecast.status_code == 200
     assert forecast.get_json()["data"]["status"] == "unavailable_without_market_provider"
     assert governance.status_code == 200

@@ -82,6 +82,11 @@ class StockDTO(ContractModel):
     current_price: float | None = None
     change_value: float | None = None
     change_percent: float | None = None
+    source_type: str | None = None
+    provider: str | None = None
+    model_version: str | None = None
+    is_synthetic: bool = False
+    is_demo: bool = False
     data_quality: str = "unavailable"
 
 
@@ -101,12 +106,22 @@ class PortfolioDTO(ContractModel):
 
 class PredictionDTO(ContractModel):
     symbol: str | None = None
+    horizon: str | None = None
+    as_of: str | None = None
     signal: str | None = None
     current_price: float | None = None
     target_price: float | None = None
+    expected_return: float | None = None
     confidence: float | None = None
     risk: str | None = None
     source_type: str | None = None
+    provider: str | None = None
+    model_version: str | None = None
+    feature_version: str | None = None
+    is_synthetic: bool = False
+    is_demo: bool = False
+    fingerprint: str | None = None
+    idempotency_key: str | None = None
     data_quality: str = "unavailable"
 
 

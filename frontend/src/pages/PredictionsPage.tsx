@@ -29,6 +29,7 @@ export function PredictionsPage() {
       ? confidenceRows.reduce((sum, row) => sum + Number(row.confidence), 0) / confidenceRows.length
       : undefined
   const hasFallbackRows = rows.some((row) => row.dataQuality !== undefined && row.dataQuality !== 'live')
+  const sourceLabel = rows.find((row) => row.sourceType)?.sourceType ?? (primary.error ? 'fallback' : 'unavailable')
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -58,7 +59,7 @@ export function PredictionsPage() {
         <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
           <div className="text-xs uppercase text-slate-500">Source</div>
           <div className="mt-2 text-2xl font-semibold text-white">
-            {hasFallbackRows ? 'Watchlist' : primary.error ? 'Fallback' : 'Intelligence'}
+            {sourceLabel.replaceAll('_', ' ')}
           </div>
         </div>
       </div>
@@ -72,7 +73,7 @@ export function PredictionsPage() {
           </div>
         ) : rows.length ? (
           <div className="mt-5 overflow-hidden rounded-lg border border-white/10">
-            <table className="w-full min-w-[820px] text-left text-sm">
+            <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="bg-white/[0.04] text-xs uppercase text-slate-400">
                 <tr>
                   <th className="px-3 py-3">Symbol</th>
@@ -83,11 +84,12 @@ export function PredictionsPage() {
                   <th className="px-3 py-3 text-right">Confidence</th>
                   <th className="px-3 py-3 text-right">AI Size</th>
                   <th className="px-3 py-3">Risk</th>
+                  <th className="px-3 py-3">Source</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {rows.map((row) => (
-                  <tr key={`${row.symbol}-${row.signal}-${row.target ?? ''}`}>
+                  <tr key={row.fingerprint ?? `${row.symbol}-${row.signal}-${row.target ?? ''}`}>
                     <td className="px-3 py-3 font-medium text-white">{row.symbol}</td>
                     <td className="px-3 py-3">
                       <span className={cx('rounded px-2 py-1 text-xs', signalClass(row.signal))}>
@@ -106,6 +108,10 @@ export function PredictionsPage() {
                       {formatNumber(row.allocation)}
                     </td>
                     <td className="px-3 py-3 text-slate-300">{row.risk ?? '--'}</td>
+                    <td className="px-3 py-3 text-xs text-slate-400">
+                      <div>{(row.sourceType ?? 'unavailable').replaceAll('_', ' ')}</div>
+                      {row.provider ? <div className="text-slate-500">{row.provider}</div> : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -1,0 +1,32 @@
+[
+  {
+    "symbol": "INFY",
+    "horizon": "1d",
+    "as_of": "2026-07-01T00:00:00+00:00",
+    "current_price": 100,
+    "target_price": 110,
+    "actual_price": 112,
+    "confidence": 70,
+    "signal": "BUY",
+    "risk": "LOW",
+    "source_type": "heuristic",
+    "provider": "fixture",
+    "data_quality": "fixture",
+    "evaluated_at": "2026-07-03T00:00:00+00:00"
+  },
+  {
+    "symbol": "TCS",
+    "horizon": "1d",
+    "as_of": "2026-07-01T00:00:00+00:00",
+    "current_price": 200,
+    "target_price": 190,
+    "actual_price": 210,
+    "confidence": 60,
+    "signal": "SELL",
+    "risk": "MEDIUM",
+    "source_type": "statistical",
+    "provider": "fixture",
+    "data_quality": "fixture",
+    "evaluated_at": "2026-07-03T00:00:00+00:00"
+  }
+]

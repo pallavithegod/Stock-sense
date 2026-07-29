@@ -175,9 +175,8 @@ def _resolve_dashboard_ai_performance(now):
     ]
     confidence_values = [value for value in confidence_values if value is not None]
 
-    accuracy_percent = _safe_float(perf.get("accuracy"), None)
-    if accuracy_percent is None and confidence_values:
-        accuracy_percent = round(sum(confidence_values) / len(confidence_values), 2)
+    accuracy_percent = _safe_float(perf.get("directional_accuracy"), None)
+    average_confidence = round(sum(confidence_values) / len(confidence_values), 2) if confidence_values else None
 
     models_active = perf.get("active_models")
     if models_active is None:
@@ -194,6 +193,8 @@ def _resolve_dashboard_ai_performance(now):
         "accuracy": round(float(accuracy_percent), 2) if accuracy_percent is not None else None,
         "accuracy_percent": round(float(accuracy_percent), 2) if accuracy_percent is not None else None,
         "prediction_accuracy": round(float(accuracy_percent), 2) if accuracy_percent is not None else None,
+        "average_confidence": average_confidence,
+        "accuracy_basis": "matured_predictions" if accuracy_percent is not None else "unavailable_until_matured_predictions_are_evaluated",
         "models_active": int(models_active or 0),
         "active_models": int(models_active or 0),
         "data_points": len(recent_predictions),
@@ -521,5 +522,4 @@ def get_dashboard_data():
     except Exception as e:
         logger.error(f"[DASHBOARD] API Error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
-
 

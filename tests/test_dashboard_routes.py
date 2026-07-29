@@ -18,3 +18,6 @@ def test_dashboard_snapshot_has_frontend_fields(client):
     assert isinstance(payload["positions"], list)
     assert "portfolio" in payload
     assert payload["data_quality"] == "unavailable"
+    assert payload["synthetic"] is False
+    assert payload["demo"] is False
+    assert all(row["synthetic"] is False and row["demo"] is False for row in payload["top_stocks"])

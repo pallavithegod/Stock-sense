@@ -248,9 +248,24 @@ class PortfolioService:
                     "avg_price": avg_price,
                     "current_price": avg_price or None,
                     "market_value": round(value, 2),
+                    "source_type": "presentation_intelligence",
+                    "provider": "local_sqlite_portfolio",
+                    "data_quality": "portfolio_only",
+                    "model_version": None,
+                    "is_synthetic": False,
+                    "is_demo": False,
                 }
             )
-        return {"positions": positions, "account_metrics": {"total_value": round(total_value, 2)}}
+        return {
+            "positions": positions,
+            "account_metrics": {"total_value": round(total_value, 2)},
+            "data_quality": "portfolio_only",
+            "source_type": "presentation_intelligence",
+            "provider": "local_sqlite_portfolio",
+            "model_version": None,
+            "is_synthetic": False,
+            "is_demo": False,
+        }
 
     def _intelligence_layers(self) -> dict[str, Any]:
         intelligence = self.compute_intelligence(self.list_positions())

@@ -174,7 +174,11 @@ def build_prediction_intelligence_payload(
             or performance.get("regime")
             or "UNKNOWN"
         ),
-        "global_accuracy": performance.get("accuracy", 0.0),
+        "global_accuracy": performance.get("directional_accuracy"),
+        "confidence_summary": performance.get("average_confidence"),
+        "accuracy_basis": "unavailable_until_matured_predictions_are_evaluated"
+        if performance.get("directional_accuracy") is None
+        else "matured_predictions",
         "models_active": performance.get("active_models", 0),
         "timestamp": ai_engine_state.get("last_update") or datetime.now(ZoneInfo("UTC")).isoformat(),
     }

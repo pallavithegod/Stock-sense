@@ -348,19 +348,19 @@ def get_model_accuracy():
                         accurate_count += 1
                     total_count += 1
             
-            accuracy = (accurate_count / total_count * 100) if total_count > 0 else 75.0
+            accuracy = (accurate_count / total_count * 100) if total_count > 0 else None
             
             return jsonify({
                 'success': True,
-                'accuracy': round(accuracy, 1),
+                'accuracy': round(accuracy, 1) if accuracy is not None else None,
+                'accuracy_basis': 'matured_predictions' if accuracy is not None else 'unavailable_until_matured_predictions_are_evaluated',
                 'total_predictions': total_count,
                 'accurate_predictions': accurate_count
             })
         else:
-            # Default if no database
-            return jsonify({'success': True, 'accuracy': 75.0})
-    except:
-        return jsonify({'success': True, 'accuracy': 75.0})
+            return jsonify({'success': True, 'accuracy': None, 'accuracy_basis': 'unavailable_until_matured_predictions_are_evaluated'})
+    except Exception:
+        return jsonify({'success': True, 'accuracy': None, 'accuracy_basis': 'unavailable_until_matured_predictions_are_evaluated'})
 
 
 def get_live_symbol_prediction(symbol):
@@ -702,11 +702,7 @@ def execute_prediction(symbol):
         result['confidence'] = apply_capital_weighting(result['confidence'], 100000)
         result['position_size'] = calculate_position_size(symbol_clean, 100000, result['confidence'])
 
-        log_prediction(symbol_clean, result)
         result['explanation'] = explain_confidence_change(symbol_clean, avg_confidence, result['confidence'])
-
-        if hasattr(quantum_ai, 'prediction_logger'):
-            quantum_ai.prediction_logger.log_prediction(symbol_clean, result)
 
         if quantum_ai.db:
             quantum_ai.db.log_prediction(result)

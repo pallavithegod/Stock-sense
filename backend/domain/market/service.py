@@ -50,11 +50,15 @@ class MarketService:
             "change_percent": quote_data.get("change_percent"),
             "change_value": quote_data.get("change_value"),
             "data_quality": quote.quality_status if quote else "unavailable",
+            "source_type": "presentation_intelligence",
             "provider": quote.provider if quote else None,
+            "model_version": None,
             "fetched_at": quote.fetched_at if quote else None,
             "stale": quote.stale if quote else True,
             "synthetic": quote.synthetic if quote else False,
             "demo": quote.demo if quote else False,
+            "is_synthetic": quote.synthetic if quote else False,
+            "is_demo": quote.demo if quote else False,
         }
         if quote and quote.state == "unavailable":
             row["provider_error_code"] = quote.error_code

@@ -52,6 +52,10 @@ async function getPredictionFallbackRows(): Promise<PredictionRow[]> {
         risk: 'unavailable_without_prediction_pipeline',
         data_quality: 'portfolio_only',
         source_type: 'presentation_intelligence',
+        provider: 'frontend_portfolio_fallback',
+        model_version: null,
+        is_synthetic: false,
+        is_demo: false,
       }))
     }
   } catch {
@@ -67,5 +71,9 @@ async function getPredictionFallbackRows(): Promise<PredictionRow[]> {
     risk: 'unavailable_without_prediction_pipeline',
     data_quality: 'unavailable',
     source_type: 'presentation_intelligence',
+    provider: 'frontend_market_universe_fallback',
+    model_version: null,
+    is_synthetic: false,
+    is_demo: false,
   }))
 }

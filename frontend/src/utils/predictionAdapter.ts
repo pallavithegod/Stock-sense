@@ -53,6 +53,7 @@ function positiveNumber(...values: unknown[]) {
 
 export type PredictionViewRow = {
   symbol: string
+  horizon?: string
   signal: string
   confidence?: number
   price?: number
@@ -63,6 +64,11 @@ export type PredictionViewRow = {
   edge?: number
   dataQuality?: string
   sourceType?: string
+  provider?: string
+  modelVersion?: string
+  synthetic?: boolean
+  demo?: boolean
+  fingerprint?: string
 }
 
 export function normalizePredictionRow(row: PredictionRow): PredictionViewRow {
@@ -116,6 +122,7 @@ export function normalizePredictionRow(row: PredictionRow): PredictionViewRow {
 
   return {
     symbol: toText(row.symbol) ?? 'UNKNOWN',
+    horizon: toText(row.horizon),
     signal: toText(row.signal ?? row.action ?? row.direction) ?? 'WATCH',
     confidence: positiveNumber(row.confidence, row.confidence_score, prediction.confidence, record.probability, record.certainty),
     price,
@@ -133,6 +140,11 @@ export function normalizePredictionRow(row: PredictionRow): PredictionViewRow {
     edge: toNumber(firstValue(row.edge_score, record.edge)),
     dataQuality: toText(firstValue(row.data_quality, record.dataQuality)),
     sourceType: toText(firstValue(row.source_type, record.sourceType, row.source)),
+    provider: toText(row.provider),
+    modelVersion: toText(row.model_version),
+    synthetic: row.is_synthetic === true,
+    demo: row.is_demo === true,
+    fingerprint: toText(row.fingerprint ?? row.idempotency_key),
   }
 }
 

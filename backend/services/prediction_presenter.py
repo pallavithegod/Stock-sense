@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from backend.domain.predictions.entities import canonicalize_prediction
+
 
 PredictionMapping = Mapping[str, Any]
 DISPLAY_HORIZON = "6m"
@@ -73,7 +75,7 @@ def _horizon_value(row: PredictionMapping, *keys: str, preferred_horizon: str = 
     return None
 
 
-def _positive_float(*values: Any, default: float = 0.0) -> float:
+def _positive_float(*values: Any, default: float | None = None) -> float | None:
     fallback = default
     for value in values:
         numeric = _to_float(value, None)
@@ -154,7 +156,7 @@ def normalize_prediction_row(row: PredictionMapping | None) -> dict[str, Any]:
             source.get("kelly_fraction"),
             source.get("allocation"),
         ),
-        0.0,
+        None,
     )
     risk_level = _first_present(
         source.get("risk_level"),
@@ -165,7 +167,6 @@ def normalize_prediction_row(row: PredictionMapping | None) -> dict[str, Any]:
         "DEGRADED"
         if "FAILED" in f"{source.get('models_used', '')} {prediction.get('models_used', '')}".upper()
         else None,
-        "LOW",
     )
 
     source.update(
@@ -183,11 +184,14 @@ def normalize_prediction_row(row: PredictionMapping | None) -> dict[str, Any]:
             "allocation_pct": allocation,
             "ai_size": allocation,
             "weight_pct": allocation,
-            "risk_level": str(risk_level).upper() if risk_level is not None else "LOW",
-            "risk": str(risk_level).upper() if risk_level is not None else "LOW",
+            "risk_level": str(risk_level).upper() if risk_level is not None else None,
+            "risk": str(risk_level).upper() if risk_level is not None else None,
             "display_horizon": DISPLAY_HORIZON,
         }
     )
+    canonical = canonicalize_prediction(source)
+    if canonical is not None:
+        source.update(canonical.to_dict())
     return source
 
 

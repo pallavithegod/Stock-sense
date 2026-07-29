@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from utils import encoding
-import ast
 import json
 import numpy as np
 from collections import defaultdict, deque
@@ -28,8 +27,10 @@ def parse_models_used(value):
         parsed = json.loads(text)
     except json.JSONDecodeError:
         try:
-            parsed = ast.literal_eval(text)
-        except (ValueError, SyntaxError):
+            parsed = json.loads(text.replace("'", '"')) if text.startswith("[") and text.endswith("]") else None
+        except json.JSONDecodeError:
+            parsed = None
+        if parsed is None:
             parsed = [item.strip() for item in text.split(",") if item.strip()]
 
     if isinstance(parsed, str):
