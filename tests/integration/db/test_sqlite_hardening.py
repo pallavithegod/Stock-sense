@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
 import subprocess
 import sys
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -17,8 +17,15 @@ from backend.domain.market import MarketService, MarketUniverse
 from backend.domain.portfolio import PortfolioService, SQLitePortfolioRepository
 
 
-def test_migrations_create_authoritative_schema_and_hardened_pragmas(tmp_path):
-    db_path = tmp_path / "nexus.db"
+@pytest.fixture()
+def db_tmp_path() -> Path:
+    path = Path.cwd() / ".pytest-runtime" / "db-tests" / uuid.uuid4().hex
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def test_migrations_create_authoritative_schema_and_hardened_pragmas(db_tmp_path):
+    db_path = db_tmp_path / "nexus.db"
 
     result = apply_migrations(db_path)
     validation = validate_schema(db_path)
@@ -32,12 +39,12 @@ def test_migrations_create_authoritative_schema_and_hardened_pragmas(tmp_path):
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
 
 
-def test_existing_database_is_backed_up_before_pending_migration(tmp_path):
-    db_path = tmp_path / "legacy.db"
+def test_existing_database_is_backed_up_before_pending_migration(db_tmp_path):
+    db_path = db_tmp_path / "legacy.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute("CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY)")
 
-    result = apply_migrations(db_path, backup=True, backup_dir=tmp_path / "backups")
+    result = apply_migrations(db_path, backup=True, backup_dir=db_tmp_path / "backups")
 
     assert result.backup_path is not None
     assert result.backup_path.exists()
@@ -45,8 +52,8 @@ def test_existing_database_is_backed_up_before_pending_migration(tmp_path):
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'legacy_marker'").fetchone()
 
 
-def test_constraints_allow_fractional_portfolio_and_reject_invalid_rows(tmp_path):
-    db_path = tmp_path / "portfolio.db"
+def test_constraints_allow_fractional_portfolio_and_reject_invalid_rows(db_tmp_path):
+    db_path = db_tmp_path / "portfolio.db"
     repository = SQLitePortfolioRepository(db_path)
     service = PortfolioService(repository=repository, market_service=MarketService(MarketUniverse()))
 
@@ -64,8 +71,8 @@ def test_constraints_allow_fractional_portfolio_and_reject_invalid_rows(tmp_path
             )
 
 
-def test_prediction_idempotency_and_json_metadata_constraints(tmp_path):
-    db_path = tmp_path / "predictions.db"
+def test_prediction_idempotency_and_json_metadata_constraints(db_tmp_path):
+    db_path = db_tmp_path / "predictions.db"
     apply_migrations(db_path)
     payload = {
         "fingerprint": "fp-1",
@@ -106,8 +113,8 @@ def test_prediction_idempotency_and_json_metadata_constraints(tmp_path):
             )
 
 
-def test_cleanup_report_is_dry_run_and_cleanup_requires_confirmation(tmp_path):
-    db_path = tmp_path / "cleanup.db"
+def test_cleanup_report_is_dry_run_and_cleanup_requires_confirmation(db_tmp_path):
+    db_path = db_tmp_path / "cleanup.db"
     apply_migrations(db_path)
     with connect(db_path) as conn:
         for index in range(3):
@@ -136,7 +143,7 @@ def test_cleanup_report_is_dry_run_and_cleanup_requires_confirmation(tmp_path):
     applied = apply_cleanup(
         db_path,
         confirmation="APPLY_SQLITE_CLEANUP",
-        backup_dir=tmp_path / "backups",
+        backup_dir=db_tmp_path / "backups",
         policy=RetentionPolicy(max_raw_predictions=1),
     )
 
@@ -146,10 +153,10 @@ def test_cleanup_report_is_dry_run_and_cleanup_requires_confirmation(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM prediction_archive").fetchone()[0] == 2
 
 
-def test_backup_can_restore_database(tmp_path):
-    db_path = tmp_path / "restore.db"
+def test_backup_can_restore_database(db_tmp_path):
+    db_path = db_tmp_path / "restore.db"
     apply_migrations(db_path)
-    backup_path = backup_database(db_path, tmp_path / "backups")
+    backup_path = backup_database(db_path, db_tmp_path / "backups")
     with connect(db_path) as conn:
         conn.execute(
             "INSERT INTO dynamic_symbols (symbol, name, sector, last_updated) VALUES ('INFY', 'Infosys', 'Tech', '2026-07-30T00:00:00+00:00')"
@@ -161,8 +168,8 @@ def test_backup_can_restore_database(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM dynamic_symbols").fetchone()[0] == 0
 
 
-def test_concurrent_reads_work_with_wal(tmp_path):
-    db_path = tmp_path / "concurrent.db"
+def test_concurrent_reads_work_with_wal(db_tmp_path):
+    db_path = db_tmp_path / "concurrent.db"
     apply_migrations(db_path)
     with connect(db_path) as conn:
         conn.execute(
@@ -177,8 +184,8 @@ def test_concurrent_reads_work_with_wal(tmp_path):
         assert list(executor.map(lambda _: read_count(), range(8))) == [1] * 8
 
 
-def test_maintenance_script_check_and_status_use_migrations(tmp_path):
-    db_path = tmp_path / "script.db"
+def test_maintenance_script_check_and_status_use_migrations(db_tmp_path):
+    db_path = db_tmp_path / "script.db"
     check = subprocess.run(
         [sys.executable, "scripts/sqlite_maintenance.py", "check", "--db", str(db_path)],
         cwd=Path.cwd(),
