@@ -93,7 +93,10 @@ def test_scheduler_timeout_is_recorded_without_marking_success(app_module):
     assert "slow_job" not in scheduler.snapshot()["last_success"]
 
 
-def test_flask_status_reports_workers_as_optional(client):
+def test_flask_status_reports_workers_as_optional(app_module, client):
+    app_module.services.worker_status = None
+    app_module.services.runtime.worker_status = None
+
     status = client.get("/api/system/status").get_json()
     diagnostics = client.get("/api/diagnostics").get_json()
     bootstrap = client.get("/api/bootstrap/status").get_json()
