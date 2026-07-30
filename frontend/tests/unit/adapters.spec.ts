@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'vitest'
 import { arrayOf, recordOf } from '../../src/schemas/runtime'
 import { formatDate, formatNumber, formatPercent } from '../../src/utils/format'
 import { normalizeDashboard } from '../../src/utils/dashboardAdapter'
