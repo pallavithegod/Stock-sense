@@ -95,6 +95,8 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
   const portfolioMetrics = firstValue(raw.portfolioMetrics, raw.portfolio_metrics, data.portfolioMetrics, data.portfolio_metrics)
   const portfolioState = firstValue(raw.PORTFOLIO_STATE, raw.portfolio_intelligence, raw.portfolio, data.PORTFOLIO_STATE, data.portfolio_intelligence, data.portfolio)
   const portfolioPositions = recordValue(portfolioState, 'positions')
+  const directPositionCount = asArray(raw.positions).length
+  const portfolioPositionCount = asArray(portfolioPositions).length
 
   const portfolioValue = firstValue(
     raw.portfolioValue,
@@ -113,8 +115,8 @@ function buildMetrics(raw: AnyRecord): DashboardMetric[] {
     data.activePositions,
     data.active_positions,
     recordValue(marketSnapshot, 'active_positions', 'activePositions'),
-    asArray(raw.positions).length,
-    asArray(portfolioPositions).length,
+    portfolioPositionCount,
+    directPositionCount,
   )
   const accuracy = firstValue(
     raw.directionalAccuracy,
