@@ -16,13 +16,20 @@ import argparse
 import json
 import shutil
 import sqlite3
+import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.db import apply_migrations
+from backend.domain.predictions import canonicalize_prediction
+
 DEFAULT_SOURCE_DB = PROJECT_ROOT / "data" / "nexus.db"
 DEFAULT_DEMO_DB = PROJECT_ROOT / "data" / "nexus_demo.db"
 SEED_MARKER = "DEMO_SEED_V1"
@@ -67,77 +74,8 @@ def resolve_path(path: Path) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS portfolio (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL UNIQUE,
-            quantity REAL NOT NULL,
-            avg_price REAL NOT NULL,
-            added_date TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            predicted_price REAL,
-            current_price REAL,
-            target_price REAL,
-            signal TEXT,
-            confidence REAL,
-            models_used TEXT,
-            timestamp TEXT NOT NULL,
-            actual_price REAL,
-            prediction_error REAL
-        );
-
-        CREATE TABLE IF NOT EXISTS model_performance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            model_name TEXT NOT NULL,
-            accuracy REAL,
-            weight REAL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS dynamic_symbols (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL UNIQUE,
-            name TEXT,
-            sector TEXT,
-            last_updated TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS portfolio_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            side TEXT NOT NULL,
-            quantity REAL NOT NULL,
-            price REAL NOT NULL,
-            trade_date TEXT NOT NULL,
-            fees REAL DEFAULT 0,
-            notes TEXT,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS portfolio_lots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            buy_txn_id INTEGER,
-            buy_date TEXT NOT NULL,
-            buy_price REAL NOT NULL,
-            original_quantity REAL NOT NULL,
-            remaining_quantity REAL NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(buy_txn_id) REFERENCES portfolio_transactions(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_portfolio_txn_symbol_date
-            ON portfolio_transactions(symbol, trade_date);
-        CREATE INDEX IF NOT EXISTS idx_portfolio_lot_symbol_open
-            ON portfolio_lots(symbol, remaining_quantity, buy_date);
-        """
-    )
+def ensure_schema(target: Path) -> None:
+    apply_migrations(target, backup=target.exists(), backup_dir=target.parent / "backups")
 
 
 def prepare_target_db(source: Path, target: Path, *, refresh_copy: bool, apply_current: bool, dry_run: bool) -> None:
@@ -273,21 +211,57 @@ def seed_position(conn: sqlite3.Connection, position: DemoPosition, *, now: date
     )
     if not has_demo_prediction:
         expected_return = ((position.target_price - position.current_price) / position.current_price) * 100
+        canonical = canonicalize_prediction(
+            {
+                "symbol": position.symbol,
+                "horizon": "6m",
+                "as_of": created_at,
+                "current_price": position.current_price,
+                "target_price": position.target_price,
+                "expected_return": expected_return,
+                "signal": position.signal,
+                "confidence": position.confidence,
+                "risk": "DEMO",
+                "source_type": "synthetic_demo",
+                "provider": "seed_demo_data",
+                "data_quality": "demo",
+                "model_version": SEED_MARKER,
+                "feature_version": "demo-v1",
+                "is_synthetic": True,
+                "is_demo": True,
+            }
+        )
+        assert canonical is not None
+        payload = canonical.to_dict()
         conn.execute(
             """
             INSERT INTO predictions
-            (symbol, predicted_price, current_price, target_price, signal, confidence, models_used, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (fingerprint, symbol, horizon, as_of, predicted_price, current_price, target_price,
+             expected_return, signal, confidence, risk, source_type, provider, data_quality,
+             model_version, feature_version, metadata_json, models_used, timestamp, matured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                position.symbol,
+                payload["fingerprint"],
+                payload["symbol"],
+                payload["horizon"],
+                payload["as_of"],
                 round(position.target_price, 2),
                 round(position.current_price, 2),
                 round(position.target_price, 2),
-                position.signal,
-                position.confidence,
-                json.dumps([SEED_MARKER, "demo-technical", f"expected_return={expected_return:.2f}%"]),
+                round(expected_return, 4),
+                payload["signal"],
+                payload["confidence"],
+                payload["risk"],
+                payload["source_type"],
+                payload["provider"],
+                payload["data_quality"],
+                payload["model_version"],
+                payload["feature_version"],
+                json.dumps({"seed_marker": SEED_MARKER, "is_demo": True, "is_synthetic": True}),
+                json.dumps([SEED_MARKER, "demo-technical"]),
                 created_at,
+                payload["matured_at"],
             ),
         )
         actions.append(f"insert demo prediction {position.symbol}")
@@ -303,10 +277,19 @@ def seed_model_performance(conn: sqlite3.Connection, *, now: datetime) -> list[s
         return [f"skip existing model performance {model_name}"]
     conn.execute(
         """
-        INSERT INTO model_performance (model_name, accuracy, weight, updated_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO model_performance
+        (model_name, model_version, feature_version, directional_accuracy, coverage, metrics_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (model_name, 74.2, 0.35, now.isoformat()),
+        (
+            model_name,
+            SEED_MARKER,
+            "demo-v1",
+            None,
+            0,
+            json.dumps({"basis": "demo_seed_no_matured_outcomes", "weight": 0.35}),
+            now.isoformat(),
+        ),
     )
     return [f"insert model performance {model_name}"]
 
@@ -337,10 +320,10 @@ def main() -> int:
         print("No database writes performed. Re-run with --apply to seed the target DB.")
         return 0
 
+    ensure_schema(target)
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
     try:
-        ensure_schema(conn)
         now = datetime.now()
         actions: list[str] = []
         for position in DEMO_POSITIONS:

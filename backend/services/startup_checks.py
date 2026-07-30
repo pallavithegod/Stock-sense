@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
+
+from backend.db import connect
 
 
 def _module_available(module_name: str) -> bool:
@@ -34,10 +35,10 @@ def collect_startup_checks(
     db_error = None
     try:
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(db_path) as conn:
+        with connect(db_path) as conn:
             conn.execute("SELECT 1")
         db_ok = True
-    except (OSError, sqlite3.Error) as exc:
+    except (OSError, Exception) as exc:
         db_error = str(exc)
 
     runtime_dirs = {}

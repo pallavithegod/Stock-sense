@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.db import apply_migrations, connect
 from backend.domain.market import MarketService, normalize_symbol
 
 
@@ -17,24 +17,10 @@ class SQLitePortfolioRepository:
         self.db_path = Path(db_path)
 
     def _connect(self):
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connect(self.db_path)
 
     def ensure_schema(self) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS portfolio (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT NOT NULL UNIQUE,
-                    quantity REAL NOT NULL,
-                    avg_price REAL NOT NULL,
-                    added_date TEXT NOT NULL
-                )
-                """
-            )
+        apply_migrations(self.db_path, backup=self.db_path.exists(), backup_dir=self.db_path.parent / "backups")
 
     def get_portfolio(self) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -60,7 +46,7 @@ class SQLitePortfolioRepository:
                     avg_price = excluded.avg_price,
                     added_date = excluded.added_date
                 """,
-                (symbol.upper(), float(quantity), float(avg_price), purchase_date or datetime.now().isoformat()),
+                (symbol.upper(), float(quantity), float(avg_price), purchase_date or datetime.now(timezone.utc).isoformat()),
             )
 
     def update_portfolio_position_summary(self, symbol: str, quantity: float, avg_price: float, purchase_date: str | None = None) -> None:

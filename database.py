@@ -13,6 +13,8 @@ from datetime import datetime
 from contextlib import contextmanager
 import logging
 import requests  # For optional automatic symbol info fetching
+from backend.db import apply_migrations, connect as sqlite_connect, validate_schema as validate_sqlite_schema
+from backend.domain.predictions import canonicalize_prediction
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -91,9 +93,7 @@ class DatabaseManager:
 
     @contextmanager
     def get_connection(self):
-        # ensure the connection uses UTF-8-compatible text handling
-        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-        conn.row_factory = sqlite3.Row
+        conn = sqlite_connect(self.db_path)
         try:
             yield conn
             conn.commit()
@@ -108,6 +108,8 @@ class DatabaseManager:
     # DATABASE INITIALIZATION
     # ----------------------------
     def init_database(self):
+        apply_migrations(self.db_path, backup=os.path.exists(self.db_path))
+        return
         with self.get_connection() as conn:
             conn.executescript('''
                 CREATE TABLE IF NOT EXISTS portfolio (
@@ -297,36 +299,9 @@ class DatabaseManager:
         Lightweight startup check for the local SQLite schema.
         This catches missing tables/columns early without changing data.
         """
-        missing = {}
-        with self.get_connection() as conn:
-            tables = {
-                row["name"]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-            for table, required_columns in self.REQUIRED_SCHEMA.items():
-                if table not in tables:
-                    missing[table] = sorted(required_columns)
-                    continue
-                columns = {
-                    row["name"]
-                    for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-                }
-                absent_columns = sorted(required_columns - columns)
-                if absent_columns:
-                    missing[table] = absent_columns
-
-            quick_check = conn.execute("PRAGMA quick_check").fetchone()
-            if quick_check and str(quick_check[0]).lower() != "ok":
-                missing["database_integrity"] = [str(quick_check[0])]
-
-        if missing:
-            details = "; ".join(
-                f"{table}: {', '.join(columns)}"
-                for table, columns in missing.items()
-            )
-            raise RuntimeError(f"SQLite schema validation failed: {details}")
+        result = validate_sqlite_schema(self.db_path)
+        if not result["ok"]:
+            raise RuntimeError(f"SQLite schema validation failed: {result['missing']}")
         return True
 
     # ----------------------------
@@ -1010,21 +985,62 @@ class DatabaseManager:
     # PREDICTION LOGGING
     # ----------------------------
     def log_prediction(self, prediction_data):
+        canonical = canonicalize_prediction(
+            {
+                "symbol": prediction_data.get("symbol"),
+                "horizon": prediction_data.get("horizon") or "6m",
+                "as_of": prediction_data.get("as_of") or prediction_data.get("timestamp") or datetime.now().isoformat(),
+                "current_price": prediction_data.get("current_price"),
+                "target_price": prediction_data.get("target_price") or prediction_data.get("predicted_price"),
+                "expected_return": prediction_data.get("expected_return") or prediction_data.get("predicted_return"),
+                "signal": prediction_data.get("signal"),
+                "confidence": prediction_data.get("confidence"),
+                "risk": prediction_data.get("risk") or prediction_data.get("risk_level"),
+                "source_type": prediction_data.get("source_type") or "unavailable",
+                "provider": prediction_data.get("provider") or "database_manager",
+                "data_quality": prediction_data.get("data_quality") or "unavailable",
+                "model_version": prediction_data.get("model_version"),
+                "feature_version": prediction_data.get("feature_version"),
+            }
+        )
+        if canonical is None:
+            raise ValueError("prediction_data must include a valid symbol")
+        payload = canonical.to_dict()
         with self.get_connection() as conn:
             conn.execute('''
                 INSERT INTO predictions
-                (symbol, predicted_price, current_price, target_price, signal,
-                 confidence, models_used, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (fingerprint, symbol, horizon, as_of, predicted_price, current_price,
+                 target_price, expected_return, signal, confidence, risk, source_type,
+                 provider, data_quality, model_version, feature_version, metadata_json,
+                 models_used, timestamp, matured_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fingerprint) DO UPDATE SET
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             ''', (
-                prediction_data.get('symbol').upper(),
-                prediction_data.get('predicted_price'),
-                prediction_data.get('current_price'),
-                prediction_data.get('target_price'),
-                prediction_data.get('signal'),
-                prediction_data.get('confidence'),
+                payload["fingerprint"],
+                payload["symbol"],
+                payload["horizon"],
+                payload["as_of"],
+                prediction_data.get('predicted_price') or payload["target_price"],
+                payload["current_price"],
+                payload["target_price"],
+                payload["expected_return"],
+                payload["signal"],
+                payload["confidence"],
+                payload["risk"],
+                payload["source_type"],
+                payload["provider"],
+                payload["data_quality"],
+                payload["model_version"],
+                payload["feature_version"],
+                json.dumps({
+                    "source_type": payload["source_type"],
+                    "is_synthetic": payload["is_synthetic"],
+                    "is_demo": payload["is_demo"],
+                }, sort_keys=True),
                 json.dumps(prediction_data.get('models_used', [])),
-                datetime.now().isoformat()
+                payload["as_of"],
+                payload["matured_at"],
             ))
 
     def get_recent_predictions(self, limit=100):
@@ -1032,8 +1048,12 @@ class DatabaseManager:
         with self.get_connection() as conn:
             rows = conn.execute(
                 '''
-                SELECT id, symbol, signal, confidence, current_price, target_price,
-                       models_used, timestamp, actual_price, prediction_error
+                SELECT id, fingerprint, symbol, horizon, as_of, signal, confidence,
+                       current_price, target_price, expected_return, source_type,
+                       provider, data_quality, model_version, feature_version,
+                       models_used, timestamp, matured_at, evaluated_at, actual_price,
+                       prediction_error, directional_accuracy, target_error,
+                       calibration_error, coverage
                 FROM predictions
                 ORDER BY id DESC
                 LIMIT ?
@@ -1048,10 +1068,22 @@ class DatabaseManager:
             conn.execute(
                 '''
                 UPDATE predictions
-                SET actual_price = ?, prediction_error = ?
+                SET actual_price = ?,
+                    prediction_error = ?,
+                    evaluated_at = ?,
+                    target_error = ?,
+                    coverage = 1,
+                    updated_at = ?
                 WHERE id = ?
                 ''',
-                (float(actual_price), float(prediction_error), int(prediction_id))
+                (
+                    float(actual_price),
+                    float(prediction_error),
+                    datetime.now().isoformat(),
+                    float(prediction_error),
+                    datetime.now().isoformat(),
+                    int(prediction_id),
+                )
             )
     def init_predictions_table(db):
         """Initialize predictions tracking table"""
@@ -1083,12 +1115,26 @@ class DatabaseManager:
     # MODEL PERFORMANCE
     # ----------------------------
     def update_model_performance(self, model_name, accuracy, weight):
+        directional_accuracy = None
+        if accuracy is not None:
+            value = float(accuracy)
+            directional_accuracy = value / 100.0 if value > 1 else value
         with self.get_connection() as conn:
             conn.execute('''
                 INSERT OR REPLACE INTO model_performance
-                (model_name, accuracy, weight, updated_at)
-                VALUES (?, ?, ?, ?)
-            ''', (model_name, accuracy, weight, datetime.now().isoformat()))
+                (model_name, model_version, feature_version, accuracy, weight,
+                 directional_accuracy, metrics_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                model_name,
+                "legacy",
+                "legacy",
+                accuracy,
+                weight,
+                directional_accuracy,
+                json.dumps({"legacy_accuracy": accuracy, "legacy_weight": weight}, sort_keys=True),
+                datetime.now().isoformat(),
+            ))
 
     def get_model_performance(self):
         with self.get_connection() as conn:
