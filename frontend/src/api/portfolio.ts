@@ -1,4 +1,6 @@
 import { apiClient } from './client'
+import { optionalArray, recordOf } from '../schemas/runtime'
+import type { RequestOptions } from '../types/api'
 import type {
   PortfolioCollection,
   PortfolioEnvelope,
@@ -32,9 +34,9 @@ function extractData<T>(payload: PortfolioEnvelope<T> | T): T {
 
 function extractCollection<T>(payload: PortfolioEnvelope<T[]> | T[] | Record<string, unknown>) {
   const checked = ensureOk(payload)
-  if (Array.isArray(checked)) return { data: checked } satisfies PortfolioCollection<T>
+  if (Array.isArray(checked)) return { data: optionalArray<T>(checked) } satisfies PortfolioCollection<T>
   if (checked && typeof checked === 'object') {
-    const data = 'data' in checked && Array.isArray(checked.data) ? (checked.data as T[]) : []
+    const data = 'data' in checked && Array.isArray(checked.data) ? optionalArray<T>(checked.data) : []
     return {
       data,
       count: 'count' in checked && typeof checked.count === 'number' ? checked.count : data.length,
@@ -44,16 +46,18 @@ function extractCollection<T>(payload: PortfolioEnvelope<T[]> | T[] | Record<str
   return { data: [] } satisfies PortfolioCollection<T>
 }
 
-export async function getPortfolioState() {
+export async function getPortfolioState(options?: RequestOptions) {
   const state = await apiClient.get<PortfolioState>('/portfolio/state', {
     timeoutMs: 20000,
     unwrapData: false,
+    ...options,
   })
+  recordOf(state, 'portfolio state response')
   if (Array.isArray(state.positions) && state.positions.length > 0) {
     return state
   }
 
-  const positions = await getPortfolio()
+  const positions = await getPortfolio(options)
   return {
     ...state,
     success: state.success ?? true,
@@ -62,82 +66,86 @@ export async function getPortfolioState() {
   } satisfies PortfolioState
 }
 
-export async function getPortfolio() {
+export async function getPortfolio(options?: RequestOptions) {
   const payload = await apiClient.get<PortfolioPosition[] | Record<string, unknown>>('/portfolio', {
     timeoutMs: 20000,
+    ...options,
   })
   return extractCollection<PortfolioPosition>(payload).data
 }
 
-export async function createPortfolioPosition(payload: PortfolioMutationPayload) {
+export async function createPortfolioPosition(payload: PortfolioMutationPayload, options?: RequestOptions) {
   const response = await apiClient.post<PortfolioEnvelope<{ exchange_symbol?: string }>>('/portfolio', payload, {
     timeoutMs: 20000,
+    ...options,
   })
   return ensureOk(response)
 }
 
-export async function updatePortfolioPosition(symbol: string, payload: PortfolioMutationPayload) {
+export async function updatePortfolioPosition(symbol: string, payload: PortfolioMutationPayload, options?: RequestOptions) {
   const response = await apiClient.put<PortfolioEnvelope<unknown>>(`/portfolio/${encodeURIComponent(symbol)}`, payload, {
     timeoutMs: 20000,
+    ...options,
   })
   return ensureOk(response)
 }
 
-export async function deletePortfolioPosition(symbol: string) {
+export async function deletePortfolioPosition(symbol: string, options?: RequestOptions) {
   const response = await apiClient.delete<PortfolioEnvelope<unknown>>(`/portfolio/${encodeURIComponent(symbol)}`, {
     timeoutMs: 20000,
+    ...options,
   })
   return ensureOk(response)
 }
 
-export async function getPortfolioLots(symbol?: string) {
+export async function getPortfolioLots(symbol?: string, options?: RequestOptions) {
   const query = symbol ? `?symbol=${encodeURIComponent(symbol)}&only_open=1` : '?only_open=1'
   const payload = await apiClient.get<PortfolioEnvelope<PortfolioLot[]> | Record<string, unknown>>(
     `/portfolio/lots${query}`,
-    { timeoutMs: 20000 },
+    { timeoutMs: 20000, ...options },
   )
   return extractCollection<PortfolioLot>(payload)
 }
 
-export async function getRealizedGains(symbol?: string) {
+export async function getRealizedGains(symbol?: string, options?: RequestOptions) {
   const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
   const payload = await apiClient.get<PortfolioEnvelope<RealizedGain[]> | Record<string, unknown>>(
     `/portfolio/realized-gains${query}`,
-    { timeoutMs: 20000 },
+    { timeoutMs: 20000, ...options },
   )
   return extractCollection<RealizedGain>(payload)
 }
 
-export async function getPortfolioTaxSummary() {
+export async function getPortfolioTaxSummary(options?: RequestOptions) {
   const payload = await apiClient.get<PortfolioEnvelope<Record<string, unknown>>>(
     '/portfolio/tax-summary',
-    { timeoutMs: 20000 },
+    { timeoutMs: 20000, ...options },
   )
   return extractData<Record<string, unknown>>(payload)
 }
 
-export async function getPortfolioLotInsights(symbol?: string) {
+export async function getPortfolioLotInsights(symbol?: string, options?: RequestOptions) {
   const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
   const payload = await apiClient.get<PortfolioEnvelope<Record<string, unknown>>>(
     `/portfolio/lot-insights${query}`,
-    { timeoutMs: 20000 },
+    { timeoutMs: 20000, ...options },
   )
   return extractData<Record<string, unknown>>(payload)
 }
 
-export async function getPortfolioIntelligenceSuite() {
+export async function getPortfolioIntelligenceSuite(options?: RequestOptions) {
   const payload = await apiClient.get<PortfolioEnvelope<Record<string, unknown>>>(
     '/portfolio/intelligence-suite',
-    { timeoutMs: 25000 },
+    { timeoutMs: 25000, ...options },
   )
   return extractData<Record<string, unknown>>(payload)
 }
 
-export async function simulatePortfolioSell(payload: SellSimulationPayload) {
+export async function simulatePortfolioSell(payload: SellSimulationPayload, options?: RequestOptions) {
   const response = await apiClient.post<PortfolioEnvelope<Record<string, unknown>>>(
     '/portfolio/sell/simulate',
     payload,
-    { timeoutMs: 20000 },
+    { timeoutMs: 20000, ...options },
   )
   return extractData<Record<string, unknown>>(response)
 }

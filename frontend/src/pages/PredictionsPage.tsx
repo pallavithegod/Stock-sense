@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { getPredictionIntelligence, getPredictions } from '../api/predictions'
+import { IconButton } from '../components/IconButton'
 import { SectionHeader } from '../components/SectionHeader'
 import { StatePanel } from '../components/StatePanel'
-import { useAsync } from '../hooks/useAsync'
+import { useQuery } from '../query/useQuery'
 import { normalizePredictionRow } from '../utils/predictionAdapter'
 import { cx, formatNumber, formatPercent } from '../utils/format'
 
@@ -14,9 +15,21 @@ function signalClass(signal: string) {
 }
 
 export function PredictionsPage() {
-  const [refreshKey, setRefreshKey] = useState(0)
-  const primary = useAsync(() => getPredictionIntelligence(), [refreshKey])
-  const fallback = useAsync(() => (primary.error ? getPredictions() : Promise.resolve([])), [primary.error])
+  const loadPrimary = useCallback((signal: AbortSignal) => getPredictionIntelligence({ signal }), [])
+  const loadFallback = useCallback((signal: AbortSignal) => getPredictions({ signal }), [])
+  const primary = useQuery({
+    key: ['predictions', 'intelligence'],
+    queryFn: loadPrimary,
+    retry: 1,
+    staleMs: 30_000,
+  })
+  const fallback = useQuery({
+    enabled: Boolean(primary.error),
+    key: ['predictions', 'fallback'],
+    queryFn: loadFallback,
+    retry: 1,
+    staleMs: 30_000,
+  })
 
   const rows = useMemo(() => {
     const source = primary.data?.length ? primary.data : fallback.data ?? []
@@ -38,13 +51,14 @@ export function PredictionsPage() {
           <div className="text-sm font-medium uppercase text-cyan-300">Signals</div>
           <h1 className="mt-1 text-2xl font-semibold text-white">Prediction Console</h1>
         </div>
-        <button
-          className="h-10 rounded-md border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-medium text-cyan-100 hover:bg-cyan-300/15"
-          onClick={() => setRefreshKey((value) => value + 1)}
-          type="button"
+        <IconButton
+          disabled={primary.refreshing}
+          label="Refresh predictions"
+          onClick={primary.refetch}
+          tone="primary"
         >
-          Refresh
-        </button>
+          {primary.refreshing ? 'Syncing' : 'Refresh'}
+        </IconButton>
       </div>
 
       <div className="mb-5 grid gap-4 sm:grid-cols-3">
@@ -74,6 +88,7 @@ export function PredictionsPage() {
         ) : rows.length ? (
           <div className="mt-5 overflow-hidden rounded-lg border border-white/10">
             <table className="w-full min-w-[980px] text-left text-sm">
+              <caption className="sr-only">Prediction rows with signal, price, target, return, confidence, risk, and source</caption>
               <thead className="bg-white/[0.04] text-xs uppercase text-slate-400">
                 <tr>
                   <th className="px-3 py-3">Symbol</th>

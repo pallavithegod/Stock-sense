@@ -1,111 +1,41 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { getAlerts, getMarketNews, getSymbolNews } from '../api/news'
 import { MetricCard } from '../components/MetricCard'
 import { SectionHeader } from '../components/SectionHeader'
 import { StatePanel } from '../components/StatePanel'
-import { useAsync } from '../hooks/useAsync'
-import { cx, formatNumber } from '../utils/format'
-import { safeExternalUrl } from '../utils/url'
-import type { AlertItem, NewsArticle } from '../types/news'
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
-}
-
-function sentimentTone(label?: unknown) {
-  const text = String(label ?? '').toLowerCase()
-  if (text.includes('positive') || text.includes('bull')) return 'positive'
-  if (text.includes('negative') || text.includes('bear')) return 'negative'
-  return 'neutral'
-}
-
-function articleTime(article: NewsArticle) {
-  return String(article.normalized_time ?? article.published ?? article.published_at ?? article.providerPublishTime ?? '')
-}
-
-function articleSource(article: NewsArticle) {
-  return article.source ?? article.publisher ?? 'Unknown source'
-}
-
-function ArticleCard({ article }: { article: NewsArticle }) {
-  const href = safeExternalUrl(article.url ?? article.link)
-  return (
-    <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-      <div className="flex flex-wrap items-center gap-2 text-xs uppercase text-slate-500">
-        <span>{articleSource(article)}</span>
-        {article.sentiment ? <span>{article.sentiment}</span> : null}
-        {article.sector ? <span>{article.sector}</span> : null}
-      </div>
-      <h3 className="mt-2 text-base font-semibold leading-6 text-white">{article.title || 'Market update'}</h3>
-      {article.description ? (
-        <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-400">{article.description}</p>
-      ) : null}
-      {article.why_it_matters ? (
-        <p className="mt-2 rounded-md bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-100">
-          {article.why_it_matters}
-        </p>
-      ) : null}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-        <span>{articleTime(article) || 'Recent'}</span>
-        <span>Reliability {formatNumber(article.source_reliability ?? article.confidence)}</span>
-        {href ? (
-          <a
-            className="rounded-md border border-white/10 px-2 py-1 text-slate-200 hover:border-cyan-300/40"
-            href={href}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Open
-          </a>
-        ) : null}
-      </div>
-    </article>
-  )
-}
-
-function AlertsList({ alerts }: { alerts: AlertItem[] }) {
-  if (!alerts.length) {
-    return <StatePanel title="No active alerts" description="No alert rows are currently active." />
-  }
-  return (
-    <div className="space-y-2">
-      {alerts.slice(0, 6).map((alert, index) => (
-        <div
-          className={cx(
-            'rounded-md border p-3 text-sm',
-            alert.triggered ? 'border-amber-300/30 bg-amber-300/10' : 'border-white/10 bg-slate-950/40',
-          )}
-          key={`${alert.symbol}-${index}`}
-        >
-          <div className="flex justify-between gap-3">
-            <span className="font-medium text-white">{alert.symbol ?? 'Alert'}</span>
-            <span className={alert.triggered ? 'text-amber-200' : 'text-slate-400'}>
-              {alert.triggered ? 'Triggered' : 'Watching'}
-            </span>
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {alert.condition ?? '--'} {formatNumber(alert.target_value)} | Current{' '}
-            {formatNumber(alert.current_value)}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
+import { useQuery } from '../query/useQuery'
+import { formatNumber } from '../utils/format'
+import { AlertsList, ArticleCard } from './news/NewsPresentation'
+import { asArray, asRecord, sentimentTone } from './news/newsView'
 
 export function NewsPage() {
   const [symbol, setSymbol] = useState('')
   const [submittedSymbol, setSubmittedSymbol] = useState('')
-  const marketNews = useAsync(() => getMarketNews(), [])
-  const alerts = useAsync(() => getAlerts(), [])
-  const symbolNews = useAsync(
-    () => (submittedSymbol ? getSymbolNews(submittedSymbol) : Promise.resolve({ articles: [] })),
+  const loadMarketNews = useCallback((signal: AbortSignal) => getMarketNews({ signal }), [])
+  const loadAlerts = useCallback((signal: AbortSignal) => getAlerts({ signal }), [])
+  const loadSymbolNews = useCallback(
+    (signal: AbortSignal) => getSymbolNews(submittedSymbol, { signal }),
     [submittedSymbol],
   )
+  const marketNews = useQuery({
+    key: ['news', 'market'],
+    queryFn: loadMarketNews,
+    retry: 1,
+    staleMs: 60_000,
+  })
+  const alerts = useQuery({
+    key: ['news', 'alerts'],
+    queryFn: loadAlerts,
+    retry: 1,
+    staleMs: 60_000,
+  })
+  const symbolNews = useQuery({
+    enabled: Boolean(submittedSymbol),
+    key: ['news', 'symbol', submittedSymbol],
+    queryFn: loadSymbolNews,
+    retry: 1,
+    staleMs: 60_000,
+  })
 
   const sentiment = asRecord(marketNews.data?.sentiment)
   const articles = marketNews.data?.articles ?? []
@@ -177,7 +107,11 @@ export function NewsPage() {
                 setSubmittedSymbol(symbol.trim().toUpperCase())
               }}
             >
+              <label className="sr-only" htmlFor="news-symbol">
+                Stock symbol
+              </label>
               <input
+                id="news-symbol"
                 className="h-10 min-w-0 flex-1 rounded-md border border-white/10 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
                 onChange={(event) => setSymbol(event.target.value)}
                 placeholder="INFY, TCS..."

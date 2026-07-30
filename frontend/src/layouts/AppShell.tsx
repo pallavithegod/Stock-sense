@@ -1,15 +1,7 @@
 import { APP_NAME } from '../config/env'
-import type { ReactNode } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
+import { appRoutes, labelForPage, pathForPage } from '../router/routes'
 import type { AppPage } from '../types/navigation'
-
-const navItems: Array<{ id: AppPage; label: string }> = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'stocks', label: 'Stocks' },
-  { id: 'portfolio', label: 'Portfolio' },
-  { id: 'predictions', label: 'Predictions' },
-  { id: 'news', label: 'News' },
-  { id: 'research', label: 'Research' },
-]
 
 type AppShellProps = {
   activePage: AppPage
@@ -18,7 +10,13 @@ type AppShellProps = {
 }
 
 export function AppShell({ activePage, children, onPageChange }: AppShellProps) {
-  const currentPageLabel = navItems.find((item) => item.id === activePage)?.label ?? APP_NAME
+  const currentPageLabel = labelForPage(activePage)
+
+  function handleNavigate(event: MouseEvent<HTMLAnchorElement>, page: AppPage) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
+    event.preventDefault()
+    onPageChange(page)
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -29,19 +27,20 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
         </div>
 
         <nav className="mt-8 space-y-1">
-          {navItems.map((item) => (
-            <button
-              className={`w-full rounded-md px-3 py-2 text-left text-sm ${
+          {appRoutes.map((item) => (
+            <a
+              aria-current={activePage === item.id ? 'page' : undefined}
+              className={`block w-full rounded-md px-3 py-2 text-left text-sm ${
                 activePage === item.id
                   ? 'bg-cyan-400/10 text-cyan-200'
                   : 'text-slate-400 hover:bg-white/[0.04] hover:text-white'
               }`}
+              href={pathForPage(item.id)}
               key={item.id}
-              onClick={() => onPageChange(item.id)}
-              type="button"
+              onClick={(event) => handleNavigate(event, item.id)}
             >
               {item.label}
-            </button>
+            </a>
           ))}
         </nav>
       </aside>
@@ -54,20 +53,21 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
               <h1 className="text-xl font-semibold text-white">{currentPageLabel}</h1>
             </div>
           </div>
-          <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
-            {navItems.map((item) => (
-              <button
+          <nav aria-label="Primary" className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+            {appRoutes.map((item) => (
+              <a
+                aria-current={activePage === item.id ? 'page' : undefined}
                 className={`shrink-0 rounded-md border px-3 py-2 text-sm ${
                   activePage === item.id
                     ? 'border-cyan-300/40 bg-cyan-400/10 text-cyan-100'
                     : 'border-white/10 text-slate-300'
                 }`}
+                href={pathForPage(item.id)}
                 key={item.id}
-                onClick={() => onPageChange(item.id)}
-                type="button"
+                onClick={(event) => handleNavigate(event, item.id)}
               >
                 {item.label}
-              </button>
+              </a>
             ))}
           </nav>
         </header>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { AppShell } from './layouts/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
 import { NewsPage } from './pages/NewsPage'
@@ -6,10 +6,10 @@ import { PredictionsPage } from './pages/PredictionsPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { ResearchPage } from './pages/ResearchPage'
 import { StocksPage } from './pages/StocksPage'
-import type { AppPage } from './types/navigation'
+import { useAppRouter } from './router/useAppRouter'
 
 function App() {
-  const [activePage, setActivePage] = useState<AppPage>('dashboard')
+  const { activePage, navigate } = useAppRouter()
 
   const page = (() => {
     switch (activePage) {
@@ -31,8 +31,8 @@ function App() {
   })()
 
   return (
-    <AppShell activePage={activePage} onPageChange={setActivePage}>
-      {page}
+    <AppShell activePage={activePage} onPageChange={navigate}>
+      <ErrorBoundary key={activePage}>{page}</ErrorBoundary>
     </AppShell>
   )
 }

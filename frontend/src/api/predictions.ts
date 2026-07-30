@@ -1,6 +1,8 @@
 import { apiClient } from './client'
 import { getPortfolioState } from './portfolio'
 import { getStocks } from './stocks'
+import { optionalArray } from '../schemas/runtime'
+import type { RequestOptions } from '../types/api'
 import type { LivePrediction, PredictionRow } from '../types/prediction'
 
 type PredictionsPayload = {
@@ -12,37 +14,39 @@ type PredictionsPayload = {
 }
 
 function extractPredictions(payload: PredictionsPayload | PredictionRow[]) {
-  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload)) return optionalArray<PredictionRow>(payload)
   if (payload.data) return extractPredictions(payload.data)
-  return payload.rows ?? payload.predictions ?? payload.stocks ?? payload.opportunities ?? []
+  return optionalArray<PredictionRow>(payload.rows ?? payload.predictions ?? payload.stocks ?? payload.opportunities)
 }
 
-export async function getPredictions() {
+export async function getPredictions(options?: RequestOptions) {
   const payload = await apiClient.get<PredictionsPayload | PredictionRow[]>('/predictions', {
     timeoutMs: 20000,
+    ...options,
   })
   return extractPredictions(payload)
 }
 
-export async function getPredictionIntelligence() {
+export async function getPredictionIntelligence(options?: RequestOptions) {
   const payload = await apiClient.get<PredictionsPayload>(
     '/predictions/intelligence?top_n=100',
-    { timeoutMs: 25000 },
+    { timeoutMs: 25000, ...options },
   )
   const rows = extractPredictions(payload)
   if (rows.length) return rows
-  return getPredictionFallbackRows()
+  return getPredictionFallbackRows(options)
 }
 
-export function getLivePrediction(symbol: string) {
+export function getLivePrediction(symbol: string, options?: RequestOptions) {
   return apiClient.get<LivePrediction>(`/predictions/live/${encodeURIComponent(symbol)}`, {
     timeoutMs: 25000,
+    ...options,
   })
 }
 
-async function getPredictionFallbackRows(): Promise<PredictionRow[]> {
+async function getPredictionFallbackRows(options?: RequestOptions): Promise<PredictionRow[]> {
   try {
-    const portfolio = await getPortfolioState()
+    const portfolio = await getPortfolioState(options)
     if (portfolio.positions.length) {
       return portfolio.positions.map((position) => ({
         symbol: String(position.symbol ?? 'UNKNOWN'),
@@ -62,7 +66,7 @@ async function getPredictionFallbackRows(): Promise<PredictionRow[]> {
     // Use the static market universe below if portfolio state is unavailable.
   }
 
-  const stocks = await getStocks(12)
+  const stocks = await getStocks(12, options)
   return stocks.map((stock) => ({
     symbol: String(stock.symbol ?? 'UNKNOWN'),
     signal: 'WATCH',

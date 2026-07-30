@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { getLivePrediction } from '../api/predictions'
 import { getStocks, searchStocks } from '../api/stocks'
 import { SectionHeader } from '../components/SectionHeader'
 import { StatePanel } from '../components/StatePanel'
-import { useAsync } from '../hooks/useAsync'
+import { useQuery } from '../query/useQuery'
 import { normalizeLivePrediction } from '../utils/predictionAdapter'
 import { stockChange, stockDisplayName, stockDisplaySymbol, stockMetaLine, stockPrice } from '../utils/stockAdapter'
 import { cx, formatNumber, formatPercent } from '../utils/format'
@@ -17,19 +17,35 @@ function changeClass(value?: number) {
 export function StocksPage() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<StockSearchResult | StockSummary | null>(null)
-  const popular = useAsync(() => getStocks(20), [])
   const normalizedQuery = query.trim()
-  const search = useAsync(
-    async () => ({
+  const selectedSymbol = selected ? stockDisplaySymbol(selected) : ''
+  const loadPopular = useCallback((signal: AbortSignal) => getStocks(20, { signal }), [])
+  const loadSearch = useCallback(
+    async (signal: AbortSignal) => ({
       query: normalizedQuery,
-      results: normalizedQuery.length >= 2 ? await searchStocks(normalizedQuery, 30) : [],
+      results: normalizedQuery.length >= 2 ? await searchStocks(normalizedQuery, 30, { signal }) : [],
     }),
     [normalizedQuery],
   )
-  const livePrediction = useAsync(
-    () => (selected ? getLivePrediction(stockDisplaySymbol(selected)) : Promise.resolve(null)),
-    [selected],
+  const loadPrediction = useCallback(
+    (signal: AbortSignal) => getLivePrediction(selectedSymbol, { signal }),
+    [selectedSymbol],
   )
+  const popular = useQuery({ key: ['stocks', 'popular'], queryFn: loadPopular, retry: 1, staleMs: 60_000 })
+  const search = useQuery({
+    enabled: normalizedQuery.length >= 2,
+    key: ['stocks', 'search', normalizedQuery],
+    queryFn: loadSearch,
+    retry: 1,
+    staleMs: 30_000,
+  })
+  const livePrediction = useQuery({
+    enabled: Boolean(selectedSymbol),
+    key: ['predictions', 'live', selectedSymbol],
+    queryFn: loadPrediction,
+    retry: 1,
+    staleMs: 30_000,
+  })
 
   const searchResults =
     normalizedQuery.length >= 2 && search.data?.query === normalizedQuery ? search.data.results : []
@@ -38,7 +54,7 @@ export function StocksPage() {
   const searchIsPending =
     normalizedQuery.length >= 2 && !searchHasError && search.data?.query !== normalizedQuery
   const prediction = useMemo(
-    () => normalizeLivePrediction(livePrediction.data),
+    () => normalizeLivePrediction(livePrediction.data ?? null),
     [livePrediction.data],
   )
 
@@ -52,7 +68,11 @@ export function StocksPage() {
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
           <SectionHeader eyebrow="Search" title="Find a stock" />
+          <label className="sr-only" htmlFor="stock-search">
+            Search stocks
+          </label>
           <input
+            id="stock-search"
             className="mt-4 h-11 w-full rounded-md border border-white/10 bg-slate-950 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/50"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search RELIANCE, TCS, INFY..."

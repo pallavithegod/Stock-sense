@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useCallback } from 'react'
 import { getDashboardSnapshot } from '../api/dashboard'
+import { IconButton } from '../components/IconButton'
 import { MetricCard } from '../components/MetricCard'
 import { SectionHeader } from '../components/SectionHeader'
 import { StatePanel } from '../components/StatePanel'
-import { useAsync } from '../hooks/useAsync'
+import { useQuery } from '../query/useQuery'
 import { normalizeDashboard } from '../utils/dashboardAdapter'
 import { cx, formatNumber, formatPercent } from '../utils/format'
 
@@ -13,8 +14,13 @@ function toneForChange(value?: number) {
 }
 
 export function DashboardPage() {
-  const [refreshKey, setRefreshKey] = useState(0)
-  const { data, error, loading } = useAsync(() => getDashboardSnapshot(), [refreshKey])
+  const loadDashboard = useCallback((signal: AbortSignal) => getDashboardSnapshot({ signal }), [])
+  const { data, error, isStale, loading, refetch, refreshing } = useQuery({
+    key: ['dashboard', 'snapshot'],
+    queryFn: loadDashboard,
+    retry: 1,
+    staleMs: 30_000,
+  })
   const dashboard = normalizeDashboard(data)
 
   return (
@@ -24,18 +30,19 @@ export function DashboardPage() {
           <div className="text-sm font-medium uppercase text-cyan-300">Live command center</div>
           <h1 className="mt-1 text-2xl font-semibold text-white">Market Dashboard</h1>
         </div>
-        <button
-          className="h-10 rounded-md border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-medium text-cyan-100 hover:bg-cyan-300/15"
-          onClick={() => setRefreshKey((value) => value + 1)}
-          type="button"
+        <IconButton
+          disabled={refreshing}
+          label="Refresh dashboard"
+          onClick={refetch}
+          tone="primary"
         >
-          Refresh
-        </button>
+          {refreshing ? 'Syncing' : 'Refresh'}
+        </IconButton>
       </div>
 
       {error ? (
         <div className="mb-5 rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
-          Market data is not reachable yet: {error}. Start the backend, then refresh this page.
+          Market data is not reachable yet: {error}. {isStale ? 'Showing the last successful snapshot.' : 'Start the backend, then refresh this page.'}
         </div>
       ) : null}
 
@@ -50,7 +57,7 @@ export function DashboardPage() {
           <SectionHeader
             action={
               <div className="rounded-md bg-white/[0.04] px-2 py-1 text-xs text-slate-400">
-                {loading ? 'Syncing' : dashboard.source ?? 'Live'}
+                {loading || refreshing ? 'Syncing' : dashboard.source ?? 'Live'}
               </div>
             }
             eyebrow="Market"
@@ -59,6 +66,7 @@ export function DashboardPage() {
 
           <div className="mt-4 overflow-hidden rounded-lg border border-white/10">
             <table className="w-full table-fixed text-left text-sm">
+              <caption className="sr-only">Market index prices and percentage change</caption>
               <thead className="bg-white/[0.04] text-xs uppercase text-slate-400">
                 <tr>
                   <th className="px-3 py-3">Index</th>
@@ -85,7 +93,7 @@ export function DashboardPage() {
                 ) : (
                   <tr>
                     <td className="px-3 py-8 text-center text-slate-400" colSpan={3}>
-                      {loading ? 'Loading index data...' : 'No index data available yet.'}
+                      {loading || refreshing ? 'Loading index data...' : 'No index data available yet.'}
                     </td>
                   </tr>
                 )}

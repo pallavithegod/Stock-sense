@@ -1,26 +1,34 @@
 import { apiClient } from './client'
+import { recordOf } from '../schemas/runtime'
 import type { DashboardData } from '../types/dashboard'
+import type { RequestOptions } from '../types/api'
 
-async function getRawDashboard(path: string, timeoutMs = 20000) {
-  return apiClient.get<DashboardData>(path, { timeoutMs, unwrapData: false })
+async function getRawDashboard(path: string, options: RequestOptions = {}) {
+  const payload = await apiClient.get<DashboardData>(path, {
+    timeoutMs: 20000,
+    unwrapData: false,
+    ...options,
+  })
+  recordOf(payload, 'dashboard response')
+  return payload
 }
 
-export function getLiveDashboard() {
-  return getRawDashboard('/dashboard-data/live')
+export function getLiveDashboard(options?: RequestOptions) {
+  return getRawDashboard('/dashboard-data/live', options)
 }
 
-export function getDashboard() {
-  return getRawDashboard('/dashboard-data')
+export function getDashboard(options?: RequestOptions) {
+  return getRawDashboard('/dashboard-data', options)
 }
 
-export function getSystemStatus() {
-  return apiClient.get<Record<string, unknown>>('/system/status')
+export function getSystemStatus(options?: RequestOptions) {
+  return apiClient.get<Record<string, unknown>>('/system/status', options)
 }
 
-export async function getDashboardSnapshot() {
+export async function getDashboardSnapshot(options?: RequestOptions) {
   try {
-    return await getLiveDashboard()
+    return await getLiveDashboard(options)
   } catch {
-    return getDashboard()
+    return getDashboard(options)
   }
 }

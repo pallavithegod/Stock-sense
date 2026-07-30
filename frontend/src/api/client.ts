@@ -10,13 +10,18 @@ async function request<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000)
-  const signal = options.signal ?? controller.signal
+  let timedOut = false
+  const timeout = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, options.timeoutMs ?? 15000)
+  const abortFromCaller = () => controller.abort()
+  options.signal?.addEventListener('abort', abortFromCaller, { once: true })
 
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method,
-      signal,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
@@ -41,12 +46,13 @@ async function request<T>(
     return payload as T
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('Request timed out. The Flask API took too long to respond.', {
+      throw new Error(timedOut ? 'Request timed out. The Flask API took too long to respond.' : 'Request canceled.', {
         cause: error,
       })
     }
     throw error
   } finally {
+    options.signal?.removeEventListener('abort', abortFromCaller)
     window.clearTimeout(timeout)
   }
 }
