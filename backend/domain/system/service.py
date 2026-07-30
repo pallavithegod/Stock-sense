@@ -43,6 +43,13 @@ class SystemService:
         models = getattr(self.runtime, "models", {}) or {}
         cache = getattr(self.runtime, "cache", {}) or {}
         cache_ttl = getattr(self.runtime, "cache_ttl", 0) or 0
+        worker_status = getattr(self.runtime, "worker_status", None)
+        worker_snapshot = worker_status.snapshot() if worker_status else {
+            "running": [],
+            "last_result": {},
+            "last_success": {},
+            "mode": "not_started_by_flask",
+        }
         return {
             "status": "OPERATIONAL",
             "timestamp": self._timestamp(),
@@ -71,6 +78,7 @@ class SystemService:
                 "entries": len(cache),
                 "ttl_seconds": cache_ttl,
             },
+            "worker_status": worker_snapshot,
             "startup_checks": self.startup_checks(),
         }
 
@@ -100,6 +108,7 @@ class SystemService:
             "success": True,
             "status": "ok" if all(item.get("ok", False) for item in checks.values()) else "degraded",
             "checks": checks,
+            "worker_required_for_readiness": False,
             "timestamp": self._timestamp(),
         }
 
@@ -108,6 +117,7 @@ class SystemService:
             "success": True,
             "workers_started": False,
             "message": "Runtime workers are not started by the Flask app factory.",
+            "scheduler_command": "python -m backend.workers.scheduler_cli",
             "data_quality": "unavailable",
             "timestamp": self._timestamp(),
         }

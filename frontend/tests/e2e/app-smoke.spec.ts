@@ -61,7 +61,15 @@ test('portfolio add, sell simulation, and delete confirmation use mocked APIs', 
   await page.getByRole('button', { name: 'Add' }).click()
 
   await expect(page.getByText('TEST added.')).toBeVisible()
-  await expect(page.getByRole('cell', { name: 'TEST', exact: true })).toBeVisible()
+  const holdingsTable = page.locator('table', { hasText: 'Open portfolio positions' })
+  await expect(holdingsTable.getByRole('cell', { name: 'TEST', exact: true })).toBeVisible()
+  await expect(holdingsTable.getByRole('cell', { name: 'INFY', exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Edit TEST' }).focus()
+  await page.keyboard.press('Enter')
+  await page.getByLabel('Average price').fill('110')
+  await page.getByRole('button', { name: 'Update' }).click()
+  await expect(page.getByText('TEST updated.')).toBeVisible()
 
   await page.getByLabel('Sell symbol').fill('TEST')
   await page.getByLabel('Sell quantity').fill('1')
@@ -210,6 +218,21 @@ async function mockApis(page: Page, options: MockOptions = {}) {
         confidence: 0.5,
       })
       await json(route, { status: 'success', data: { exchange_symbol: body.symbol } })
+      return
+    }
+
+    if (path.startsWith('/portfolio/') && request.method() === 'PUT') {
+      const symbol = decodeURIComponent(path.split('/').pop() ?? '')
+      const body = request.postDataJSON() as { quantity?: number; avg_price?: number }
+      const position = positions.find((item) => item.symbol === symbol)
+      if (position) {
+        position.quantity = Number(body.quantity ?? position.quantity)
+        position.open_qty = Number(body.quantity ?? position.open_qty)
+        position.avg_price = Number(body.avg_price ?? position.avg_price)
+        position.current_value = Number(position.open_qty ?? 0) * Number(position.current_price ?? 0)
+        position.pnl = Number(position.current_value ?? 0) - Number(position.open_qty ?? 0) * Number(position.avg_price ?? 0)
+      }
+      await json(route, { status: 'success' })
       return
     }
 

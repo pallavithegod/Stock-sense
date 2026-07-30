@@ -153,6 +153,7 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
     )
 
     services = _build_services(resolved_settings)
+    services.runtime.worker_status = services.worker_status
     app.extensions["stocksense_services"] = services
     app.foresight_system = services.runtime
 

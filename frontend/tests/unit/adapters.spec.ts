@@ -1,16 +1,18 @@
 import { expect, test } from '@playwright/test'
 import { arrayOf, recordOf } from '../../src/schemas/runtime'
-import { formatNumber, formatPercent } from '../../src/utils/format'
+import { formatDate, formatNumber, formatPercent } from '../../src/utils/format'
 import { normalizeDashboard } from '../../src/utils/dashboardAdapter'
 import { normalizeLivePrediction, normalizePredictionRow } from '../../src/utils/predictionAdapter'
 import { normalizeSearchResults, searchRank } from '../../src/utils/stockSearch'
 
 test.describe('format helpers', () => {
-  test('formats Indian numbers and unavailable values consistently', () => {
+  test('formats Indian numbers, dates, and unavailable values consistently', () => {
     expect(formatNumber(1234567.891)).toBe('12,34,567.89')
     expect(formatNumber('not-a-number')).toBe('--')
     expect(formatPercent(4.2)).toBe('+4.20%')
     expect(formatPercent(-1.234)).toBe('-1.23%')
+    expect(formatDate('2026-01-15T10:00:00Z')).toBe('15 Jan 2026')
+    expect(formatDate('bad-date')).toBe('--')
   })
 })
 
@@ -34,6 +36,10 @@ test.describe('stock search ranking', () => {
     expect(searchRank('INFY', rows[3])).toBe(4)
     expect(normalizeSearchResults('TATA', rows, 10).map((row) => row.display)).toEqual(['TATAMOTORS'])
     expect(normalizeSearchResults('KOTAK', rows, 10).map((row) => row.display)).toEqual(['KOTAKBANK'])
+  })
+
+  test('returns an empty result set for no-match queries', () => {
+    expect(normalizeSearchResults('ZZZZ', rows, 10)).toEqual([])
   })
 })
 
@@ -79,6 +85,23 @@ test.describe('prediction adapters', () => {
     expect(view?.symbol).toBe('TCS')
     expect(view?.horizons).toHaveLength(2)
     expect(view?.horizons[1]).toEqual({ label: '6m', target: 3900, returnPercent: 11.43 })
+  })
+
+  test('preserves zero values and marks unavailable values explicitly', () => {
+    const row = normalizePredictionRow({
+      symbol: 'ZERO',
+      current_price: 0,
+      confidence: 0,
+      target_price: null,
+      data_quality: 'unavailable',
+      source_type: 'presentation_intelligence',
+    })
+
+    expect(row.price).toBe(0)
+    expect(row.confidence).toBe(0)
+    expect(row.expectedReturn).toBeUndefined()
+    expect(row.dataQuality).toBe('unavailable')
+    expect(row.sourceType).toBe('presentation_intelligence')
   })
 })
 

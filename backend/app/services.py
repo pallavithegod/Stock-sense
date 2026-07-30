@@ -48,3 +48,4 @@ class AppServices:
     ai_engine_state: dict[str, Any] = field(default_factory=lambda: {"predictions": {}, "last_update": None, "cognitive_state": {}})
     state_cache: dict[str, Any] = field(default_factory=dict)
     system_cache: dict[str, Any] = field(default_factory=dict)
+    worker_status: Any | None = None
