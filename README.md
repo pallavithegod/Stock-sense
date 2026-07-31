@@ -19,6 +19,11 @@ SQLite remains intentional for the local/resume deployment. PostgreSQL and
 Redis stay deferred until the app needs multiple public web/worker processes or
 managed concurrent writes.
 
+Legacy root/static dashboard assets and retired backend bridge modules have
+been removed. The remaining compatibility API aliases stay temporarily because
+the React frontend still uses some pre-v1 endpoints for portfolio lots, sell
+simulation, research extras, and dashboard fallbacks.
+
 ## Fresh Setup
 
 Create and activate a virtual environment from the repository root:
@@ -192,5 +197,7 @@ Phase 9 Playwright smoke tests generate workflow screenshots under
 - SQLite is the active database; PostgreSQL is deferred.
 - Redis is not required for the current single-process local/resume target.
 - Some heavyweight ML and legacy intelligence modules remain optional.
+- Some compatibility API aliases remain until the frontend can call `/api/v1`
+  for every workflow.
 - CI includes a non-blocking type-check and dependency-audit baseline while the
   migration is still retiring legacy surfaces.

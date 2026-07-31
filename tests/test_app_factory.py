@@ -37,7 +37,7 @@ def test_create_app_uses_factory_without_importing_root_app(isolated_db_path, mo
     assert Path(services.portfolio.db_path).resolve() == isolated_db_path.resolve()
 
 
-def test_create_app_does_not_import_legacy_runtime_bridge_modules(isolated_db_path, monkeypatch):
+def test_legacy_runtime_bridge_modules_are_removed(isolated_db_path, monkeypatch):
     runtime_dir = isolated_db_path.parent
     monkeypatch.setenv("APP_ENV", "testing")
     monkeypatch.setenv("TESTING", "True")
@@ -48,12 +48,14 @@ def test_create_app_does_not_import_legacy_runtime_bridge_modules(isolated_db_pa
     monkeypatch.setenv("STOCKSENSE_AUDIT_LOG_PATH", str(runtime_dir / "prediction_audit.jsonl"))
 
     legacy_modules = {
-        "backend.legacy.app_monolith",
-        "backend.routes.market_routes",
-        "backend.routes.portfolio",
-        "backend.routes.predictions",
-        "backend.services.dashboard_builder",
-        "backend.services.runtime",
+        "backend.legacy.app_monolith": Path("backend/legacy/app_monolith.py"),
+        "backend.legacy.quantum_ai": Path("backend/legacy/quantum_ai.py"),
+        "backend.routes.dashboard": Path("backend/routes/dashboard.py"),
+        "backend.routes.market_routes": Path("backend/routes/market_routes.py"),
+        "backend.routes.portfolio": Path("backend/routes/portfolio.py"),
+        "backend.routes.predictions": Path("backend/routes/predictions.py"),
+        "backend.services.dashboard_builder": Path("backend/services/dashboard_builder.py"),
+        "backend.services.runtime": Path("backend/services/runtime.py"),
     }
     for module_name in legacy_modules:
         sys.modules.pop(module_name, None)
@@ -62,7 +64,9 @@ def test_create_app_does_not_import_legacy_runtime_bridge_modules(isolated_db_pa
 
     create_app()
 
-    assert legacy_modules.isdisjoint(sys.modules)
+    assert set(legacy_modules).isdisjoint(sys.modules)
+    for path in legacy_modules.values():
+        assert not path.exists()
 
 
 def test_create_app_does_not_create_database_until_lifecycle_or_request(monkeypatch):

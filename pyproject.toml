@@ -81,7 +81,6 @@ addopts = "-ra"
 branch = true
 source = ["app", "backend", "scripts"]
 omit = [
-  "backend/legacy/*",
   "tests/*",
 ]
 
@@ -94,13 +93,6 @@ skip_covered = true
 target-version = "py311"
 line-length = 100
 extend-exclude = [
-  "backend/legacy",
-  "backend/routes/dashboard.py",
-  "backend/routes/market_routes.py",
-  "backend/routes/portfolio.py",
-  "backend/routes/predictions.py",
-  "backend/services/dashboard_builder.py",
-  "backend/services/runtime.py",
   ".venv",
   ".pytest-runtime",
   ".dev-runtime",
