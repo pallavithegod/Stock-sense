@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
         "/.env",
         "/app.py",
         "/database.py",
-        "/data/nexus.db",
+        "/data/stocksense.db",
         "/frontend/package.json",
         "/frontend/src/App.tsx",
         "/static/research/research_ui.js",
@@ -36,9 +36,9 @@ def test_repository_files_are_not_public(client, path):
         "/app.js",
         "/chart.js",
         "/style.css",
-        "/nexus-ai.js",
-        "/nexus-ai.css",
-        "/dashboard/nexus-ai.html",
+        "/stocksense-ai.js",
+        "/stocksense-ai.css",
+        "/dashboard/stocksense-ai.html",
     ],
 )
 def test_legacy_ui_assets_are_disabled_by_default(client, path):

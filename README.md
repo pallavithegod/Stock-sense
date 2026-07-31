@@ -1,6 +1,6 @@
-# StockSense Nexus
+# StockSense
 
-StockSense Nexus is a local/demo stock intelligence dashboard built as a
+StockSense is a local/demo stock intelligence dashboard built as a
 modular monolith: React/Vite in `frontend/`, Flask in `backend/`, and SQLite as
 the active database. The current migration goal is a production-shaped resume
 project, not a microservice rewrite.
@@ -103,7 +103,7 @@ FLASK_HOST=127.0.0.1
 FLASK_PORT=5000
 DISABLE_STARTUP_NETWORK=True
 OPEN_BROWSER=False
-STOCKSENSE_DB_PATH=data/nexus.db
+STOCKSENSE_DB_PATH=data/stocksense.db
 STOCKSENSE_MARKET_DB_PATH=data/market_intelligence.db
 STOCKSENSE_ADAPTIVE_DB_PATH=data/adaptive_thresholds.db
 STOCKSENSE_AUDIT_LOG_PATH=data/prediction_audit.jsonl
@@ -169,7 +169,7 @@ Generate a dry-run cleanup report:
 .\.venv\Scripts\python.exe scripts\sqlite_maintenance.py cleanup-report
 ```
 
-No cleanup command modifies `data/nexus.db` without an explicit confirmation
+No cleanup command modifies `data/stocksense.db` without an explicit confirmation
 token and a backup path.
 
 ## Demo Data And Screenshots
@@ -177,7 +177,7 @@ token and a backup path.
 Seed deterministic demo data:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\seed_demo_data.py --db data\nexus.db
+.\.venv\Scripts\python.exe scripts\seed_demo_data.py --db data\stocksense.db
 ```
 
 Phase 9 Playwright smoke tests generate workflow screenshots under

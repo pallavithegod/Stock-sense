@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NEXUS AI QUANTUM™ - Dynamic Database Manager
+StockSense - Dynamic Database Manager
 """
 
 from utils import encoding
@@ -80,7 +80,7 @@ class DatabaseManager:
         self.db_path = str(
             db_path
             or os.getenv("STOCKSENSE_DB_PATH")
-            or "data/nexus.db"
+            or "data/stocksense.db"
         )
         db_dir = os.path.dirname(self.db_path)
         if db_dir:

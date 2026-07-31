@@ -18,15 +18,15 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
   }
 
   return (
-    <div className="nexus-app">
-      <header className="nexus-header">
-        <div className="nexus-brand">
-          <span className="nexus-atom" aria-hidden="true" />
-          <span className="nexus-brand-text">NEXUS AI <b>QUANTUM</b></span>
-          <span className="nexus-live"><span /> LIVE NSE/BSE</span>
+    <div className="stocksense-app">
+      <header className="stocksense-header">
+        <div className="stocksense-brand">
+          <span className="stocksense-atom" aria-hidden="true" />
+          <span className="stocksense-brand-text">StockSense</span>
+          <span className="stocksense-live"><span /> LIVE NSE/BSE</span>
         </div>
 
-        <nav aria-label="Primary" className="nexus-top-nav">
+        <nav aria-label="Primary" className="stocksense-top-nav">
           {appRoutes.map((item) => (
             <a
               aria-current={activePage === item.id ? 'page' : undefined}
@@ -40,27 +40,27 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
           ))}
         </nav>
 
-        <div className="nexus-header-tools">
-          <label className="nexus-search">
+        <div className="stocksense-header-tools">
+          <label className="stocksense-search">
             <span aria-hidden="true">Q</span>
             <input placeholder="Search stocks, signals, portfolio" />
           </label>
-          <button className="nexus-icon-btn" type="button" aria-label="Theme palette">TM</button>
-          <button className="nexus-avatar" type="button" aria-label="User profile">AI</button>
+          <button className="stocksense-icon-btn" type="button" aria-label="Theme palette">TM</button>
+          <button className="stocksense-avatar" type="button" aria-label="User profile">AI</button>
         </div>
       </header>
 
-      <div className="nexus-main">
-        <aside className="nexus-sidebar">
-          <div className="nexus-sidebar-title">
-            <span className="nexus-atom small" aria-hidden="true" />
+      <div className="stocksense-main">
+        <aside className="stocksense-sidebar">
+          <div className="stocksense-sidebar-title">
+            <span className="stocksense-atom small" aria-hidden="true" />
             <div>
-              <strong>NEXUS AI</strong>
+              <strong>StockSense</strong>
               <span>Market intelligence desk</span>
             </div>
           </div>
 
-          <div className="nexus-side-card accent-yellow">
+          <div className="stocksense-side-card accent-yellow">
             <div className="side-card-head">
               <b>Dashboard</b>
               <span className="pill green">AUTO</span>
@@ -69,7 +69,7 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <div className="side-row"><span>Model Accuracy</span><b className="cyan">Live</b></div>
           </div>
 
-          <div className="nexus-side-card mini-chart-card">
+          <div className="stocksense-side-card mini-chart-card">
             <div className="side-card-head">
               <b>AI Index</b>
               <span className="green">+--</span>
@@ -86,14 +86,14 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <div className="side-row"><span>Session</span><b>SYNC</b></div>
           </div>
 
-          <div className="nexus-side-section">
+          <div className="stocksense-side-section">
             <div className="side-card-head"><b>AI Performance</b><span>--</span></div>
             <div className="side-row"><span>Total Predictions</span><b>--</b></div>
             <div className="side-row"><span>Model Accuracy</span><b className="cyan">--</b></div>
             <div className="side-row"><span>Commodities Signal</span><b className="green">--</b></div>
           </div>
 
-          <div className="nexus-side-section">
+          <div className="stocksense-side-section">
             <div className="side-card-head"><b>Market Snapshot</b><span className="pill">NOW</span></div>
             <div className="side-row"><span>Momentum Score</span><b className="green">--</b></div>
             <div className="side-row"><span>Trend Divergence</span><b className="cyan">--</b></div>
@@ -105,7 +105,7 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <div><i /></div>
           </div>
 
-          <div className="nexus-mobile-nav">
+          <div className="stocksense-mobile-nav">
             {appRoutes.map((item) => (
               <a
                 aria-current={activePage === item.id ? 'page' : undefined}
@@ -120,10 +120,10 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
           </div>
         </aside>
 
-        <section className="nexus-workspace">
-          <div className="nexus-topbar">
+        <section className="stocksense-workspace">
+          <div className="stocksense-topbar">
             <div>
-              <span className="topbar-kicker">NEXUS TERMINAL</span>
+              <span className="topbar-kicker">StockSense Terminal</span>
               <h1>{currentPageLabel}</h1>
             </div>
             <div className="topbar-right">
@@ -131,7 +131,7 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
               <span className="topbar-chip teal">API LINK</span>
             </div>
           </div>
-          <main className="nexus-content">{children}</main>
+          <main className="stocksense-content">{children}</main>
         </section>
       </div>
     </div>

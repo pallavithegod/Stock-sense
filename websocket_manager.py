@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# NEXUS AI QUANTUM - REAL-TIME STREAM ENGINE
+# StockSense real-time stream engine
 # ============================================================
 
 from utils import encoding

@@ -31,7 +31,7 @@ export function DashboardPage() {
   const source = dashboard.source ?? (loading || refreshing ? 'Syncing' : 'Live')
 
   return (
-    <div className="nexus-dashboard-page">
+    <div className="stocksense-dashboard-page">
       <div className="dashboard-command-row">
         <section className="command-panel command-panel-hero">
           <div className="command-grid-bg" aria-hidden="true" />
@@ -82,13 +82,13 @@ export function DashboardPage() {
       </div>
 
       {error ? (
-        <div className="nexus-alert-panel">
+        <div className="stocksense-alert-panel">
           Market data is not reachable yet: {error}.{' '}
           {isStale ? 'Showing the last successful snapshot.' : 'Start the backend, then refresh this page.'}
         </div>
       ) : null}
 
-      <div className="nexus-metrics-grid">
+      <div className="stocksense-metrics-grid">
         {dashboard.metrics.map((metric) => (
           <MetricCard key={metric.label} metric={metric} />
         ))}
@@ -119,7 +119,7 @@ export function DashboardPage() {
             )}
           </div>
 
-          <div className="nexus-table-wrap">
+          <div className="stocksense-table-wrap">
             <table>
               <caption className="sr-only">Market index prices and percentage change</caption>
               <thead>

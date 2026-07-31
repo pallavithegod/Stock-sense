@@ -9,10 +9,10 @@ from typing import Callable
 LATEST_SCHEMA_VERSION = 1
 
 AUXILIARY_DATABASE_OWNERSHIP = {
-    "nexus.db": "Authoritative application data: portfolio, predictions, model metrics, retention archives.",
+    "stocksense.db": "Authoritative application data: portfolio, predictions, model metrics, retention archives.",
     "market_intelligence.db": "Separate market-provider cache. Kept separate so provider refresh can be rebuilt independently.",
     "adaptive_thresholds.db": "Legacy adaptive-threshold store. New code maps rows through backend.domain.predictions.adaptive_thresholds before use.",
-    "prediction_audit.jsonl": "Append-only audit/export log. SQLite prediction_events owns deduplication inside nexus.db.",
+    "prediction_audit.jsonl": "Append-only audit/export log. SQLite prediction_events owns deduplication inside stocksense.db.",
 }
 
 

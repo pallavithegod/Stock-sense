@@ -10,8 +10,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class NexusPredictionEngine:
-    """Core AI Prediction Engine for Nexus."""
+class StockSensePredictionEngine:
+    """Core AI prediction engine for StockSense."""
     
     def __init__(self, quantum_ai_instance):
         self.quantum_ai = quantum_ai_instance
@@ -63,7 +63,7 @@ class NexusPredictionEngine:
 
     def predict_ensemble(self, symbol, volume=0):
         """
-        Thin adapter — delegates ALL intelligence to QuantumAI.
+        Thin adapter delegates all intelligence to QuantumAI.
         """
 
         hist, symbol_clean = self.fetch_data(symbol)

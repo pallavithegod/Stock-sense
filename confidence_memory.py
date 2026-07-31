@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# NEXUS AI — CONFIDENCE MEMORY (UNIFIED & PERSISTENT)
+# StockSense confidence memory (unified and persistent)
 # ============================================================
 from utils import encoding
 

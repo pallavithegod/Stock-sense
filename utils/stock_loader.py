@@ -8,7 +8,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-CACHE_TTL = int(os.getenv("NEXUS_SYMBOL_CACHE_TTL", "86400"))
+CACHE_TTL = int(os.getenv("STOCKSENSE_SYMBOL_CACHE_TTL", "86400"))
 CACHE_FILE = os.path.join("data", "active_symbols_cache.json")
 
 FALLBACK_SYMBOLS = [
@@ -231,7 +231,7 @@ def load_all_stock_symbols(limit=None):
     4) Fallback to curated resilient list if both feeds fail
     """
     # allow configuration for very large universes; default to 50k to cover NSE+BSE
-    default_limit = int(os.getenv("NEXUS_SYMBOL_UNIVERSE_LIMIT", "50000"))
+    default_limit = int(os.getenv("STOCKSENSE_SYMBOL_UNIVERSE_LIMIT", "50000"))
     limit = max(500, int(limit or default_limit))
 
     cached = _load_cache()

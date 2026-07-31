@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NEXUS AI QUANTUM - Backend Enhancement System
+StockSense - Backend Enhancement System
 Unified Dynamic Architecture:
 ✔ Dynamic stock search
 ✔ AI forecasting

@@ -2,7 +2,7 @@
 """
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                                                                           ║
-║                  NEXUS AI QUANTUM - UNIFIED INTELLIGENCE CORE            ║
+║                  StockSense - UNIFIED INTELLIGENCE CORE                  ║
 ║                                                                           ║
 ║  Regime | Meta | Confidence | Causality | Uncertainty | Restraint        ║
 ║                                                                           ║

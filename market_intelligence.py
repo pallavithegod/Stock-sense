@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# NEXUS AI QUANTUM™ — MARKET INTELLIGENCE ENGINE
+# StockSense market intelligence engine
 # Single File | Self-Healing | Global | Production Ready
 # ============================================================
 from utils import encoding  # enforce global UTF-8 at import time

@@ -12,7 +12,7 @@ import pytest
 def isolated_db_path() -> Path:
     runtime_dir = Path.cwd() / ".pytest-runtime" / f"stocksense-db-{uuid.uuid4().hex}"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    return runtime_dir / "test_nexus.db"
+    return runtime_dir / "test_stocksense.db"
 
 
 @pytest.fixture(scope="session")

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NEXUS AI QUANTUM™ - Reinforcement Learning Risk Engine
+StockSense - Reinforcement Learning Risk Engine
 Advanced RL-based Risk Management and Portfolio Optimization
 Copyright © 2025 Future Financial AI. All rights reserved.
 """

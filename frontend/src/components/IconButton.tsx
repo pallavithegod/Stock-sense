@@ -19,7 +19,7 @@ export function IconButton({ children, className, label, tone = 'default', type 
     <button
       aria-label={label}
       className={cx(
-        'nexus-action-btn disabled:cursor-not-allowed disabled:opacity-50',
+        'stocksense-action-btn disabled:cursor-not-allowed disabled:opacity-50',
         toneClass,
         className,
       )}

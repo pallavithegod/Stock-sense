@@ -1,5 +1,5 @@
 # ============================================================
-# NEXUS AI — MODEL INTELLIGENCE CORE
+# StockSense model intelligence core
 # Regime Weights | Meta Learning | Multi-World Simulation
 # ============================================================
 

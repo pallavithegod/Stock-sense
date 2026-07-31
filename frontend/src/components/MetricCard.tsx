@@ -10,7 +10,7 @@ const toneClass: Record<NonNullable<DashboardMetric['tone']>, string> = {
 
 export function MetricCard({ metric }: { metric: DashboardMetric }) {
   return (
-    <section className={cx('nexus-metric-card', toneClass[metric.tone ?? 'neutral'])}>
+    <section className={cx('stocksense-metric-card', toneClass[metric.tone ?? 'neutral'])}>
       <div className="metric-label">{metric.label}</div>
       <div className="metric-value">{metric.value}</div>
       {metric.detail ? <div className="metric-subline">{metric.detail}</div> : null}

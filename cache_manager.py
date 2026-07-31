@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NEXUS AI QUANTUM™ - Enhanced Cache Manager
+StockSense - Enhanced Cache Manager
 """
 
 from utils import encoding

@@ -5,7 +5,7 @@ type StatePanelProps = {
 
 export function StatePanel({ title, description }: StatePanelProps) {
   return (
-    <div className="nexus-state-panel">
+    <div className="stocksense-state-panel">
       <div>{title}</div>
       <p>{description}</p>
     </div>

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NEXUS AI QUANTUM™ - Advanced ML Models Module
+StockSense - Advanced ML Models Module
 LSTM/Transformer Models + SHAP/LIME Explainability
 Copyright © 2025 Future Financial AI. All rights reserved.
 """

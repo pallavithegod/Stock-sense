@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB = PROJECT_ROOT / "data" / "nexus.db"
+DEFAULT_DB = PROJECT_ROOT / "data" / "stocksense.db"
 DEFAULT_EXPORT_DIR = PROJECT_ROOT / "data" / "exports"
 DEFAULT_BACKUP_DIR = PROJECT_ROOT / "data" / "backups"
 
@@ -50,7 +50,7 @@ def backup_db(db_path: Path, output_dir: Path) -> Path:
 def export_json(db_path: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_path = output_dir / f"nexus_export_{stamp}.json"
+    export_path = output_dir / f"stocksense_export_{stamp}.json"
     payload = {}
     with connect(db_path) as conn:
         tables = [

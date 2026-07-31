@@ -2,11 +2,11 @@
 """Create safe demo data without modifying the active database by default.
 
 Default behavior:
-  - reads data/nexus.db when it exists
-  - writes a separate data/nexus_demo.db copy
+  - reads data/stocksense.db when it exists
+  - writes a separate data/stocksense_demo.db copy
   - inserts only DEMO_* symbols and DEMO_SEED_V1 tagged rows
 
-Use --apply-current only when you intentionally want demo rows in data/nexus.db.
+Use --apply-current only when you intentionally want demo rows in data/stocksense.db.
 The script is idempotent: running it again skips rows it already seeded.
 """
 
@@ -30,8 +30,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from backend.db import apply_migrations
 from backend.domain.predictions import canonicalize_prediction
 
-DEFAULT_SOURCE_DB = PROJECT_ROOT / "data" / "nexus.db"
-DEFAULT_DEMO_DB = PROJECT_ROOT / "data" / "nexus_demo.db"
+DEFAULT_SOURCE_DB = PROJECT_ROOT / "data" / "stocksense.db"
+DEFAULT_DEMO_DB = PROJECT_ROOT / "data" / "stocksense_demo.db"
 SEED_MARKER = "DEMO_SEED_V1"
 
 
@@ -57,7 +57,7 @@ DEMO_POSITIONS = (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Seed non-destructive demo data for StockSense/Nexus.")
+    parser = argparse.ArgumentParser(description="Seed non-destructive demo data for StockSense.")
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE_DB, help="Source DB to copy when creating demo DB.")
     parser.add_argument("--db", type=Path, default=DEFAULT_DEMO_DB, help="Target DB to seed.")
     parser.add_argument("--refresh-copy", action="store_true", help="Recreate demo DB from source before seeding.")
@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--apply-current",
         action="store_true",
-        help="Seed the active data/nexus.db. Requires --apply and bypasses demo-copy mode.",
+        help="Seed the active data/stocksense.db. Requires --apply and bypasses demo-copy mode.",
     )
     return parser.parse_args()
 

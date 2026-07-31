@@ -25,7 +25,7 @@ def db_tmp_path() -> Path:
 
 
 def test_migrations_create_authoritative_schema_and_hardened_pragmas(db_tmp_path):
-    db_path = db_tmp_path / "nexus.db"
+    db_path = db_tmp_path / "stocksense.db"
 
     result = apply_migrations(db_path)
     validation = validate_schema(db_path)

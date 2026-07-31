@@ -111,7 +111,7 @@ class Settings:
             "socketio_async_mode": _socketio_mode(env),
             "trust_proxy_headers": _env_bool(env, "TRUST_PROXY_HEADERS", False),
             "trusted_proxy_count": max(1, _env_int(env, "TRUSTED_PROXY_COUNT", 1)),
-            "db_path": Path(env.get("STOCKSENSE_DB_PATH", root / "data" / "nexus.db")),
+            "db_path": Path(env.get("STOCKSENSE_DB_PATH", root / "data" / "stocksense.db")),
             "market_db_path": Path(env.get("STOCKSENSE_MARKET_DB_PATH", root / "data" / "market_intelligence.db")),
             "adaptive_db_path": Path(env.get("STOCKSENSE_ADAPTIVE_DB_PATH", root / "data" / "adaptive_thresholds.db")),
             "audit_log_path": Path(env.get("STOCKSENSE_AUDIT_LOG_PATH", root / "data" / "prediction_audit.jsonl")),

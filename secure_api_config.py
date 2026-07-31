@@ -224,7 +224,7 @@ class APIConfig(SecureAPIConfig):
 class SystemSettings:
     """Enhanced system settings for your configuration"""
     
-    APP_NAME = "NEXUS AI QUANTUM™"
+    APP_NAME = "StockSense"
     APP_VERSION = "2.1.0-HF"  # HuggingFace Edition
     APP_DESCRIPTION = "Free AI-Powered Financial Intelligence Platform"
     
@@ -297,7 +297,7 @@ class SystemSettings:
 
 def show_api_status():
     """Display comprehensive API status for your setup"""
-    print("🔐 NEXUS AI QUANTUM™ - API Configuration Status (Your Free Setup)")
+    print("StockSense - API Configuration Status")
     print("=" * 70)
     
     config = SecureAPIConfig()
