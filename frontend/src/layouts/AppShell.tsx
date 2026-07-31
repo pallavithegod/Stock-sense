@@ -105,7 +105,7 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <div><i /></div>
           </div>
 
-          <div className="stocksense-mobile-nav">
+          <nav aria-label="Primary" className="stocksense-mobile-nav">
             {appRoutes.map((item) => (
               <a
                 aria-current={activePage === item.id ? 'page' : undefined}
@@ -117,7 +117,7 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
                 {item.label}
               </a>
             ))}
-          </div>
+          </nav>
         </aside>
 
         <section className="stocksense-workspace">

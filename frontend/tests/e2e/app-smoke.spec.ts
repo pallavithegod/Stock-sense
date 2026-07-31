@@ -17,12 +17,13 @@ test('dashboard loads and preserves stale data when refresh fails', async ({ pag
 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Market Dashboard' })).toBeVisible()
-  await expect(page.getByText('NIFTY 50')).toBeVisible()
+  const indicesTable = page.getByRole('table', { name: 'Market index prices and percentage change' })
+  await expect(indicesTable.getByRole('cell', { name: 'NIFTY 50' })).toBeVisible()
   await expect(page.getByText('INFY')).toBeVisible()
 
   await page.getByRole('button', { name: 'Refresh dashboard' }).click()
   await expect(page.getByText('Showing the last successful snapshot.')).toBeVisible()
-  await expect(page.getByText('NIFTY 50')).toBeVisible()
+  await expect(indicesTable.getByRole('cell', { name: 'NIFTY 50' })).toBeVisible()
 })
 
 test('search finds exact symbols and NSE variants', async ({ page }) => {
