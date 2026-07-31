@@ -74,6 +74,19 @@ Run the standalone scheduler only when testing background jobs:
 .\.venv\Scripts\python.exe -m backend.workers.scheduler_cli --once
 ```
 
+## Production Packaging
+
+The API production entry point is:
+
+```powershell
+gunicorn -c gunicorn.conf.py backend.wsgi:app
+```
+
+The backend Docker image runs the API as a non-root user, exposes
+`/health/live`, and persists `/app/data`, `/app/logs`, `/app/cache`, and
+`/app/models` as volumes. See `docs/DEPLOYMENT.md` for Docker, health checks,
+worker process, backup/restore, logging, CSP, and graceful shutdown details.
+
 ## Environment
 
 Useful local variables:

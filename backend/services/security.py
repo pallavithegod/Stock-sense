@@ -213,14 +213,17 @@ def mutation_guard_error() -> Response | None:
     ), 403
 
 
-def install_security_headers(app) -> None:
+def install_security_headers(app, settings=None) -> None:
     @app.after_request
     def add_security_headers(response):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-        if request.path.startswith("/api/"):
+        csp = getattr(settings, "content_security_policy", "") if settings else ""
+        if csp:
+            response.headers.setdefault("Content-Security-Policy", csp)
+        if request.path.startswith("/api/") or request.path.startswith("/health/"):
             response.headers.setdefault("Cache-Control", "no-store")
         return response
 

@@ -19,6 +19,7 @@ from backend.domain.portfolio import PortfolioService, SQLitePortfolioRepository
 from backend.domain.system import SystemService
 from backend.routes.api_v1 import create_api_v1_blueprint
 from backend.routes.dashboard_api import create_dashboard_api_blueprint
+from backend.routes.health import create_health_blueprint
 from backend.routes.market import create_market_blueprint
 from backend.routes.news import create_news_blueprint
 from backend.routes.portfolio_api import create_portfolio_api_blueprint
@@ -27,6 +28,7 @@ from backend.routes.research import create_research_blueprint
 from backend.routes.system import create_system_blueprint
 from backend.services.market_data import build_market_data_client
 from backend.services.news_service import NewsService
+from backend.services.observability import configure_logging, install_request_observability
 from backend.services.security import (
     mutation_guard_error,
     rate_limit_error,
@@ -105,6 +107,7 @@ def _register_core_routes(app: Flask, services: AppServices) -> None:
 
 def _register_blueprints(app: Flask, services: AppServices) -> None:
     news_service = NewsService(normalize_symbol=normalize_symbol)
+    app.register_blueprint(create_health_blueprint())
     app.register_blueprint(create_api_v1_blueprint(services=services, news_service=news_service))
     app.register_blueprint(create_system_blueprint(system_service=services.system))
     app.register_blueprint(create_dashboard_api_blueprint(dashboard_service=services.dashboard))
@@ -152,7 +155,12 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
         STOCKSENSE_SETTINGS=resolved_settings,
     )
 
+    logger = configure_logging(app, resolved_settings)
+    install_request_observability(app, logger)
+
     services = _build_services(resolved_settings)
+    services.logger = logger
+    services.runtime.logger = logger
     services.runtime.worker_status = services.worker_status
     app.extensions["stocksense_services"] = services
     app.foresight_system = services.runtime

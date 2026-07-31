@@ -11,6 +11,7 @@ import logging
 import time
 
 from backend.app.services import AppServices
+from backend.services.observability import log_event
 from backend.workers.jobs import JobDefinition, JobRegistry, JobResult, make_idempotency_key
 from backend.workers.status import WorkerStatus
 
@@ -74,6 +75,7 @@ class Scheduler:
                 error="job_already_running",
             )
             self.status.record(result)
+            self._log_job_result(result)
             return result
 
         try:
@@ -94,6 +96,7 @@ class Scheduler:
                         detail=dict(detail or {}),
                     )
                     self.status.record(result)
+                    self._log_job_result(result)
                     return result
                 except Exception as exc:
                     last_error = str(exc)
@@ -110,9 +113,22 @@ class Scheduler:
                 error=last_error or "job_failed",
             )
             self.status.record(result)
+            self._log_job_result(result)
             return result
         finally:
             self.status.release(job.name)
+
+    def _log_job_result(self, result: JobResult) -> None:
+        log_event(
+            self.logger,
+            "worker_job",
+            job_name=result.job_name,
+            idempotency_key=result.idempotency_key,
+            ok=result.ok,
+            attempts=result.attempts,
+            error=result.error,
+            detail=result.detail,
+        )
 
     def _run_with_timeout(self, job: JobDefinition) -> dict[str, object]:
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"stocksense-{job.name}")

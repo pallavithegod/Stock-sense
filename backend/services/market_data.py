@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import random
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -459,6 +460,7 @@ class ResilientMarketDataClient:
             )
             for provider in self.providers
         }
+        self.logger = logging.getLogger("stocksense")
 
     def quote(self, symbol: str, *, allow_stale: bool = False) -> ProviderResponse:
         return self._request(MarketDataRequest("quote", symbol=symbol), allow_stale=allow_stale)
@@ -483,12 +485,20 @@ class ResilientMarketDataClient:
         }
 
     def _request(self, request: MarketDataRequest, *, allow_stale: bool) -> ProviderResponse:
+        request_started = time.perf_counter()
         now = time.monotonic()
         stale_candidates: list[ProviderResponse] = []
         for provider in self.providers:
             key = request.cache_key(provider.name)
             cached = self.cache.get(key, now=now, allow_stale=allow_stale)
             if cached:
+                self._log_market_data(
+                    request=request,
+                    provider=provider.name,
+                    state=cached.state,
+                    cache_outcome="hit_stale" if cached.state == "cached_stale" else "hit",
+                    started_at=request_started,
+                )
                 if cached.state == "cached_stale":
                     stale_candidates.append(cached)
                 else:
@@ -502,6 +512,13 @@ class ResilientMarketDataClient:
             if response.state in {"live", "demo"}:
                 breaker.record_success()
                 self.cache.set(key, response, now=time.monotonic(), policy=self.policy)
+                self._log_market_data(
+                    request=request,
+                    provider=provider.name,
+                    state=response.state,
+                    cache_outcome="miss_store",
+                    started_at=request_started,
+                )
                 return response
             breaker.record_failure(now=time.monotonic(), error_code=response.error_code)
             if allow_stale:
@@ -510,8 +527,46 @@ class ResilientMarketDataClient:
                     stale_candidates.append(cached_stale)
 
         if stale_candidates:
+            self._log_market_data(
+                request=request,
+                provider=stale_candidates[0].provider,
+                state=stale_candidates[0].state,
+                cache_outcome="fallback_stale",
+                started_at=request_started,
+            )
             return stale_candidates[0]
+        self._log_market_data(
+            request=request,
+            provider="none",
+            state="unavailable",
+            cache_outcome="miss",
+            started_at=request_started,
+        )
         return ProviderResponse.unavailable("none", error_code="ALL_PROVIDERS_UNAVAILABLE")
+
+    def _log_market_data(
+        self,
+        *,
+        request: MarketDataRequest,
+        provider: str,
+        state: DataState,
+        cache_outcome: str,
+        started_at: float,
+    ) -> None:
+        try:
+            from backend.services.observability import log_event
+
+            log_event(
+                self.logger,
+                "market_data_request",
+                request_type=request.request_type,
+                provider=provider,
+                state=state,
+                cache_outcome=cache_outcome,
+                latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
+            )
+        except Exception:
+            self.logger.debug("market_data_observability_failed", exc_info=True)
 
     def _call(self, provider: MarketDataProvider, request: MarketDataRequest) -> ProviderResponse:
         for attempt in range(self.policy.max_retries + 1):

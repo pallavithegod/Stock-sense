@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from flask import Flask, request
 
+from backend.services.observability import log_event
+
 
 EXACT_ALIASES: dict[str, str] = {
     "/api/dashboard-data": "/api/v1/dashboard",
@@ -46,5 +48,10 @@ def register_compatibility_deprecation_logging(app: Flask) -> None:
             return None
         entry = {"alias": request.path, "replacement": replacement}
         app.extensions["stocksense_compatibility_alias_log"].append(entry)
-        app.logger.info("Compatibility API alias used: %s -> %s", request.path, replacement)
+        log_event(
+            app.logger,
+            "compatibility_alias_used",
+            alias=request.path,
+            replacement=replacement,
+        )
         return None

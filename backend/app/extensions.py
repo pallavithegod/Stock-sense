@@ -27,5 +27,4 @@ def init_extensions(app, settings) -> None:
         cors_allowed_origins=settings.socketio_cors_allowed_origins,
         async_mode=settings.socketio_async_mode,
     )
-    install_security_headers(app)
-
+    install_security_headers(app, settings)
