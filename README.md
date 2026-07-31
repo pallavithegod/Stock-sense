@@ -1,100 +1,183 @@
-# Stock Sense Nexus
+# StockSense Nexus
 
-Local/demo stock intelligence dashboard with a Flask backend, a React/Vite frontend, and SQLite as the active database for now.
+StockSense Nexus is a local/demo stock intelligence dashboard built as a
+modular monolith: React/Vite in `frontend/`, Flask in `backend/`, and SQLite as
+the active database. The current migration goal is a production-shaped resume
+project, not a microservice rewrite.
 
-## Current Local Stack
+## Architecture
 
-- Frontend: React, TypeScript, Tailwind CSS, Vite
-- Backend: Python, Flask
-- Database: SQLite at `data/nexus.db`
-- Future deferred database plan: PostgreSQL migration later
+```text
+frontend/ React + TypeScript + Vite
+    -> /api JSON over the Vite dev proxy
+backend/ Flask app factory + domain services + worker CLI
+    -> SQLite database files under data/
+tests/ backend, contract, integration, and worker coverage
+```
+
+SQLite remains intentional for the local/resume deployment. PostgreSQL and
+Redis stay deferred until the app needs multiple public web/worker processes or
+managed concurrent writes.
+
+## Fresh Setup
+
+Create and activate a virtual environment from the repository root:
+
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+If you already have the build tools installed in the venv and the environment
+blocks PyPI during isolated builds, use the restricted-network fallback:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]" --no-build-isolation
+```
+
+Install optional heavyweight ML and legacy intelligence dependencies only when
+working on those modules:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[ml]"
+```
+
+Install frontend dependencies:
+
+```powershell
+cd frontend
+npm install
+```
 
 ## Run Locally
 
-Start the backend from the project root:
+Start Flask from the repository root:
 
 ```powershell
-python app.py
+.\.venv\Scripts\python.exe app.py
 ```
 
-Start the frontend in another terminal:
+Start Vite in a second terminal:
 
 ```powershell
 cd frontend
 npm run dev
 ```
 
-Open:
+Open `http://localhost:5173/`. Vite proxies `/api` requests to Flask at
+`http://127.0.0.1:5000`. The Flask root is intentionally API-only.
 
-```text
-http://localhost:5173/
-```
-
-During development, Vite proxies browser requests from `/api` to the Flask
-backend at `http://127.0.0.1:5000`. The Flask root is API-only and intentionally
-returns a small JSON status document; use the Vite URL for the dashboard.
-
-If `vite.config.ts` changes while Vite is running, restart `npm run dev` once so
-the proxy configuration is reloaded.
-
-## SQLite Demo Mode
-
-SQLite is the intentional local/demo database for this phase. The primary database file is:
-
-```text
-data/nexus.db
-```
-
-Runtime database files are ignored by git, including `data/*.db`, SQLite WAL/SHM files, and generated exports/backups. This keeps personal portfolio data, local prediction history, and demo state out of GitHub.
-
-The database schema is initialized automatically when the backend imports `database.py`. Startup now also validates the required SQLite tables and columns so broken local DB state fails early.
-
-## SQLite Maintenance
-
-Validate the local schema:
+Run the standalone scheduler only when testing background jobs:
 
 ```powershell
-python scripts/sqlite_maintenance.py check
+.\.venv\Scripts\python.exe -m backend.workers.scheduler_cli --once
 ```
 
-Create a timestamped DB backup:
+## Environment
 
-```powershell
-python scripts/sqlite_maintenance.py backup
+Useful local variables:
+
+```env
+APP_ENV=development
+FLASK_SECRET_KEY=change-me-local-dev-secret
+FLASK_HOST=127.0.0.1
+FLASK_PORT=5000
+DISABLE_STARTUP_NETWORK=True
+OPEN_BROWSER=False
+STOCKSENSE_DB_PATH=data/nexus.db
+STOCKSENSE_MARKET_DB_PATH=data/market_intelligence.db
+STOCKSENSE_ADAPTIVE_DB_PATH=data/adaptive_thresholds.db
+STOCKSENSE_AUDIT_LOG_PATH=data/prediction_audit.jsonl
 ```
 
-Export all SQLite tables to JSON:
-
-```powershell
-python scripts/sqlite_maintenance.py export
-```
-
-Backup files go to `data/backups/` and JSON exports go to `data/exports/` by default.
-
-## Demo Security
-
-Local CORS is restricted to Flask and Vite localhost origins by default. For public demos, protect portfolio and feedback mutation routes with:
+For public demos, protect write routes:
 
 ```env
 REQUIRE_MUTATION_TOKEN=True
 DEMO_WRITE_TOKEN=replace_with_a_private_demo_token
 ```
 
-Clients must then send the token as `X-Demo-Token` or `Authorization: Bearer <token>`. Keep this disabled for normal local development unless you are testing public-demo behavior.
+Clients must then send `X-Demo-Token` or `Authorization: Bearer <token>`.
 
-## Phase 7 Manual Validation
+## Validation
 
-1. Run `python app.py`.
-2. In the frontend, add/edit/delete portfolio data.
-3. Stop and restart the backend.
-4. Confirm portfolio data persists.
-5. Run `python scripts/sqlite_maintenance.py check`.
-6. Confirm database files are not staged:
+Backend:
 
 ```powershell
-git status --short data
+.\.venv\Scripts\python.exe -m compileall -q app.py backend scripts
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest tests\integration\db -q
 ```
 
-## Deferred PostgreSQL Plan
+Frontend:
 
-PostgreSQL is not active yet. The later migration should introduce SQLAlchemy models, Alembic migrations, a `DATABASE_URL`, and a controlled SQLite-to-PostgreSQL data migration.
+```powershell
+cd frontend
+npm run lint
+npm run build
+npm run test
+npm run test:e2e
+```
+
+Tooling after installing development dependencies:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check app.py backend tests scripts
+.\.venv\Scripts\python.exe -m mypy app.py backend scripts
+.\.venv\Scripts\pre-commit.exe run --all-files
+```
+
+The first type-check baseline is intentionally practical and excludes legacy
+modules. Tighten it gradually as the migration continues.
+
+## SQLite Maintenance
+
+Validate or migrate the local schema:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\sqlite_maintenance.py check
+```
+
+Create a backup:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\sqlite_maintenance.py backup
+```
+
+Generate a dry-run cleanup report:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\sqlite_maintenance.py cleanup-report
+```
+
+No cleanup command modifies `data/nexus.db` without an explicit confirmation
+token and a backup path.
+
+## Demo Data And Screenshots
+
+Seed deterministic demo data:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_demo_data.py --db data\nexus.db
+```
+
+Phase 9 Playwright smoke tests generate workflow screenshots under
+`.dev-runtime/screenshots/`.
+
+## Dependency Files
+
+- `pyproject.toml` is the source of Python runtime, development, and optional
+  ML dependency metadata.
+- `requirements.txt`, `requirements-dev.txt`, and `requirements-ml.txt` are
+  compatibility entry points that install those pyproject groups.
+- `requirements-lock.txt` captures the current virtualenv for reproducibility.
+- `frontend/package-lock.json` locks the frontend dependency tree.
+
+## Current Limitations
+
+- SQLite is the active database; PostgreSQL is deferred.
+- Redis is not required for the current single-process local/resume target.
+- Some heavyweight ML and legacy intelligence modules remain optional.
+- CI includes a non-blocking type-check and dependency-audit baseline while the
+  migration is still retiring legacy surfaces.

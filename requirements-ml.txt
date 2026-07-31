@@ -1,4 +1,6 @@
 # Optional ML/legacy intelligence dependencies are pinned in pyproject.toml.
 # Install only when working on heavyweight ML or legacy intelligence modules:
 #   python -m pip install -e ".[ml]"
+# Restricted-network fallback after build tools already exist:
+#   python -m pip install -e ".[ml]" --no-build-isolation
 -e .[ml]

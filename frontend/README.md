@@ -1,96 +1,63 @@
 # StockSense Frontend
 
-Run the Flask backend from the repository root:
+React/Vite frontend for the StockSense dashboard. The Flask backend remains the
+API server; Vite serves the browser app and proxies `/api` to Flask in local
+development.
 
-```powershell
-python app.py
-```
-
-Run the React frontend in a second terminal:
+## Setup
 
 ```powershell
 cd frontend
+npm install
+```
+
+## Run
+
+Start Flask from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe app.py
+```
+
+Start the frontend:
+
+```powershell
 npm run dev
 ```
 
-Open `http://localhost:5173/`. Vite proxies `/api` requests to Flask at
-`http://127.0.0.1:5000`, avoiding cross-origin differences between localhost
-and 127.0.0.1.
+Open `http://localhost:5173/`. The Flask root at port 5000 is API-only.
 
-The Flask root at port 5000 is intentionally API-only and is not the React UI.
+## Scripts
 
-## Vite Foundation
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```powershell
+npm run lint
+npm run build
+npm run test
+npm run test:e2e
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- `npm run test` uses Vitest and React Testing Library for fast unit/component
+  tests.
+- `npm run test:e2e` uses Playwright for browser workflow smoke tests and
+  screenshots.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Structure
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```text
+src/
+  api/          typed endpoint modules
+  app/          application-level wiring when needed
+  components/   reusable UI primitives
+  layouts/      app shell and navigation
+  pages/        feature pages and presentation slices
+  query/        lightweight query/cache layer
+  router/       URL routing helpers
+  schemas/      runtime response validation
+  utils/        formatters and adapters
+tests/
+  unit/         Vitest/RTL tests
+  e2e/          Playwright tests with deterministic mocked APIs
 ```
+
+Keep Playwright for true browser checks only; use Vitest/RTL for fast component
+and adapter coverage.

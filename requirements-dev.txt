@@ -1,4 +1,6 @@
 # Development dependencies are pinned in pyproject.toml.
 # Install with:
 #   python -m pip install -e ".[dev]"
+# Restricted-network fallback after build tools already exist:
+#   python -m pip install -e ".[dev]" --no-build-isolation
 -e .[dev]
