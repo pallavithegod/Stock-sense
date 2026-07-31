@@ -7,7 +7,6 @@ from typing import Mapping
 
 from flask import Flask, jsonify
 
-from backend.app.compatibility import register_compatibility_deprecation_logging
 from backend.app.config import Settings
 from backend.app.errors import register_error_handlers
 from backend.app.extensions import init_extensions, socketio
@@ -18,14 +17,7 @@ from backend.domain.predictions import PredictionQueryService
 from backend.domain.portfolio import PortfolioService, SQLitePortfolioRepository
 from backend.domain.system import SystemService
 from backend.routes.api_v1 import create_api_v1_blueprint
-from backend.routes.dashboard_api import create_dashboard_api_blueprint
 from backend.routes.health import create_health_blueprint
-from backend.routes.market import create_market_blueprint
-from backend.routes.news import create_news_blueprint
-from backend.routes.portfolio_api import create_portfolio_api_blueprint
-from backend.routes.prediction_api import create_prediction_api_blueprint
-from backend.routes.research import create_research_blueprint
-from backend.routes.system import create_system_blueprint
 from backend.services.market_data import build_market_data_client
 from backend.services.news_service import NewsService
 from backend.services.observability import configure_logging, install_request_observability
@@ -109,25 +101,6 @@ def _register_blueprints(app: Flask, services: AppServices) -> None:
     news_service = NewsService(normalize_symbol=normalize_symbol)
     app.register_blueprint(create_health_blueprint())
     app.register_blueprint(create_api_v1_blueprint(services=services, news_service=news_service))
-    app.register_blueprint(create_system_blueprint(system_service=services.system))
-    app.register_blueprint(create_dashboard_api_blueprint(dashboard_service=services.dashboard))
-    app.register_blueprint(create_news_blueprint(news_service=news_service))
-    app.register_blueprint(create_market_blueprint(market_service=services.market))
-    app.register_blueprint(
-        create_portfolio_api_blueprint(
-            portfolio_service=services.portfolio,
-            market_service=services.market,
-        )
-    )
-    app.register_blueprint(create_prediction_api_blueprint(prediction_service=services.predictions))
-    app.register_blueprint(
-        create_research_blueprint(
-            normalize_symbol=normalize_symbol,
-            fetch_price_history=lambda symbol, period="1y", interval="1d": None,
-            foresight_system=services.runtime,
-            logger=services.logger,
-        )
-    )
 
 
 def startup(app: Flask) -> None:
@@ -168,7 +141,6 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
     init_extensions(app, resolved_settings)
     register_error_handlers(app)
     _register_security(app)
-    register_compatibility_deprecation_logging(app)
     _register_core_routes(app, services)
     _register_blueprints(app, services)
 

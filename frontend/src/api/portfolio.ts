@@ -47,9 +47,8 @@ function extractCollection<T>(payload: PortfolioEnvelope<T[]> | T[] | Record<str
 }
 
 export async function getPortfolioState(options?: RequestOptions) {
-  const state = await apiClient.get<PortfolioState>('/portfolio/state', {
+  const state = await apiClient.get<PortfolioState>('/portfolio', {
     timeoutMs: 20000,
-    unwrapData: false,
     ...options,
   })
   recordOf(state, 'portfolio state response')
@@ -67,11 +66,15 @@ export async function getPortfolioState(options?: RequestOptions) {
 }
 
 export async function getPortfolio(options?: RequestOptions) {
-  const payload = await apiClient.get<PortfolioPosition[] | Record<string, unknown>>('/portfolio', {
+  const payload = await apiClient.get<PortfolioPosition[] | Record<string, unknown>>('/portfolio/positions', {
     timeoutMs: 20000,
     ...options,
   })
-  return extractCollection<PortfolioPosition>(payload).data
+  const collection = extractCollection<PortfolioPosition>(payload)
+  if (collection.data.length) return collection.data
+  return 'positions' in payload && Array.isArray(payload.positions)
+    ? optionalArray<PortfolioPosition>(payload.positions)
+    : []
 }
 
 export async function createPortfolioPosition(payload: PortfolioMutationPayload, options?: RequestOptions) {

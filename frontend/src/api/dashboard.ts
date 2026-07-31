@@ -6,7 +6,6 @@ import type { RequestOptions } from '../types/api'
 async function getRawDashboard(path: string, options: RequestOptions = {}) {
   const payload = await apiClient.get<DashboardData>(path, {
     timeoutMs: 20000,
-    unwrapData: false,
     ...options,
   })
   recordOf(payload, 'dashboard response')
@@ -14,11 +13,11 @@ async function getRawDashboard(path: string, options: RequestOptions = {}) {
 }
 
 export function getLiveDashboard(options?: RequestOptions) {
-  return getRawDashboard('/dashboard-data/live', options)
+  return getRawDashboard('/dashboard/live', options)
 }
 
 export function getDashboard(options?: RequestOptions) {
-  return getRawDashboard('/dashboard-data', options)
+  return getRawDashboard('/dashboard', options)
 }
 
 export function getSystemStatus(options?: RequestOptions) {

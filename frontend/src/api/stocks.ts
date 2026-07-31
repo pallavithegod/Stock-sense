@@ -53,5 +53,5 @@ export async function getStocks(limit = 20, options?: RequestOptions) {
 }
 
 export function getStock(symbol: string, options?: RequestOptions) {
-  return apiClient.get<StockSummary>(`/stock/${encodeURIComponent(symbol)}`, { timeoutMs: 20000, ...options })
+  return apiClient.get<StockSummary>(`/stocks/${encodeURIComponent(symbol)}`, { timeoutMs: 20000, ...options })
 }
