@@ -19,7 +19,7 @@ export function IconButton({ children, className, label, tone = 'default', type 
     <button
       aria-label={label}
       className={cx(
-        'inline-flex h-10 min-w-10 items-center justify-center rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50',
+        'nexus-action-btn disabled:cursor-not-allowed disabled:opacity-50',
         toneClass,
         className,
       )}

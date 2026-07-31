@@ -1,4 +1,3 @@
-import { APP_NAME } from '../config/env'
 import type { MouseEvent, ReactNode } from 'react'
 import { appRoutes, labelForPage, pathForPage } from '../router/routes'
 import type { AppPage } from '../types/navigation'
@@ -19,22 +18,19 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-white/10 bg-slate-950/95 px-5 py-6 lg:block">
-        <div>
-          <div className="text-lg font-semibold text-white">{APP_NAME}</div>
-          <div className="mt-1 text-xs uppercase text-cyan-300">Market intelligence desk</div>
+    <div className="nexus-app">
+      <header className="nexus-header">
+        <div className="nexus-brand">
+          <span className="nexus-atom" aria-hidden="true" />
+          <span className="nexus-brand-text">NEXUS AI <b>QUANTUM</b></span>
+          <span className="nexus-live"><span /> LIVE NSE/BSE</span>
         </div>
 
-        <nav className="mt-8 space-y-1">
+        <nav aria-label="Primary" className="nexus-top-nav">
           {appRoutes.map((item) => (
             <a
               aria-current={activePage === item.id ? 'page' : undefined}
-              className={`block w-full rounded-md px-3 py-2 text-left text-sm ${
-                activePage === item.id
-                  ? 'bg-cyan-400/10 text-cyan-200'
-                  : 'text-slate-400 hover:bg-white/[0.04] hover:text-white'
-              }`}
+              className={activePage === item.id ? 'active' : ''}
               href={pathForPage(item.id)}
               key={item.id}
               onClick={(event) => handleNavigate(event, item.id)}
@@ -43,25 +39,77 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             </a>
           ))}
         </nav>
-      </aside>
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/90 px-5 py-4 backdrop-blur">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="nexus-header-tools">
+          <label className="nexus-search">
+            <span aria-hidden="true">Q</span>
+            <input placeholder="Search stocks, signals, portfolio" />
+          </label>
+          <button className="nexus-icon-btn" type="button" aria-label="Theme palette">TM</button>
+          <button className="nexus-avatar" type="button" aria-label="User profile">AI</button>
+        </div>
+      </header>
+
+      <div className="nexus-main">
+        <aside className="nexus-sidebar">
+          <div className="nexus-sidebar-title">
+            <span className="nexus-atom small" aria-hidden="true" />
             <div>
-              <div className="text-sm font-medium text-cyan-200">{APP_NAME}</div>
-              <h1 className="text-xl font-semibold text-white">{currentPageLabel}</h1>
+              <strong>NEXUS AI</strong>
+              <span>Market intelligence desk</span>
             </div>
           </div>
-          <nav aria-label="Primary" className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+
+          <div className="nexus-side-card accent-yellow">
+            <div className="side-card-head">
+              <b>Dashboard</b>
+              <span className="pill green">AUTO</span>
+            </div>
+            <div className="side-row"><span>Total Return</span><b id="portVal">--</b></div>
+            <div className="side-row"><span>Model Accuracy</span><b className="cyan">Live</b></div>
+          </div>
+
+          <div className="nexus-side-card mini-chart-card">
+            <div className="side-card-head">
+              <b>AI Index</b>
+              <span className="green">+--</span>
+            </div>
+            <div className="mini-spark" aria-hidden="true">
+              <span style={{ height: '28%' }} />
+              <span style={{ height: '45%' }} />
+              <span style={{ height: '36%' }} />
+              <span style={{ height: '64%' }} />
+              <span style={{ height: '52%' }} />
+              <span style={{ height: '78%' }} />
+              <span style={{ height: '68%' }} />
+            </div>
+            <div className="side-row"><span>Session</span><b>SYNC</b></div>
+          </div>
+
+          <div className="nexus-side-section">
+            <div className="side-card-head"><b>AI Performance</b><span>--</span></div>
+            <div className="side-row"><span>Total Predictions</span><b>--</b></div>
+            <div className="side-row"><span>Model Accuracy</span><b className="cyan">--</b></div>
+            <div className="side-row"><span>Commodities Signal</span><b className="green">--</b></div>
+          </div>
+
+          <div className="nexus-side-section">
+            <div className="side-card-head"><b>Market Snapshot</b><span className="pill">NOW</span></div>
+            <div className="side-row"><span>Momentum Score</span><b className="green">--</b></div>
+            <div className="side-row"><span>Trend Divergence</span><b className="cyan">--</b></div>
+            <div className="side-row"><span>AI Self-Learning</span><b className="pill cyan">Cycle --</b></div>
+          </div>
+
+          <div className="sync-card">
+            <span>System Sync</span>
+            <div><i /></div>
+          </div>
+
+          <div className="nexus-mobile-nav">
             {appRoutes.map((item) => (
               <a
                 aria-current={activePage === item.id ? 'page' : undefined}
-                className={`shrink-0 rounded-md border px-3 py-2 text-sm ${
-                  activePage === item.id
-                    ? 'border-cyan-300/40 bg-cyan-400/10 text-cyan-100'
-                    : 'border-white/10 text-slate-300'
-                }`}
+                className={activePage === item.id ? 'active' : ''}
                 href={pathForPage(item.id)}
                 key={item.id}
                 onClick={(event) => handleNavigate(event, item.id)}
@@ -69,13 +117,22 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
                 {item.label}
               </a>
             ))}
-          </nav>
-        </header>
+          </div>
+        </aside>
 
-        <main className="px-5 py-6">{children}</main>
-        <footer className="border-t border-white/10 px-5 py-4 text-xs leading-5 text-slate-500">
-          StockSense is a demo research tool. Signals, forecasts, and portfolio metrics are not financial advice.
-        </footer>
+        <section className="nexus-workspace">
+          <div className="nexus-topbar">
+            <div>
+              <span className="topbar-kicker">NEXUS TERMINAL</span>
+              <h1>{currentPageLabel}</h1>
+            </div>
+            <div className="topbar-right">
+              <span className="topbar-chip">127.0.0.1:5000</span>
+              <span className="topbar-chip teal">API LINK</span>
+            </div>
+          </div>
+          <main className="nexus-content">{children}</main>
+        </section>
       </div>
     </div>
   )

@@ -6,10 +6,10 @@ type SectionHeaderProps = {
 
 export function SectionHeader({ title, eyebrow, action }: SectionHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="nexus-section-header">
       <div>
-        {eyebrow ? <div className="text-xs font-medium uppercase text-cyan-300">{eyebrow}</div> : null}
-        <h2 className="mt-1 text-base font-semibold text-white">{title}</h2>
+        {eyebrow ? <div className="section-eyebrow">{eyebrow}</div> : null}
+        <h2>{title}</h2>
       </div>
       {action}
     </div>

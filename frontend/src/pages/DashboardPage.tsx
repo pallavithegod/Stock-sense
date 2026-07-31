@@ -9,8 +9,12 @@ import { normalizeDashboard } from '../utils/dashboardAdapter'
 import { cx, formatNumber, formatPercent } from '../utils/format'
 
 function toneForChange(value?: number) {
-  if (value === undefined) return 'text-slate-400'
-  return value >= 0 ? 'text-emerald-300' : 'text-rose-300'
+  if (value === undefined) return 'muted'
+  return value >= 0 ? 'positive' : 'negative'
+}
+
+function displayChange(value?: number) {
+  return value === undefined ? '--' : formatPercent(value)
 }
 
 export function DashboardPage() {
@@ -22,77 +26,126 @@ export function DashboardPage() {
     staleMs: 30_000,
   })
   const dashboard = normalizeDashboard(data)
+  const featuredIndex = dashboard.indices[0]
+  const secondaryIndex = dashboard.indices[1]
+  const source = dashboard.source ?? (loading || refreshing ? 'Syncing' : 'Live')
 
   return (
-    <div className="mx-auto max-w-7xl">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="text-sm font-medium uppercase text-cyan-300">Live command center</div>
-          <h1 className="mt-1 text-2xl font-semibold text-white">Market Dashboard</h1>
-        </div>
-        <IconButton
-          disabled={refreshing}
-          label="Refresh dashboard"
-          onClick={refetch}
-          tone="primary"
-        >
-          {refreshing ? 'Syncing' : 'Refresh'}
-        </IconButton>
+    <div className="nexus-dashboard-page">
+      <div className="dashboard-command-row">
+        <section className="command-panel command-panel-hero">
+          <div className="command-grid-bg" aria-hidden="true" />
+          <div className="panel-overline">Live command center</div>
+          <div className="hero-command-content">
+            <div>
+              <h2>Market Dashboard</h2>
+              <p>Real-time portfolio intelligence, index flow, model signals, alerts, and news compressed into a professional trading desk.</p>
+            </div>
+            <IconButton disabled={refreshing} label="Refresh dashboard" onClick={refetch} tone="primary">
+              {refreshing ? 'Syncing' : 'Refresh'}
+            </IconButton>
+          </div>
+          <div className="command-status-strip">
+            <div>
+              <span>API Source</span>
+              <b>{source}</b>
+            </div>
+            <div>
+              <span>Primary Index</span>
+              <b>{featuredIndex?.name ?? '--'}</b>
+            </div>
+            <div>
+              <span>Last Update</span>
+              <b>{dashboard.lastUpdate ?? '--'}</b>
+            </div>
+          </div>
+        </section>
+
+        <section className="command-panel market-pulse-panel">
+          <SectionHeader eyebrow="NSE/BSE" title="Market pulse" />
+          <div className="pulse-score">
+            <span>{featuredIndex ? formatNumber(featuredIndex.price) : '--'}</span>
+            <b className={toneForChange(featuredIndex?.changePercent)}>
+              {displayChange(featuredIndex?.changePercent)}
+            </b>
+          </div>
+          <div className="pulse-rail" aria-hidden="true">
+            <span style={{ width: featuredIndex && (featuredIndex.changePercent ?? 0) >= 0 ? '72%' : '38%' }} />
+          </div>
+          <div className="pulse-secondary">
+            <span>{secondaryIndex?.name ?? 'Second index'}</span>
+            <b className={toneForChange(secondaryIndex?.changePercent)}>
+              {displayChange(secondaryIndex?.changePercent)}
+            </b>
+          </div>
+        </section>
       </div>
 
       {error ? (
-        <div className="mb-5 rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
-          Market data is not reachable yet: {error}. {isStale ? 'Showing the last successful snapshot.' : 'Start the backend, then refresh this page.'}
+        <div className="nexus-alert-panel">
+          Market data is not reachable yet: {error}.{' '}
+          {isStale ? 'Showing the last successful snapshot.' : 'Start the backend, then refresh this page.'}
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="nexus-metrics-grid">
         {dashboard.metrics.map((metric) => (
           <MetricCard key={metric.label} metric={metric} />
         ))}
       </div>
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[1.35fr_0.9fr]">
-        <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+      <div className="dashboard-grid-main">
+        <section className="command-panel market-board-panel">
           <SectionHeader
-            action={
-              <div className="rounded-md bg-white/[0.04] px-2 py-1 text-xs text-slate-400">
-                {loading || refreshing ? 'Syncing' : dashboard.source ?? 'Live'}
-              </div>
-            }
+            action={<div className="data-badge">{loading || refreshing ? 'SYNCING' : source.toUpperCase()}</div>}
             eyebrow="Market"
-            title="Indices"
+            title="Indices board"
           />
 
-          <div className="mt-4 overflow-hidden rounded-lg border border-white/10">
-            <table className="w-full table-fixed text-left text-sm">
+          <div className="index-tile-grid">
+            {dashboard.indices.length ? (
+              dashboard.indices.slice(0, 4).map((index) => (
+                <div className="index-tile" key={`${index.name}-${index.symbol ?? ''}`}>
+                  <div>
+                    <strong>{index.name}</strong>
+                    <span>{index.symbol ?? 'INDEX'}</span>
+                  </div>
+                  <b>{formatNumber(index.price)}</b>
+                  <em className={toneForChange(index.changePercent)}>{displayChange(index.changePercent)}</em>
+                </div>
+              ))
+            ) : (
+              <StatePanel description={loading || refreshing ? 'Loading index data.' : 'No index data available yet.'} title="No indices" />
+            )}
+          </div>
+
+          <div className="nexus-table-wrap">
+            <table>
               <caption className="sr-only">Market index prices and percentage change</caption>
-              <thead className="bg-white/[0.04] text-xs uppercase text-slate-400">
+              <thead>
                 <tr>
-                  <th className="px-3 py-3">Index</th>
-                  <th className="px-3 py-3 text-right">Price</th>
-                  <th className="px-3 py-3 text-right">Change</th>
+                  <th>Index</th>
+                  <th>Price</th>
+                  <th>Change</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/10">
+              <tbody>
                 {dashboard.indices.length ? (
                   dashboard.indices.map((index) => (
                     <tr key={`${index.name}-${index.symbol ?? ''}`}>
-                      <td className="px-3 py-3">
-                        <div className="font-medium text-white">{index.name}</div>
-                        <div className="text-xs text-slate-500">{index.symbol}</div>
+                      <td>
+                        <div className="table-primary">{index.name}</div>
+                        <div className="table-secondary">{index.symbol}</div>
                       </td>
-                      <td className="px-3 py-3 text-right text-slate-200">
-                        {formatNumber(index.price)}
-                      </td>
-                      <td className={cx('px-3 py-3 text-right', toneForChange(index.changePercent))}>
-                        {formatPercent(index.changePercent)}
+                      <td className="numeric">{formatNumber(index.price)}</td>
+                      <td className={cx('numeric', toneForChange(index.changePercent))}>
+                        {displayChange(index.changePercent)}
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="px-3 py-8 text-center text-slate-400" colSpan={3}>
+                    <td className="empty-cell" colSpan={3}>
                       {loading || refreshing ? 'Loading index data...' : 'No index data available yet.'}
                     </td>
                   </tr>
@@ -102,47 +155,69 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-          <SectionHeader eyebrow="Signals" title="Top Opportunities" />
-          <div className="mt-4 space-y-3">
+        <section className="command-panel signal-radar-panel">
+          <SectionHeader eyebrow="Signals" title="AI opportunity radar" />
+          <div className="radar-stage" aria-hidden="true">
+            <div className="radar-ring ring-one" />
+            <div className="radar-ring ring-two" />
+            <div className="radar-sweep" />
+            {dashboard.signals.slice(0, 5).map((signal, index) => (
+              <span
+                className="radar-dot"
+                key={`${signal.symbol}-${index}`}
+                style={{
+                  left: `${22 + index * 13}%`,
+                  top: `${30 + (index % 3) * 15}%`,
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="opportunity-list">
             {dashboard.signals.length ? (
-              dashboard.signals.map((signal) => (
-                <div
-                  className="rounded-md border border-white/10 bg-slate-950/50 p-3"
-                  key={`${signal.symbol}-${signal.signal ?? ''}`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium text-white">{signal.symbol}</div>
-                    <div className="rounded bg-cyan-300/10 px-2 py-1 text-xs text-cyan-200">
-                      {signal.signal ?? 'WATCH'}
-                    </div>
+              dashboard.signals.slice(0, 6).map((signal) => (
+                <div className="opportunity-row" key={`${signal.symbol}-${signal.signal ?? ''}`}>
+                  <div>
+                    <strong>{signal.symbol}</strong>
+                    <span>{signal.signal ?? 'WATCH'}</span>
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
-                    <span>{formatNumber(signal.price)}</span>
-                    <span>{formatPercent(signal.changePercent)}</span>
-                    <span>{formatNumber(signal.confidence)} conf</span>
+                  <div>
+                    <b>{formatNumber(signal.price)}</b>
+                    <em className={toneForChange(signal.changePercent)}>{displayChange(signal.changePercent)}</em>
                   </div>
+                  <small>{formatNumber(signal.confidence)} conf</small>
                 </div>
               ))
             ) : (
-              <StatePanel
-                description={loading ? 'Signals are loading.' : 'No signals are available yet.'}
-                title="No opportunities"
-              />
+              <StatePanel description={loading ? 'Signals are loading.' : 'No signals are available yet.'} title="No opportunities" />
             )}
           </div>
         </section>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+      <div className="dashboard-grid-secondary">
+        <section className="command-panel ai-allocation-panel">
+          <SectionHeader eyebrow="AI" title="Allocation intelligence" />
+          <div className="allocation-body">
+            <div className="allocation-donut" aria-label="AI allocation mix">
+              <span>AI</span>
+            </div>
+            <div className="allocation-legend">
+              <div><i className="legend-green" />Core holdings <b>54%</b></div>
+              <div><i className="legend-cyan" />Momentum <b>28%</b></div>
+              <div><i className="legend-yellow" />Cash buffer <b>18%</b></div>
+            </div>
+          </div>
+        </section>
+
+        <section className="command-panel">
           <SectionHeader eyebrow="Risk" title="Alerts" />
-          <div className="mt-4 space-y-3">
+          <div className="stack-list">
             {dashboard.alerts.length ? (
               dashboard.alerts.map((alert) => (
-                <div className="rounded-md border border-white/10 p-3" key={alert.title}>
-                  <div className="text-sm font-medium text-white">{alert.title}</div>
-                  <div className="mt-1 text-sm text-slate-400">{alert.detail ?? alert.symbol}</div>
+                <div className="stack-item" key={alert.title}>
+                  <div className="stack-item-title">{alert.title}</div>
+                  <p>{alert.detail ?? alert.symbol}</p>
                 </div>
               ))
             ) : (
@@ -151,14 +226,14 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-          <SectionHeader eyebrow="News" title="Market Feed" />
-          <div className="mt-4 space-y-3">
+        <section className="command-panel">
+          <SectionHeader eyebrow="News" title="Market feed" />
+          <div className="stack-list">
             {dashboard.news.length ? (
               dashboard.news.map((item) => (
-                <div className="rounded-md border border-white/10 p-3" key={item.title}>
-                  <div className="text-sm font-medium text-white">{item.title}</div>
-                  <div className="mt-1 text-sm text-slate-400">{item.detail}</div>
+                <div className="stack-item" key={item.title}>
+                  <div className="stack-item-title">{item.title}</div>
+                  <p>{item.detail}</p>
                 </div>
               ))
             ) : (
