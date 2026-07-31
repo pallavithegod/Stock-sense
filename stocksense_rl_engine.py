@@ -34,7 +34,7 @@ except ImportError:
 
 warnings.filterwarnings("ignore")
 
-class QuantumRiskAgent:
+class StockSenseRiskAgent:
     """Reinforcement Learning Agent for Risk Management"""
     
     def __init__(self, 
@@ -540,7 +540,7 @@ class RiskDashboard:
     
     def __init__(self):
         """Initialize risk dashboard"""
-        self.risk_agent = QuantumRiskAgent()
+        self.risk_agent = StockSenseRiskAgent()
         self.optimizer = PortfolioOptimizer()
     
     def render_rl_training_interface(self, df: pd.DataFrame, symbol: str):
@@ -754,7 +754,7 @@ risk_dashboard = RiskDashboard()
 
 # Export main classes
 __all__ = [
-    'QuantumRiskAgent',
+    'StockSenseRiskAgent',
     'PortfolioOptimizer', 
     'RiskDashboard',
     'risk_dashboard'

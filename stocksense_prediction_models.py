@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class StockSensePredictionEngine:
     """Core AI prediction engine for StockSense."""
     
-    def __init__(self, quantum_ai_instance):
-        self.quantum_ai = quantum_ai_instance
+    def __init__(self, stocksense_ai_instance):
+        self.stocksense_ai = stocksense_ai_instance
         
     def fetch_data(self, symbol):
         """Fetch stock data from Yahoo Finance."""
@@ -63,14 +63,14 @@ class StockSensePredictionEngine:
 
     def predict_ensemble(self, symbol, volume=0):
         """
-        Thin adapter delegates all intelligence to QuantumAI.
+        Thin adapter delegates all intelligence to the StockSense AI runtime.
         """
 
         hist, symbol_clean = self.fetch_data(symbol)
         if hist is None or hist.empty:
             return None
 
-        return self.quantum_ai.get_comprehensive_prediction(
+        return self.stocksense_ai.get_comprehensive_prediction(
             symbol_clean,
             hist
         )

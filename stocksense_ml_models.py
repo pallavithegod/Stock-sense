@@ -78,7 +78,7 @@ def get_sentiment_pipeline():
 
 warnings.filterwarnings("ignore")
 
-class QuantumLSTMModel:
+class StockSenseLSTMModel:
     """Advanced LSTM Model with Attention for Stock Prediction"""
     
     def __init__(self, sequence_length: int = 60, features: int = 5):
@@ -92,9 +92,9 @@ class QuantumLSTMModel:
         self.engine_error = TF_IMPORT_ERROR
 
         if self.engine_ready:
-            logger.info("✅ QuantumLSTM loaded on-demand (TensorFlow ACTIVE)")
+            logger.info("StockSenseLSTM loaded on-demand (TensorFlow ACTIVE)")
         else:
-            logger.error("❌ QuantumLSTM blocked (TensorFlow NOT available)")
+            logger.error("StockSenseLSTM blocked (TensorFlow NOT available)")
 
         from sklearn.preprocessing import MinMaxScaler
         self.scaler = MinMaxScaler()
@@ -318,7 +318,7 @@ class QuantumLSTMModel:
         except Exception as e:
             return {"error": f"Prediction failed: {str(e)}"}
 
-class QuantumTransformerModel:
+class StockSenseTransformerModel:
     """Transformer-based model for financial time series"""
     
     def __init__(self, sequence_length: int = 60, d_model: int = 128):
@@ -477,8 +477,8 @@ class AdvancedMLDashboard:
     
     def __init__(self):
         """Initialize ML dashboard"""
-        self.lstm_model = QuantumLSTMModel()
-        self.transformer_model = QuantumTransformerModel()
+        self.lstm_model = StockSenseLSTMModel()
+        self.transformer_model = StockSenseTransformerModel()
         self.explainer = ExplainabilityEngine()
     
     def render_model_training_interface(self, df: pd.DataFrame, symbol: str):
@@ -667,8 +667,8 @@ ml_dashboard = AdvancedMLDashboard()
 
 # Export main classes
 __all__ = [
-    'QuantumLSTMModel', 
-    'QuantumTransformerModel', 
+    'StockSenseLSTMModel',
+    'StockSenseTransformerModel',
     'ExplainabilityEngine',
     'AdvancedMLDashboard',
     'ml_dashboard'
