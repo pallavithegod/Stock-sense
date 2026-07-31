@@ -1,32 +1,64 @@
 # StockSense
 
-StockSense is a local/demo stock intelligence dashboard built as a
-modular monolith: React/Vite in `frontend/`, Flask in `backend/`, and SQLite as
-the active database. The current migration goal is a production-shaped resume
-project, not a microservice rewrite.
+StockSense is a professional stock market intelligence dashboard for tracking
+markets, portfolios, predictions, news, alerts, and research from one
+production-shaped application. It combines a polished React trading interface
+with a modular Flask API, local persistence, background jobs, and automated
+quality checks.
+
+The project is designed to run cleanly on a developer machine while keeping the
+same operational shape expected from a deployable web application: API-only
+backend, Vite-powered frontend, validated configuration, health checks,
+structured logs, database maintenance scripts, and repeatable tests.
+
+## Features
+
+- Live-style market dashboard with indices, opportunity signals, alerts, and
+  news feed panels.
+- Portfolio desk with holdings, add/edit/delete flows, open lots, sell
+  simulation, realized gains, and tax-intelligence views.
+- Prediction console with signal, price, target, expected return, confidence,
+  allocation, risk, and provenance fields.
+- Research and news workspaces for market reports, sentiment, symbol-focused
+  coverage, emotional-state analysis, and futures scenarios.
+- Stock search with NSE/BSE-aware symbol handling and direct symbol navigation.
+- Responsive StockSense terminal UI built for desktop and mobile workflows.
+- SQLite-backed local data with schema, backup, cleanup-report, and
+  maintenance commands.
+- Background worker CLI for scheduled refresh and maintenance jobs.
+- CI-friendly frontend and backend test suites, including browser smoke tests.
 
 ## Architecture
 
 ```text
-frontend/ React + TypeScript + Vite
-    -> /api JSON over the Vite dev proxy
-backend/ Flask app factory + domain services + worker CLI
-    -> SQLite database files under data/
-tests/ backend, contract, integration, and worker coverage
+frontend/
+  React + TypeScript + Vite
+  reusable UI components, typed API modules, routing, query/cache layer
+
+backend/
+  Flask application factory
+  versioned API routes, domain services, providers, workers, health checks
+
+data/
+  SQLite databases and audit/runtime files
+
+tests/
+  backend unit/integration tests, database hardening tests, frontend unit tests,
+  Playwright browser smoke tests
 ```
 
-SQLite remains intentional for the local/resume deployment. PostgreSQL and
-Redis stay deferred until the app needs multiple public web/worker processes or
-managed concurrent writes.
+Flask serves JSON APIs. Vite serves the browser app during development and
+proxies `/api` requests to Flask.
 
-Legacy root/static dashboard assets and retired backend bridge modules have
-been removed. The remaining compatibility API aliases stay temporarily because
-the React frontend still uses some pre-v1 endpoints for portfolio lots, sell
-simulation, research extras, and dashboard fallbacks.
+## Tech Stack
 
-## Fresh Setup
+- Frontend: React, TypeScript, Vite, Tailwind CSS, Vitest, Playwright.
+- Backend: Python, Flask, Flask-SocketIO, Pydantic contracts, SQLite.
+- Tooling: Ruff, mypy, pytest, pre-commit, GitHub Actions, Docker, Gunicorn.
 
-Create and activate a virtual environment from the repository root:
+## Quick Start
+
+Create and activate the Python environment from the repository root:
 
 ```powershell
 py -3.13 -m venv .venv
@@ -34,18 +66,11 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-If you already have the build tools installed in the venv and the environment
-blocks PyPI during isolated builds, use the restricted-network fallback:
+If your environment already has the required build tools and isolated builds
+cannot reach PyPI, use:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]" --no-build-isolation
-```
-
-Install optional heavyweight ML and legacy intelligence dependencies only when
-working on those modules:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[ml]"
 ```
 
 Install frontend dependencies:
@@ -57,78 +82,89 @@ npm install
 
 ## Run Locally
 
-Start Flask from the repository root:
+Start the Flask API from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe app.py
 ```
 
-Start Vite in a second terminal:
+Start the React frontend in a second terminal:
 
 ```powershell
 cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173/`. Vite proxies `/api` requests to Flask at
-`http://127.0.0.1:5000`. The Flask root is intentionally API-only.
+Open:
 
-Run the standalone scheduler only when testing background jobs:
+```text
+http://localhost:5173/
+```
+
+Vite proxies `/api` to:
+
+```text
+http://127.0.0.1:5000
+```
+
+Run scheduled jobs manually when needed:
 
 ```powershell
 .\.venv\Scripts\python.exe -m backend.workers.scheduler_cli --once
 ```
 
-## Production Packaging
+## Configuration
 
-The API production entry point is:
-
-```powershell
-gunicorn -c gunicorn.conf.py backend.wsgi:app
-```
-
-The backend Docker image runs the API as a non-root user, exposes
-`/health/live`, and persists `/app/data`, `/app/logs`, `/app/cache`, and
-`/app/models` as volumes. See `docs/DEPLOYMENT.md` for Docker, health checks,
-worker process, backup/restore, logging, CSP, and graceful shutdown details.
-
-## Environment
-
-Useful local variables:
+Copy `.env.example` to `.env` and adjust local values:
 
 ```env
 APP_ENV=development
-FLASK_SECRET_KEY=change-me-local-dev-secret
+FLASK_SECRET_KEY=replace_with_a_long_random_secret
 FLASK_HOST=127.0.0.1
 FLASK_PORT=5000
-DISABLE_STARTUP_NETWORK=True
 OPEN_BROWSER=False
+DISABLE_STARTUP_NETWORK=True
+
 STOCKSENSE_DB_PATH=data/stocksense.db
 STOCKSENSE_MARKET_DB_PATH=data/market_intelligence.db
 STOCKSENSE_ADAPTIVE_DB_PATH=data/adaptive_thresholds.db
 STOCKSENSE_AUDIT_LOG_PATH=data/prediction_audit.jsonl
 ```
 
-For public demos, protect write routes:
+External provider keys are optional for local development. Add them only when
+you want live provider-backed market, news, or model integrations:
+
+```env
+ALPHA_VANTAGE_API_KEY=
+TWELVE_DATA_API_KEY=
+NEWS_API_KEY=
+FINNHUB_API_KEY=
+FMP_API_KEY=
+DATA_GOV_API_KEY=
+HUGGINGFACEHUB_API_TOKEN=
+```
+
+For a public demo, protect write endpoints:
 
 ```env
 REQUIRE_MUTATION_TOKEN=True
 DEMO_WRITE_TOKEN=replace_with_a_private_demo_token
 ```
 
-Clients must then send `X-Demo-Token` or `Authorization: Bearer <token>`.
+Clients can provide the token with either `X-Demo-Token` or
+`Authorization: Bearer <token>`.
 
 ## Validation
 
-Backend:
+Backend checks:
 
 ```powershell
-.\.venv\Scripts\python.exe -m compileall -q app.py backend scripts
+.\.venv\Scripts\python.exe -m compileall -q app.py backend scripts utils
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m pytest tests\integration\db -q
 ```
 
-Frontend:
+Frontend checks:
 
 ```powershell
 cd frontend
@@ -138,7 +174,7 @@ npm run test
 npm run test:e2e
 ```
 
-Tooling after installing development dependencies:
+Quality tooling:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check app.py backend tests scripts
@@ -146,12 +182,9 @@ Tooling after installing development dependencies:
 .\.venv\Scripts\pre-commit.exe run --all-files
 ```
 
-The first type-check baseline is intentionally practical and excludes legacy
-modules. Tighten it gradually as the migration continues.
+## Database Maintenance
 
-## SQLite Maintenance
-
-Validate or migrate the local schema:
+Check the local schema:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\sqlite_maintenance.py check
@@ -163,41 +196,83 @@ Create a backup:
 .\.venv\Scripts\python.exe scripts\sqlite_maintenance.py backup
 ```
 
-Generate a dry-run cleanup report:
+Generate a cleanup report:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\sqlite_maintenance.py cleanup-report
 ```
 
-No cleanup command modifies `data/stocksense.db` without an explicit confirmation
-token and a backup path.
+Cleanup commands are confirmation-gated and produce a backup path before
+modifying the active database.
 
-## Demo Data And Screenshots
+## Demo Data
 
-Seed deterministic demo data:
+Seed deterministic local data:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\seed_demo_data.py --db data\stocksense.db
 ```
 
-Phase 9 Playwright smoke tests generate workflow screenshots under
-`.dev-runtime/screenshots/`.
+Playwright browser checks can also capture workflow screenshots under:
+
+```text
+.dev-runtime/screenshots/
+```
+
+## Production Entry Points
+
+Gunicorn:
+
+```powershell
+gunicorn -c gunicorn.conf.py backend.wsgi:app
+```
+
+Docker:
+
+```powershell
+docker build -t stocksense .
+docker run --env-file .env -p 5000:5000 stocksense
+```
+
+Operational details for Docker, health checks, worker execution, backups,
+logging, CSP, and graceful shutdown are documented in `docs/DEPLOYMENT.md`.
+
+Health endpoints:
+
+```text
+/health/live
+/health/ready
+```
+
+## Project Layout
+
+```text
+backend/
+  app/             application factory, config, extensions, contracts
+  domain/          market, portfolio, prediction, news, and system services
+  routes/          HTTP route modules
+  workers/         scheduler and background job runtime
+
+frontend/
+  src/api/         typed endpoint modules
+  src/components/  reusable UI primitives
+  src/layouts/     StockSense shell and navigation
+  src/pages/       dashboard, stocks, portfolio, predictions, news, research
+  src/query/       lightweight query/cache layer
+  tests/           unit and browser workflow tests
+
+scripts/
+  database maintenance and deterministic data seeding
+
+tests/
+  backend smoke, contract, security, worker, and database checks
+```
 
 ## Dependency Files
 
-- `pyproject.toml` is the source of Python runtime, development, and optional
-  ML dependency metadata.
+- `pyproject.toml` defines Python runtime, development, and optional ML
+  dependency groups.
 - `requirements.txt`, `requirements-dev.txt`, and `requirements-ml.txt` are
-  compatibility entry points that install those pyproject groups.
-- `requirements-lock.txt` captures the current virtualenv for reproducibility.
+  compatibility installers for those groups.
+- `requirements-lock.txt` records the current Python environment.
 - `frontend/package-lock.json` locks the frontend dependency tree.
-
-## Current Limitations
-
-- SQLite is the active database; PostgreSQL is deferred.
-- Redis is not required for the current single-process local/resume target.
-- Some heavyweight ML and legacy intelligence modules remain optional.
-- Some compatibility API aliases remain until the frontend can call `/api/v1`
-  for every workflow.
-- CI includes a non-blocking type-check and dependency-audit baseline while the
-  migration is still retiring legacy surfaces.

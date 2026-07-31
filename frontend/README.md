@@ -1,8 +1,9 @@
 # StockSense Frontend
 
-React/Vite frontend for the StockSense dashboard. The Flask backend remains the
-API server; Vite serves the browser app and proxies `/api` to Flask in local
-development.
+The StockSense frontend is a React and Vite trading workspace for market
+dashboards, stock search, portfolios, predictions, news, and research. It uses
+typed API modules, a lightweight query layer, accessible form/table patterns,
+and browser smoke tests for core workflows.
 
 ## Setup
 
@@ -11,21 +12,28 @@ cd frontend
 npm install
 ```
 
-## Run
+## Development
 
-Start Flask from the repository root:
+Start the Flask API from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe app.py
 ```
 
-Start the frontend:
+Start Vite from `frontend/`:
 
 ```powershell
 npm run dev
 ```
 
-Open `http://localhost:5173/`. The Flask root at port 5000 is API-only.
+Open:
+
+```text
+http://localhost:5173/
+```
+
+The Vite dev server proxies `/api` requests to the Flask API on
+`http://127.0.0.1:5000`.
 
 ## Scripts
 
@@ -36,28 +44,28 @@ npm run test
 npm run test:e2e
 ```
 
-- `npm run test` uses Vitest and React Testing Library for fast unit/component
-  tests.
-- `npm run test:e2e` uses Playwright for browser workflow smoke tests and
-  screenshots.
+- `npm run lint` checks TypeScript and React code quality.
+- `npm run build` creates the production frontend bundle.
+- `npm run test` runs Vitest and React Testing Library.
+- `npm run test:e2e` runs Playwright browser smoke tests.
 
 ## Structure
 
 ```text
 src/
-  api/          typed endpoint modules
-  app/          application-level wiring when needed
-  components/   reusable UI primitives
-  layouts/      app shell and navigation
-  pages/        feature pages and presentation slices
-  query/        lightweight query/cache layer
+  api/          endpoint modules and HTTP access
+  components/   shared UI primitives
+  layouts/      StockSense application shell
+  pages/        feature pages and presentation sections
+  query/        request cache, retries, cancellation, invalidation
   router/       URL routing helpers
   schemas/      runtime response validation
-  utils/        formatters and adapters
+  utils/        formatters and data adapters
+
 tests/
-  unit/         Vitest/RTL tests
-  e2e/          Playwright tests with deterministic mocked APIs
+  unit/         component and utility tests
+  e2e/          Playwright workflow checks with mocked APIs
 ```
 
-Keep Playwright for true browser checks only; use Vitest/RTL for fast component
-and adapter coverage.
+Use Vitest for fast component and adapter coverage. Use Playwright for browser
+behavior that depends on layout, routing, screenshots, or real user flows.
