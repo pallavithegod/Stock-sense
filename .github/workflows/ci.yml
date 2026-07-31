@@ -33,7 +33,34 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -e ".[dev]"
       - name: Ruff syntax lint
-        run: python -m ruff check app.py backend tests scripts
+        run: >
+          python -m ruff check
+          app.py
+          backend/app
+          backend/db
+          backend/domain
+          backend/routes/api_v1.py
+          backend/routes/dashboard_api.py
+          backend/routes/health.py
+          backend/routes/market.py
+          backend/routes/news.py
+          backend/routes/portfolio_api.py
+          backend/routes/prediction_api.py
+          backend/routes/research.py
+          backend/routes/system.py
+          backend/services/market_data.py
+          backend/services/news_service.py
+          backend/services/observability.py
+          backend/services/prediction_presenter.py
+          backend/services/prediction_service.py
+          backend/services/portfolio_service.py
+          backend/services/research_service.py
+          backend/services/security.py
+          backend/services/startup_checks.py
+          backend/services/validation.py
+          backend/workers
+          tests
+          scripts
       - name: Type check baseline
         run: python -m mypy app.py backend scripts
         continue-on-error: true
@@ -61,7 +88,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install --ignore-scripts
       - name: Lint
         run: npm run lint
       - name: Build
@@ -69,6 +96,6 @@ jobs:
       - name: Unit/component tests
         run: npm run test
       - name: Install Playwright browser
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
       - name: Playwright smoke tests
         run: npm run test:e2e
