@@ -132,13 +132,13 @@ def test_total_provider_outage_is_explicit_and_circuit_health_is_sanitized():
 
 
 def test_dashboard_and_search_remain_usable_with_network_disabled(client):
-    search = client.get("/api/search", query_string={"q": "INFY"})
-    dashboard = client.get("/api/dashboard-data/live")
-    status = client.get("/api/system/status")
+    search = client.get("/api/v1/search", query_string={"q": "INFY"})
+    dashboard = client.get("/api/v1/dashboard/live")
+    status = client.get("/api/v1/system/status")
 
     assert search.status_code == 200
-    assert search.get_json()["results"][0]["symbol"] == "INFY"
+    assert search.get_json()["data"]["results"][0]["symbol"] == "INFY"
     assert dashboard.status_code == 200
-    assert dashboard.get_json()["data_quality"] == "unavailable"
-    provider_health = status.get_json()["startup_checks"]["market_data_providers"]
+    assert dashboard.get_json()["data"]["data_quality"] == "unavailable"
+    provider_health = status.get_json()["data"]["startup_checks"]["market_data_providers"]
     assert provider_health["unavailable"]["status"] == "disabled"

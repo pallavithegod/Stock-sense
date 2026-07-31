@@ -137,9 +137,9 @@ async function mockApis(page: Page, options: MockOptions = {}) {
       await route.continue()
       return
     }
-    const path = url.pathname.replace(/^\/api/, '')
+    const path = url.pathname.replace(/^\/api\/v1/, '')
 
-    if (path.startsWith('/dashboard-data')) {
+    if (path.startsWith('/dashboard')) {
       dashboardCalls += 1
       if (options.failDashboardAfterFirst && dashboardCalls > 1) {
         await json(route, { error: 'fixture outage' }, 503)
@@ -195,13 +195,13 @@ async function mockApis(page: Page, options: MockOptions = {}) {
       return
     }
 
-    if (path === '/portfolio/state') {
+    if (path === '/portfolio' && request.method() === 'GET') {
       await json(route, portfolioState(positions))
       return
     }
 
-    if (path === '/portfolio' && request.method() === 'GET') {
-      await json(route, positions)
+    if (path === '/portfolio/positions' && request.method() === 'GET') {
+      await json(route, { positions })
       return
     }
 
