@@ -164,6 +164,7 @@ class SystemDTO(ContractModel):
     data_sources: list[str]
     performance: dict[str, Any]
     cache_status: dict[str, Any]
+    worker_status: dict[str, Any]
     startup_checks: dict[str, Any]
 
 

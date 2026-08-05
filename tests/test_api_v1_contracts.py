@@ -97,12 +97,7 @@ def test_v1_schema_endpoint_exposes_executable_contract_models(client):
     assert "SystemDTO" in payload["data"]["dto_schemas"]
 
 
-def test_legacy_aliases_are_logged_for_safe_deprecation(client, app_module):
-    before = len(app_module.app.extensions["stocksense_compatibility_alias_log"])
-
-    response = client.get("/api/stocks")
-
-    assert response.status_code == 200
-    alias_log = app_module.app.extensions["stocksense_compatibility_alias_log"]
-    assert len(alias_log) == before + 1
-    assert alias_log[-1] == {"alias": "/api/stocks", "replacement": "/api/v1/stocks"}
+def test_legacy_aliases_are_not_registered(client):
+    assert client.get("/api/stocks").status_code == 404
+    assert client.get("/api/stock/INFY").status_code == 404
+    assert client.get("/api/predictions").status_code == 404

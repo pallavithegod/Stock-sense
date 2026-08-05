@@ -162,9 +162,20 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
             data_sources=payload.get("data_sources") or [],
             performance=payload.get("performance") or {},
             cache_status=payload.get("cache_status") or {},
+            worker_status=payload.get("worker_status") or {},
             startup_checks=payload.get("startup_checks") or {},
         )
         return jsonify(success_payload(dto, provenance_meta=provenance(provider="local_system", fetched_at=payload.get("timestamp"), stale=False)))
+
+    @blueprint.get("/api/v1/system/diagnostics")
+    def system_diagnostics():
+        payload = services.system.diagnostics_payload()
+        return _raw_success(payload, provider="local_system", fetched_at=payload.get("timestamp"), quality_status=_quality_from(payload))
+
+    @blueprint.get("/api/v1/system/bootstrap/status")
+    def system_bootstrap_status():
+        payload = services.system.bootstrap_payload()
+        return _raw_success(payload, provider="local_system", fetched_at=payload.get("timestamp"), quality_status=_quality_from(payload))
 
     @blueprint.get("/api/v1/dashboard")
     def dashboard():
@@ -282,6 +293,46 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
         payload = services.portfolio.intelligence_suite()
         return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
 
+    @blueprint.get("/api/v1/portfolio/forecast")
+    def portfolio_forecast():
+        payload = services.portfolio.forecast()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/survival")
+    def portfolio_survival():
+        payload = services.portfolio.survival()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/backtesting")
+    def portfolio_backtesting():
+        payload = services.portfolio.backtesting()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/drift")
+    def portfolio_drift():
+        payload = services.portfolio.drift()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/governance")
+    def portfolio_governance():
+        payload = services.portfolio.governance()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/explainability")
+    def portfolio_explainability():
+        payload = services.portfolio.explainability()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/scorecard")
+    def portfolio_scorecard():
+        payload = services.portfolio.scorecard()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
+    @blueprint.get("/api/v1/portfolio/allocation")
+    def portfolio_allocation():
+        payload = services.portfolio.allocation_chart()
+        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+
     @blueprint.post("/api/v1/portfolio/sell/simulate")
     def portfolio_sell_simulate():
         try:
@@ -316,6 +367,52 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
     def live_prediction(symbol: str):
         payload = services.predictions.live_prediction_payload(symbol).get("data") or {}
         return _raw_success(payload, provider="unavailable_prediction_pipeline", quality_status=_quality_from(payload))
+
+    @blueprint.get("/api/v1/predictions/evolved/<symbol>")
+    def evolved_prediction(symbol: str):
+        payload = services.predictions.evolved_prediction_payload(symbol).get("data") or {}
+        return _raw_success(payload, provider="unavailable_prediction_pipeline", quality_status=_quality_from(payload))
+
+    @blueprint.post("/api/v1/predictions/governance-decision")
+    def prediction_governance_decision():
+        payload = services.predictions.governance_decision_payload(request.get_json(silent=True) or {})
+        return _raw_success(payload, provider="prediction_presenter", quality_status=_quality_from(payload))
+
+    @blueprint.post("/api/v1/predictions/execute/<symbol>")
+    def execute_prediction(symbol: str):
+        payload = services.predictions.execute_prediction_payload(symbol, request.get_json(silent=True) or {})
+        return _raw_success(payload, provider="unavailable_prediction_pipeline", quality_status=_quality_from(payload)), 503
+
+    @blueprint.get("/api/v1/predictions/audit/<symbol>")
+    def prediction_audit(symbol: str):
+        limit = request.args.get("limit", 100, type=int) or 100
+        payload = services.predictions.audit_payload(symbol, limit=limit)
+        return _raw_success(payload, provider="local_prediction_cache", quality_status="local_cache" if payload.get("count") else "unavailable")
+
+    @blueprint.post("/api/v1/predictions/feedback")
+    def prediction_feedback():
+        payload = services.predictions.feedback_payload(request.get_json(silent=True) or {})
+        return _raw_success(payload, provider="feedback_boundary", quality_status=_quality_from(payload))
+
+    @blueprint.get("/api/v1/predictions/confidence-distribution")
+    def prediction_confidence_distribution():
+        payload = services.predictions.confidence_distribution_payload()
+        return _raw_success(payload, provider="local_prediction_cache", quality_status=_quality_from(payload))
+
+    @blueprint.get("/api/v1/predictions/learning/stats")
+    def prediction_learning_stats():
+        payload = services.predictions.learning_stats_payload()
+        return _raw_success(payload, provider="local_prediction_cache", quality_status=_quality_from(payload))
+
+    @blueprint.get("/api/v1/predictions/model/accuracy")
+    def prediction_model_accuracy():
+        payload = services.predictions.model_accuracy_payload()
+        return _raw_success(payload, provider="local_prediction_cache", quality_status=_quality_from(payload))
+
+    @blueprint.get("/api/v1/predictions/symbol/accuracy/<symbol>")
+    def prediction_symbol_accuracy(symbol: str):
+        payload = services.predictions.symbol_accuracy_payload(symbol)
+        return _raw_success(payload, provider="local_prediction_cache", quality_status=_quality_from(payload))
 
     @blueprint.get("/api/v1/news")
     def news():

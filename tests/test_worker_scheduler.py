@@ -97,9 +97,9 @@ def test_flask_status_reports_workers_as_optional(app_module, client):
     app_module.services.worker_status = None
     app_module.services.runtime.worker_status = None
 
-    status = client.get("/api/system/status").get_json()
-    diagnostics = client.get("/api/diagnostics").get_json()
-    bootstrap = client.get("/api/bootstrap/status").get_json()
+    status = client.get("/api/v1/system/status").get_json()["data"]
+    diagnostics = client.get("/api/v1/system/diagnostics").get_json()["data"]
+    bootstrap = client.get("/api/v1/system/bootstrap/status").get_json()["data"]
 
     assert status["worker_status"]["mode"] == "not_started_by_flask"
     assert diagnostics["worker_required_for_readiness"] is False

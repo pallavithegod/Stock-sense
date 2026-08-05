@@ -19,7 +19,7 @@ jobs:
       RATE_LIMIT_ENABLED: "False"
       REQUIRE_MUTATION_TOKEN: "False"
       SOCKETIO_ASYNC_MODE: threading
-      STOCKSENSE_DB_PATH: .dev-runtime/ci-nexus.db
+      STOCKSENSE_DB_PATH: .dev-runtime/ci-stocksense.db
       STOCKSENSE_MARKET_DB_PATH: .dev-runtime/ci-market.db
       STOCKSENSE_ADAPTIVE_DB_PATH: .dev-runtime/ci-adaptive.db
       STOCKSENSE_AUDIT_LOG_PATH: .dev-runtime/ci-audit.jsonl
@@ -40,14 +40,7 @@ jobs:
           backend/db
           backend/domain
           backend/routes/api_v1.py
-          backend/routes/dashboard_api.py
           backend/routes/health.py
-          backend/routes/market.py
-          backend/routes/news.py
-          backend/routes/portfolio_api.py
-          backend/routes/prediction_api.py
-          backend/routes/research.py
-          backend/routes/system.py
           backend/services/market_data.py
           backend/services/news_service.py
           backend/services/observability.py

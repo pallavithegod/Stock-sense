@@ -6,34 +6,34 @@
   "frontend_endpoints": {
     "/api/v1/dashboard": {
       "data_required": ["live_indices", "top_stocks", "positions", "portfolio", "data_quality"],
-      "compatibility_alias": "/api/dashboard-data/live"
+      "compatibility_alias": null
     },
     "/api/v1/stocks?limit=2": {
       "data_required": ["stocks"],
-      "compatibility_alias": "/api/stocks"
+      "compatibility_alias": null
     },
     "/api/v1/stocks/INFY": {
       "data_required": ["symbol", "name", "exchange", "display", "price", "current_price", "change_value", "change_percent", "data_quality"],
-      "compatibility_alias": "/api/stock/INFY"
+      "compatibility_alias": null
     },
     "/api/v1/portfolio": {
       "data_required": ["positions", "account_metrics", "data_quality"],
-      "compatibility_alias": "/api/portfolio/state"
+      "compatibility_alias": null
     },
     "/api/v1/predictions": {
       "data_required": ["predictions"],
-      "compatibility_alias": "/api/predictions/intelligence"
+      "compatibility_alias": null
     },
     "/api/v1/news": {
       "data_required": ["articles", "source", "data_quality"],
-      "compatibility_alias": "/api/news/market"
+      "compatibility_alias": null
     },
     "/api/v1/research": {
       "data_required": ["research_reports", "ai_insights", "model_performance", "live_stats", "message", "data_quality"],
-      "compatibility_alias": "/api/research"
+      "compatibility_alias": null
     },
     "/api/v1/system/status": {
-      "data_required": ["status", "version", "ai_features", "models_loaded", "data_sources", "performance", "cache_status", "startup_checks"],
+      "data_required": ["status", "version", "ai_features", "models_loaded", "data_sources", "performance", "cache_status", "worker_status", "startup_checks"],
       "compatibility_alias": null
     }
   }

@@ -23,11 +23,10 @@ DEFAULT_ALLOWED_ORIGINS = (
 MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 PROTECTED_MUTATION_PREFIXES = (
-    "/api/portfolio",
-    "/api/execute-prediction",
-    "/api/feedback",
-    "/api/governance-decision",
-    "/api/user_tickers",
+    "/api/v1/portfolio",
+    "/api/v1/predictions/execute",
+    "/api/v1/predictions/feedback",
+    "/api/v1/predictions/governance-decision",
 )
 
 _RATE_LIMIT_LOCK = Lock()

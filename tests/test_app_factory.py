@@ -50,6 +50,14 @@ def test_legacy_runtime_bridge_modules_are_removed(isolated_db_path, monkeypatch
     legacy_modules = {
         "backend.legacy.app_monolith": Path("backend/legacy/app_monolith.py"),
         "backend.legacy.quantum_ai": Path("backend/legacy/quantum_ai.py"),
+        "backend.app.compatibility": Path("backend/app/compatibility.py"),
+        "backend.routes.dashboard_api": Path("backend/routes/dashboard_api.py"),
+        "backend.routes.market": Path("backend/routes/market.py"),
+        "backend.routes.news": Path("backend/routes/news.py"),
+        "backend.routes.portfolio_api": Path("backend/routes/portfolio_api.py"),
+        "backend.routes.prediction_api": Path("backend/routes/prediction_api.py"),
+        "backend.routes.research": Path("backend/routes/research.py"),
+        "backend.routes.system": Path("backend/routes/system.py"),
         "backend.routes.dashboard": Path("backend/routes/dashboard.py"),
         "backend.routes.market_routes": Path("backend/routes/market_routes.py"),
         "backend.routes.portfolio": Path("backend/routes/portfolio.py"),
@@ -127,7 +135,7 @@ def test_wsgi_entrypoint_imports_factory_app(isolated_db_path, monkeypatch):
 def test_news_routes_are_registered_by_blueprint(app_module):
     endpoints = {rule.endpoint for rule in app_module.app.url_map.iter_rules()}
 
-    assert "news.get_news" in endpoints
-    assert "news.get_symbol_news" in endpoints
-    assert "news.get_research" in endpoints
-    assert "research.get_emotional_state" in endpoints
+    assert "api_v1.news" in endpoints
+    assert "api_v1.symbol_news" in endpoints
+    assert "api_v1.research" in endpoints
+    assert "api_v1.emotional_state" in endpoints

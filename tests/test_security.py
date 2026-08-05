@@ -60,7 +60,7 @@ def test_oversized_json_body_is_rejected(client, monkeypatch):
     monkeypatch.setenv("MAX_JSON_BODY_BYTES", "32")
 
     response = client.post(
-        "/api/portfolio",
+        "/api/v1/portfolio",
         data='{"symbol":"INFY","notes":"' + ("x" * 100) + '"}',
         content_type="application/json",
     )
@@ -73,7 +73,7 @@ def test_malformed_json_is_rejected(client, monkeypatch):
     monkeypatch.setenv("REQUIRE_MUTATION_TOKEN", "False")
 
     response = client.post(
-        "/api/portfolio",
+        "/api/v1/portfolio",
         data='{"symbol":',
         content_type="application/json",
     )
@@ -87,7 +87,7 @@ def test_write_token_is_required_when_demo_protection_is_enabled(client, monkeyp
     monkeypatch.setenv("DEMO_WRITE_TOKEN", "test-token-that-is-long-enough")
 
     response = client.post(
-        "/api/portfolio",
+        "/api/v1/portfolio",
         json={"symbol": "INFY", "quantity": 1, "avg_price": 100},
     )
 
@@ -99,7 +99,7 @@ def test_invalid_portfolio_payload_is_rejected(client, monkeypatch):
     monkeypatch.setenv("REQUIRE_MUTATION_TOKEN", "False")
 
     response = client.post(
-        "/api/portfolio",
+        "/api/v1/portfolio",
         json={"symbol": "###", "quantity": -1, "avg_price": 0},
     )
 
@@ -113,8 +113,8 @@ def test_rate_limit_returns_retry_metadata(client, monkeypatch):
     monkeypatch.setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
     monkeypatch.setenv("API_RATE_LIMIT_PER_MINUTE", "1")
 
-    assert client.get("/api/system/status").status_code == 200
-    response = client.get("/api/system/status")
+    assert client.get("/api/v1/system/status").status_code == 200
+    response = client.get("/api/v1/system/status")
 
     assert response.status_code == 429
     assert response.headers["Retry-After"]

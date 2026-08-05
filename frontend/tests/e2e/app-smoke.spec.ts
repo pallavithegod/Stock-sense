@@ -133,7 +133,7 @@ async function mockApis(page: Page, options: MockOptions = {}) {
   await page.route('**/*', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (!url.pathname.startsWith('/api/')) {
+    if (!url.pathname.startsWith('/api/v1/')) {
       await route.continue()
       return
     }
