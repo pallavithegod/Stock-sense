@@ -76,6 +76,7 @@ include = ["backend*"]
 testpaths = ["tests"]
 asyncio_mode = "strict"
 addopts = "-ra"
+cache_dir = ".pytest-runtime/pytest-cache"
 
 [tool.coverage.run]
 branch = true

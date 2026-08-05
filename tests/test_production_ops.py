@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from backend.app import startup
@@ -62,8 +63,9 @@ def test_request_observability_writes_json_log(client, app_module):
     )
 
 
-def test_worker_scheduler_logs_structured_job_results(app_module, tmp_path):
-    log_path = tmp_path / "worker.jsonl"
+def test_worker_scheduler_logs_structured_job_results(app_module):
+    runtime_dir = Path(app_module.services.portfolio.db_path).parent
+    log_path = runtime_dir / f"worker-{uuid.uuid4().hex}.jsonl"
     logger = logging.getLogger(f"worker-test-{log_path.name}")
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
