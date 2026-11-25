@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.domain.market import MarketService
 from backend.domain.portfolio import PortfolioService
+from backend.services.supabase_auth import AuthenticatedUser
 
 
 class DashboardService:
@@ -14,8 +15,13 @@ class DashboardService:
         self.market_service = market_service
         self.portfolio_service = portfolio_service
 
-    def snapshot(self) -> dict[str, Any]:
-        holdings = self.portfolio_service.list_positions()
+    def snapshot(
+        self,
+        principal: AuthenticatedUser | None = None,
+        *,
+        include_portfolio: bool = True,
+    ) -> dict[str, Any]:
+        holdings = self.portfolio_service.list_positions(principal) if include_portfolio else []
         intelligence = self.portfolio_service.compute_intelligence(holdings)
         index_response = self.market_service.market_data.indices(allow_stale=True) if self.market_service.market_data else None
         indices = index_response.data if index_response and isinstance(index_response.data, list) else []

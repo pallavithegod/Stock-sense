@@ -42,6 +42,12 @@ export function invalidateQueries(prefix?: QueryKey) {
   }
 }
 
+export function clearQueryCache() {
+  const keys = [...cache.keys()]
+  cache.clear()
+  for (const key of keys) notifyQuery(key)
+}
+
 function queryKeyMatches(key: string, prefix: string) {
   if (key === prefix) return true
   if (!prefix.endsWith(']')) return key.startsWith(prefix)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import ValidationError
 
 from backend.app.contracts import (
@@ -27,6 +27,7 @@ from backend.app.contracts import (
 )
 from backend.app.services import AppServices
 from backend.domain.market import normalize_symbol
+from backend.domain.portfolio.exceptions import PortfolioFeatureUnavailable
 from backend.services.news_service import NewsService
 from backend.services.research_service import build_emotional_state_payload, build_futures_analysis_payload
 from backend.services.validation import (
@@ -36,6 +37,7 @@ from backend.services.validation import (
     validate_sell_order,
     validation_error_payload,
 )
+from backend.services.supabase_auth import AuthProviderUnavailable, InvalidAccessToken
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -121,6 +123,10 @@ def _validation_error_response(exc: ValidationError):
     return jsonify(error_payload(str(exc), code="VALIDATION_ERROR")), 400
 
 
+def _portfolio_feature_unavailable_response(exc: PortfolioFeatureUnavailable):
+    return jsonify(error_payload(str(exc), code="FEATURE_UNAVAILABLE")), 501
+
+
 def _quality_from(payload: dict[str, Any], fallback: str = "unavailable") -> str:
     return str(payload.get("data_quality") or payload.get("quality_status") or fallback)
 
@@ -146,6 +152,38 @@ def _raw_success(
 
 def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService) -> Blueprint:
     blueprint = Blueprint("api_v1", __name__)
+    portfolio_provider = services.portfolio.repository.provider_name
+
+    @blueprint.before_request
+    def authenticate_private_requests():
+        is_portfolio_request = request.path.startswith("/api/v1/portfolio")
+        is_mutation = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        authorization = request.headers.get("Authorization", "")
+        is_authenticated_dashboard = (
+            services.settings.require_auth
+            and request.path in {"/api/v1/dashboard", "/api/v1/dashboard/live"}
+            and authorization.lower().startswith("bearer ")
+        )
+        if not services.settings.require_auth or not (
+            is_portfolio_request or is_mutation or is_authenticated_dashboard
+        ):
+            return None
+
+        if not authorization.lower().startswith("bearer "):
+            return jsonify(error_payload("Sign-in is required.", code="AUTH_REQUIRED")), 401
+        token = authorization[7:].strip()
+        if not token or services.supabase_auth is None:
+            return jsonify(error_payload("Sign-in is required.", code="AUTH_REQUIRED")), 401
+        try:
+            g.stocksense_user = services.supabase_auth.get_user(token)
+        except InvalidAccessToken:
+            return jsonify(error_payload("Access token is invalid or expired.", code="INVALID_TOKEN")), 401
+        except AuthProviderUnavailable:
+            return jsonify(error_payload("Authentication service is temporarily unavailable.", code="AUTH_UNAVAILABLE")), 503
+        return None
+
+    def current_user():
+        return getattr(g, "stocksense_user", None)
 
     @blueprint.get("/api/v1/schema")
     def schema():
@@ -179,7 +217,8 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
 
     @blueprint.get("/api/v1/dashboard")
     def dashboard():
-        payload = services.dashboard.snapshot()
+        include_portfolio = not services.settings.require_auth or current_user() is not None
+        payload = services.dashboard.snapshot(current_user(), include_portfolio=include_portfolio)
         dto = DashboardDTO(
             live_indices=payload.get("live_indices") or [],
             top_stocks=[_stock_dto(row) for row in payload.get("top_stocks", [])],
@@ -226,15 +265,15 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
 
     @blueprint.get("/api/v1/portfolio")
     def portfolio():
-        payload = services.portfolio.build_state()
+        payload = services.portfolio.build_state(current_user())
         dto = _portfolio_dto(payload, data_quality="portfolio_only")
-        meta = provenance(provider="local_sqlite_portfolio", stale=False, quality_status=dto.data_quality)
+        meta = provenance(provider=portfolio_provider, stale=False, quality_status=dto.data_quality)
         return jsonify(success_payload(dto, provenance_meta=meta))
 
     @blueprint.get("/api/v1/portfolio/positions")
     def portfolio_positions():
-        rows = services.portfolio.list_positions()
-        meta = provenance(provider="local_sqlite_portfolio", stale=False, quality_status="portfolio_only")
+        rows = services.portfolio.list_positions(current_user())
+        meta = provenance(provider=portfolio_provider, stale=False, quality_status="portfolio_only")
         return jsonify(success_payload({"positions": rows}, provenance_meta=meta))
 
     @blueprint.post("/api/v1/portfolio")
@@ -245,8 +284,8 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
                 normalize_symbol=normalize_symbol,
                 known_symbols=set(services.market.symbols.keys()),
             )
-            result = services.portfolio.create_position(data)
-            return _raw_success(result, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+            result = services.portfolio.create_position(data, current_user())
+            return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only")
         except RequestValidationError as exc:
             return jsonify(validation_error_payload(exc)), 400
 
@@ -254,93 +293,107 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
     def update_portfolio_position(symbol: str):
         try:
             data = validate_portfolio_update(request.get_json(silent=True), normalize_symbol=normalize_symbol, symbol=symbol)
-            result = services.portfolio.update_position(symbol, data)
-            return _raw_success(result, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+            result = services.portfolio.update_position(symbol, data, current_user())
+            return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only")
         except RequestValidationError as exc:
             return jsonify(validation_error_payload(exc)), 400
 
     @blueprint.delete("/api/v1/portfolio/<symbol>")
     def delete_portfolio_position(symbol: str):
-        result = services.portfolio.delete_position(symbol)
+        result = services.portfolio.delete_position(symbol, current_user())
         status = 400 if result.get("status") == "error" else 200
-        return _raw_success(result, provider="local_sqlite_portfolio", quality_status="portfolio_only"), status
+        return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only"), status
 
     @blueprint.get("/api/v1/portfolio/lots")
     def portfolio_lots():
         symbol = normalize_symbol(request.args.get("symbol")) if request.args.get("symbol") else None
-        payload = services.portfolio.lots(symbol=symbol)
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        try:
+            payload = services.portfolio.lots(symbol=symbol, principal=current_user())
+            return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.get("/api/v1/portfolio/realized-gains")
     def realized_gains():
         symbol = normalize_symbol(request.args.get("symbol")) if request.args.get("symbol") else None
-        payload = services.portfolio.realized_gains(symbol=symbol)
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        try:
+            payload = services.portfolio.realized_gains(symbol=symbol, principal=current_user())
+            return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.get("/api/v1/portfolio/tax-summary")
     def portfolio_tax_summary():
-        payload = services.portfolio.tax_summary()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        try:
+            payload = services.portfolio.tax_summary(principal=current_user())
+            return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.get("/api/v1/portfolio/lot-insights")
     def portfolio_lot_insights():
         symbol = normalize_symbol(request.args.get("symbol")) if request.args.get("symbol") else None
-        payload = services.portfolio.lot_insights(symbol=symbol)
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        try:
+            payload = services.portfolio.lot_insights(symbol=symbol, principal=current_user())
+            return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.get("/api/v1/portfolio/intelligence-suite")
     def portfolio_intelligence_suite():
-        payload = services.portfolio.intelligence_suite()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.intelligence_suite(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/forecast")
     def portfolio_forecast():
-        payload = services.portfolio.forecast()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.forecast(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/survival")
     def portfolio_survival():
-        payload = services.portfolio.survival()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.survival(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/backtesting")
     def portfolio_backtesting():
-        payload = services.portfolio.backtesting()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.backtesting(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/drift")
     def portfolio_drift():
-        payload = services.portfolio.drift()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.drift(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/governance")
     def portfolio_governance():
-        payload = services.portfolio.governance()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.governance(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/explainability")
     def portfolio_explainability():
-        payload = services.portfolio.explainability()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.explainability(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/scorecard")
     def portfolio_scorecard():
-        payload = services.portfolio.scorecard()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.scorecard(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.get("/api/v1/portfolio/allocation")
     def portfolio_allocation():
-        payload = services.portfolio.allocation_chart()
-        return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+        payload = services.portfolio.allocation_chart(current_user())
+        return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
 
     @blueprint.post("/api/v1/portfolio/sell/simulate")
     def portfolio_sell_simulate():
         try:
             data = validate_sell_order(request.get_json(silent=True), normalize_symbol=normalize_symbol)
-            payload = services.portfolio.simulate_sell(data)
-            return _raw_success(payload, provider="local_sqlite_portfolio", quality_status="portfolio_only")
+            payload = services.portfolio.simulate_sell(data, current_user())
+            return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
         except RequestValidationError as exc:
             return jsonify(validation_error_payload(exc)), 400
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.get("/api/v1/predictions")
     def predictions():

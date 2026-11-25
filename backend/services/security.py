@@ -90,7 +90,7 @@ def validate_security_configuration() -> None:
             "32 characters when APP_ENV=production."
         )
 
-    if _env_bool("REQUIRE_MUTATION_TOKEN", False):
+    if _env_bool("REQUIRE_MUTATION_TOKEN", False) and not _env_bool("REQUIRE_AUTH", False):
         token = os.getenv("DEMO_WRITE_TOKEN", "").strip()
         if len(token) < 24:
             raise RuntimeError(
@@ -196,6 +196,8 @@ def mutation_guard_error() -> Response | None:
     if not any(request.path.startswith(prefix) for prefix in PROTECTED_MUTATION_PREFIXES):
         return None
     if not _env_bool("REQUIRE_MUTATION_TOKEN", False):
+        return None
+    if _env_bool("REQUIRE_AUTH", False):
         return None
 
     expected = os.getenv("DEMO_WRITE_TOKEN", "").strip()

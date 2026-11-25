@@ -60,6 +60,15 @@ export function useQuery<T>({
       }
 
       const cached = readQueryCache<T>(keyString)
+      if (!cached && cacheSignal > 0) {
+        setState({
+          data: undefined,
+          error: null,
+          isStale: false,
+          loading: true,
+          refreshing: false,
+        })
+      }
       const hasFreshCache = cached?.data !== undefined && Date.now() - cached.updatedAt <= staleMs
       if (hasFreshCache && refreshIndex === 0) {
         setState({

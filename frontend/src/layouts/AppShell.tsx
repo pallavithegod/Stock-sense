@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { appRoutes, labelForPage, pathForPage } from '../router/routes'
 import type { AppPage } from '../types/navigation'
+import { useAuth } from '../auth/useAuth'
 
 type AppShellProps = {
   activePage: AppPage
@@ -10,6 +12,17 @@ type AppShellProps = {
 
 export function AppShell({ activePage, children, onPageChange }: AppShellProps) {
   const currentPageLabel = labelForPage(activePage)
+  const { user, signOut } = useAuth()
+  const [authActionError, setAuthActionError] = useState<string | null>(null)
+
+  async function handleSignOut() {
+    setAuthActionError(null)
+    try {
+      await signOut()
+    } catch (error) {
+      setAuthActionError(error instanceof Error ? error.message : 'Sign out failed.')
+    }
+  }
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, page: AppPage) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
@@ -46,7 +59,19 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <input placeholder="Search stocks, signals, portfolio" />
           </label>
           <button className="stocksense-icon-btn" type="button" aria-label="Theme palette">TM</button>
-          <button className="stocksense-avatar" type="button" aria-label="User profile">AI</button>
+          {authActionError ? <span role="alert" className="text-xs text-rose-300">{authActionError}</span> : null}
+          <button
+            className="stocksense-avatar"
+            type="button"
+            aria-label={user ? 'Sign out' : 'Sign in'}
+            onClick={() => {
+              if (user) void handleSignOut()
+              else onPageChange('portfolio')
+            }}
+            title={user?.email ?? 'Sign in'}
+          >
+            {user ? 'Out' : 'In'}
+          </button>
         </div>
       </header>
 

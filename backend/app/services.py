@@ -12,6 +12,7 @@ from backend.domain.predictions import PredictionQueryService
 from backend.domain.portfolio import PortfolioService
 from backend.domain.system import SystemService
 from backend.services.market_data import ResilientMarketDataClient
+from backend.services.supabase_auth import SupabaseAuthClient
 
 
 class RuntimeContext:
@@ -25,6 +26,7 @@ class RuntimeContext:
         self.models: dict[str, Any] = {}
         self.cache: dict[str, Any] = {}
         self.cache_ttl = 60
+        self.worker_status: Any | None = None
 
     def compute_portfolio_intelligence(
         self,
@@ -43,6 +45,7 @@ class AppServices:
     dashboard: DashboardService
     predictions: PredictionQueryService
     system: SystemService
+    supabase_auth: SupabaseAuthClient | None
     runtime: RuntimeContext
     logger: logging.Logger
     ai_engine_state: dict[str, Any] = field(default_factory=lambda: {"predictions": {}, "last_update": None, "cognitive_state": {}})

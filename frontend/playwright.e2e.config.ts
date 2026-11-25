@@ -15,6 +15,11 @@ export default defineConfig({
     command: 'npm run dev -- --host 127.0.0.1 --port 5173',
     reuseExistingServer: true,
     url: 'http://127.0.0.1:5173',
+    env: {
+      ...process.env,
+      VITE_SUPABASE_URL: 'https://e2e-project.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'e2e-public-anon-key',
+    },
   },
   projects: [
     {

@@ -13,6 +13,7 @@ def test_default_registry_defines_independent_jobs():
 
     assert names == {
         "market_refresh",
+        "daily_market_snapshot",
         "prediction_refresh",
         "sentiment_refresh",
         "model_evaluation",

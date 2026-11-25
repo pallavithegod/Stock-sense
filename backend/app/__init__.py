@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Mapping
+from typing import Any, Mapping
 
 from flask import Flask, jsonify
 
@@ -15,6 +15,8 @@ from backend.domain.dashboard import DashboardService
 from backend.domain.market import MarketService, MarketUniverse, normalize_symbol
 from backend.domain.predictions import PredictionQueryService
 from backend.domain.portfolio import PortfolioService, SQLitePortfolioRepository
+from backend.domain.portfolio.supabase_repository import SupabasePortfolioRepository
+from backend.domain.portfolio.service import PortfolioRepository
 from backend.domain.system import SystemService
 from backend.routes.api_v1 import create_api_v1_blueprint
 from backend.routes.health import create_health_blueprint
@@ -27,6 +29,7 @@ from backend.services.security import (
     request_size_error,
     validate_security_configuration,
 )
+from backend.services.supabase_auth import SupabaseAuthClient
 
 
 def _build_services(settings: Settings) -> AppServices:
@@ -37,12 +40,29 @@ def _build_services(settings: Settings) -> AppServices:
         cache_ttl_seconds=settings.cache_timeout,
     )
     market = MarketService(MarketUniverse(), market_data=market_data)
-    portfolio = PortfolioService(
-        repository=SQLitePortfolioRepository(settings.resolved_db_path()),
-        market_service=market,
-    )
+    supabase_auth = None
+    if settings.supabase_url and settings.supabase_anon_key:
+        supabase_auth = SupabaseAuthClient(
+            supabase_url=settings.supabase_url,
+            anon_key=settings.supabase_anon_key,
+        )
+    portfolio_repository: PortfolioRepository
+    if settings.require_auth:
+        portfolio_repository = SupabasePortfolioRepository(
+            supabase_url=settings.supabase_url,
+            anon_key=settings.supabase_anon_key,
+            service_role_key=settings.supabase_service_role_key,
+            local_db_path=settings.resolved_db_path(),
+        )
+    else:
+        portfolio_repository = SQLitePortfolioRepository(settings.resolved_db_path())
+    portfolio = PortfolioService(repository=portfolio_repository, market_service=market)
     runtime = RuntimeContext(portfolio=portfolio, logger=logger)
-    ai_engine_state = {"predictions": {}, "last_update": None, "cognitive_state": {}}
+    ai_engine_state: dict[str, Any] = {
+        "predictions": {},
+        "last_update": None,
+        "cognitive_state": {},
+    }
     predictions = PredictionQueryService(ai_engine_state=ai_engine_state)
     dashboard = DashboardService(market_service=market, portfolio_service=portfolio)
     runtime.cache_ttl = settings.cache_timeout
@@ -67,6 +87,7 @@ def _build_services(settings: Settings) -> AppServices:
         dashboard=dashboard,
         predictions=predictions,
         system=system,
+        supabase_auth=supabase_auth,
         runtime=runtime,
         logger=logger,
         ai_engine_state=ai_engine_state,
@@ -120,6 +141,17 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
         resolved_settings = Settings.from_env(settings)
 
     validate_security_configuration()
+    if resolved_settings.require_auth and not all(
+        (
+            resolved_settings.supabase_url,
+            resolved_settings.supabase_anon_key,
+            resolved_settings.supabase_service_role_key,
+        )
+    ):
+        raise RuntimeError(
+            "REQUIRE_AUTH needs SUPABASE_URL, SUPABASE_ANON_KEY, and "
+            "SUPABASE_SERVICE_ROLE_KEY."
+        )
 
     app = Flask(__name__, static_folder=None)
     app.config.update(
@@ -136,7 +168,7 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
     services.runtime.logger = logger
     services.runtime.worker_status = services.worker_status
     app.extensions["stocksense_services"] = services
-    app.foresight_system = services.runtime
+    setattr(app, "foresight_system", services.runtime)
 
     init_extensions(app, resolved_settings)
     register_error_handlers(app)

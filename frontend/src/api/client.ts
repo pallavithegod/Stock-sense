@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../config/env'
 import type { ApiEnvelope, RequestOptions } from '../types/api'
+import { getAccessToken } from '../auth/supabase'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
@@ -19,12 +20,14 @@ async function request<T>(
   options.signal?.addEventListener('abort', abortFromCaller, { once: true })
 
   try {
+    const accessToken = await getAccessToken()
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method,
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })

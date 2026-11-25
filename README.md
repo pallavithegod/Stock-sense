@@ -28,6 +28,12 @@ structured logs, database maintenance scripts, and repeatable tests.
 - Background worker CLI for scheduled refresh and maintenance jobs.
 - CI-friendly frontend and backend test suites, including browser smoke tests.
 
+The Supabase-backed launch path currently supports authenticated, per-user
+aggregate position read/write. Trade-lot history, sell simulation, realized
+gains, and tax summaries remain unavailable until transaction-level storage is
+implemented; daily market snapshots are collected separately from the
+unfinished prediction pipeline.
+
 ## Architecture
 
 ```text
@@ -113,6 +119,17 @@ Run scheduled jobs manually when needed:
 .\.venv\Scripts\python.exe -m backend.workers.scheduler_cli --once
 ```
 
+Collect daily market history after the market closes:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.workers.scheduler_cli --once --job daily_market_snapshot
+```
+
+For production, run that one-shot command from a separate daily Cron Job after
+the relevant exchange closes. The job requests the most recent five daily bars
+for each configured market-universe symbol and upserts them by symbol/date, so
+retries do not create duplicate days.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and adjust local values:
@@ -143,6 +160,28 @@ FMP_API_KEY=
 DATA_GOV_API_KEY=
 HUGGINGFACEHUB_API_TOKEN=
 ```
+
+For Supabase-backed portfolio authentication and daily market snapshots, apply
+`supabase/migrations/20261125_market_data_and_portfolios.sql` in the Supabase SQL
+Editor. Configure these values on the API and worker servers only:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+REQUIRE_AUTH=True
+```
+
+Set the public Supabase URL and anon key in the frontend as `VITE_SUPABASE_URL`
+and `VITE_SUPABASE_ANON_KEY`. Never put `SUPABASE_SERVICE_ROLE_KEY` in Vercel
+or any frontend environment variables. The worker stores one upserted OHLCV
+row per symbol and trading date. Set `DISABLE_STARTUP_NETWORK=False` in the
+worker environment so its market-data provider is enabled; `True` disables
+provider requests, not just startup calls.
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the Supabase, Render, and
+Vercel launch sequence, including required environment variables and account
+isolation checks.
 
 For a public demo, protect write endpoints:
 

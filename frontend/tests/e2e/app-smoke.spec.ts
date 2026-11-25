@@ -115,6 +115,27 @@ test('captures main workflow screenshots', async ({ page }, testInfo) => {
 })
 
 async function mockApis(page: Page, options: MockOptions = {}) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'sb-e2e-project-auth-token',
+      JSON.stringify({
+        access_token: 'e2e-user-access-token',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        refresh_token: 'e2e-refresh-token',
+        user: {
+          id: 'bca7b100-f77f-4f82-99ee-38bfc12a53d4',
+          aud: 'authenticated',
+          role: 'authenticated',
+          email: 'e2e@example.com',
+          app_metadata: { provider: 'email', providers: ['email'] },
+          user_metadata: {},
+          created_at: new Date().toISOString(),
+        },
+      }),
+    )
+  })
   const positions = [
     {
       symbol: 'INFY',

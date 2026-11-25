@@ -9,6 +9,7 @@ import hashlib
 import uuid
 
 from backend.app.services import AppServices
+from backend.services.daily_market_collection import DailyMarketCollector, SupabaseDailyBarStore
 
 JobFunction = Callable[[AppServices], dict[str, Any] | None]
 
@@ -63,6 +64,13 @@ def build_default_registry() -> JobRegistry:
                 run=refresh_market_snapshot,
             ),
             JobDefinition(
+                name="daily_market_snapshot",
+                interval_seconds=86400,
+                timeout_seconds=300,
+                max_retries=1,
+                run=collect_daily_market_snapshot,
+            ),
+            JobDefinition(
                 name="prediction_refresh",
                 interval_seconds=300,
                 timeout_seconds=25,
@@ -108,6 +116,19 @@ def refresh_market_snapshot(services: AppServices) -> dict[str, Any]:
         "refreshed_at": _utc_now(),
     }
     return {"providers": sorted(health.keys())}
+
+
+def collect_daily_market_snapshot(services: AppServices) -> dict[str, Any]:
+    store = services.system_cache.get("daily_bar_store")
+    if store is None:
+        store = SupabaseDailyBarStore.from_env()
+    collector = DailyMarketCollector(
+        market_data=services.market_data,
+        store=store,
+        symbols=sorted(services.market.symbols),
+        logger=services.logger,
+    )
+    return collector.collect()
 
 
 def refresh_prediction_state(services: AppServices) -> dict[str, Any]:

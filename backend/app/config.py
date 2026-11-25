@@ -80,6 +80,10 @@ class Settings:
     log_max_bytes: int
     log_backup_count: int
     content_security_policy: str
+    supabase_url: str
+    supabase_anon_key: str
+    supabase_service_role_key: str
+    require_auth: bool
     host: str
     port: int
 
@@ -125,6 +129,14 @@ class Settings:
             "content_security_policy": env.get(
                 "CONTENT_SECURITY_POLICY",
                 "default-src 'self'; frame-ancestors 'self'; base-uri 'self'",
+            ),
+            "supabase_url": env.get("SUPABASE_URL", "").strip().rstrip("/"),
+            "supabase_anon_key": env.get("SUPABASE_ANON_KEY", "").strip(),
+            "supabase_service_role_key": env.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
+            "require_auth": _env_bool(
+                env,
+                "REQUIRE_AUTH",
+                env.get("APP_ENV", "development").strip().lower() == "production",
             ),
             "host": env.get("FLASK_HOST", "127.0.0.1"),
             "port": _env_int(env, "FLASK_PORT", 5000),

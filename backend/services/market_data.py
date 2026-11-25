@@ -292,18 +292,30 @@ class YFinanceMarketDataProvider:
     def _history_payload_from_frame(self, symbol: str, frame: Any) -> ProviderResponse:
         if frame is None or getattr(frame, "empty", False):
             return ProviderResponse.unavailable(self.name, error_code="EMPTY_RESPONSE", data=[])
-        required = {"Close"}
+        required = {"Open", "High", "Low", "Close", "Volume"}
         columns = set(getattr(frame, "columns", []) or [])
         if not required.issubset(columns):
             return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
         rows = []
         for timestamp, row in frame.tail(250).iterrows():
-            close = row.get("Close")
             try:
-                close_value = float(close)
+                values = {
+                    "open": float(row.get("Open")),
+                    "high": float(row.get("High")),
+                    "low": float(row.get("Low")),
+                    "close": float(row.get("Close")),
+                    "volume": int(row.get("Volume")),
+                }
             except (TypeError, ValueError):
                 continue
-            rows.append({"timestamp": str(timestamp), "close": close_value})
+            if (
+                min(values["open"], values["high"], values["low"], values["close"]) <= 0
+                or values["high"] < max(values["open"], values["low"], values["close"])
+                or values["low"] > min(values["open"], values["high"], values["close"])
+                or values["volume"] < 0
+            ):
+                continue
+            rows.append({"timestamp": str(timestamp), **values})
         if not rows:
             return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
         return ProviderResponse.live(self.name, {"symbol": normalize_symbol(symbol), "prices": rows})

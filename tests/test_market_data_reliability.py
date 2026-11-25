@@ -75,6 +75,44 @@ def test_yfinance_adapter_marks_malformed_quote_and_history():
     assert history.error_code == "MALFORMED_RESPONSE"
 
 
+def test_yfinance_history_includes_validated_daily_ohlcv_rows():
+    class HistoryFrame:
+        empty = False
+        columns = ["Open", "High", "Low", "Close", "Volume"]
+
+        def tail(self, count):
+            assert count == 250
+            return self
+
+        def iterrows(self):
+            return iter(
+                [
+                    (
+                        "2026-11-24 00:00:00+05:30",
+                        {"Open": 100, "High": 110, "Low": 95, "Close": 108, "Volume": 1234},
+                    ),
+                    (
+                        "2026-11-25 00:00:00+05:30",
+                        {"Open": 100, "High": 90, "Low": 95, "Close": 108, "Volume": 1234},
+                    ),
+                ]
+            )
+
+    response = YFinanceMarketDataProvider()._history_payload_from_frame("INFY", HistoryFrame())
+
+    assert response.state == "live"
+    assert response.data["prices"] == [
+        {
+            "timestamp": "2026-11-24 00:00:00+05:30",
+            "open": 100.0,
+            "high": 110.0,
+            "low": 95.0,
+            "close": 108.0,
+            "volume": 1234,
+        }
+    ]
+
+
 def test_stale_while_revalidate_returns_cached_stale_during_provider_outage():
     provider = FakeMarketDataProvider(quotes={"INFY": {"price": 100, "current_price": 100}})
     client = _client(provider, cache_ttl_seconds=0.01, stale_ttl_seconds=60)

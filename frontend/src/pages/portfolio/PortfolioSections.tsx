@@ -177,7 +177,7 @@ export function HoldingsTable({
       ) : (
         <StatePanel
           title="No holdings yet"
-          description="Add a demo position to validate the SQLite portfolio flow."
+          description="Add your first position to get started."
         />
       )}
     </section>
@@ -294,6 +294,8 @@ export function LotsTable({
       <div className="mt-4 overflow-x-auto">
         {lots.loading ? (
           <StatePanel title="Loading lots" description="Reading open tax lots." />
+        ) : lots.error ? (
+          <StatePanel title="Lots unavailable" description={lots.error} />
         ) : lots.data?.data.length ? (
           <table className="min-w-full text-left text-sm">
             <caption className="sr-only">Open tax lots filtered by selected symbol</caption>
@@ -439,7 +441,9 @@ export function GainsTaxIntelligencePanel({
       <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
         <SectionHeader eyebrow="Realized" title="Gains ledger" />
         <div className="mt-4 space-y-2">
-          {realized.data?.data.length ? (
+          {realized.error ? (
+            <StatePanel title="Gains ledger unavailable" description={realized.error} />
+          ) : realized.data?.data.length ? (
             realized.data.data.slice(0, 5).map((gain, index) => (
               <div className="rounded-md border border-white/10 bg-slate-950/40 p-3" key={`${gain.symbol}-${index}`}>
                 <div className="flex justify-between gap-3">
@@ -462,7 +466,11 @@ export function GainsTaxIntelligencePanel({
 
       <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
         <SectionHeader eyebrow="Tax" title="Summary" />
-        <TaxSummaryPanel data={taxSummary.data ?? null} />
+        {taxSummary.error ? (
+          <StatePanel title="Tax summary unavailable" description={taxSummary.error} />
+        ) : (
+          <TaxSummaryPanel data={taxSummary.data ?? null} />
+        )}
       </section>
 
       <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
@@ -479,6 +487,9 @@ export function GainsTaxIntelligencePanel({
               <div className="mb-2 text-xs uppercase text-slate-500">{selectedSymbol} lot insight</div>
               <KeyValueList data={asRecord(insights.data.fy_summary)} limit={4} />
             </div>
+          ) : null}
+          {selectedSymbol && insights.error ? (
+            <StatePanel title="Lot insights unavailable" description={insights.error} />
           ) : null}
           <IntelligencePanel data={intelligence.data ?? null} />
         </div>
