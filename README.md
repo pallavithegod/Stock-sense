@@ -125,10 +125,10 @@ Collect daily market history after the market closes:
 .\.venv\Scripts\python.exe -m backend.workers.scheduler_cli --once --job daily_market_snapshot
 ```
 
-For production, run that one-shot command from a separate daily Cron Job after
-the relevant exchange closes. The job requests the most recent five daily bars
-for each configured market-universe symbol and upserts them by symbol/date, so
-retries do not create duplicate days.
+For production, use `.github/workflows/daily-market-snapshot.yml` to run the
+one-shot command after the relevant exchange closes. The job requests the most
+recent five daily bars for each configured market-universe symbol and upserts
+them by symbol/date, so retries do not create duplicate days.
 
 ## Configuration
 
