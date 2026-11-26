@@ -3,6 +3,14 @@
 These notes describe the current production-shaped deployment path for the
 Flask API. The React frontend is built and hosted separately from the API.
 
+## Which Instructions To Follow
+
+For the selected Supabase + Render + Vercel launch, follow the numbered steps
+under **Supabase Authentication And User Portfolios** in order. The WSGI,
+Docker, worker, and SQLite backup sections below are reference instructions;
+they are not extra steps for that hosting path. Use the Render Cron Job in the
+numbered steps rather than starting the continuous scheduler.
+
 ## WSGI Command
 
 Run the API with Gunicorn:
@@ -18,16 +26,19 @@ APP_ENV=production
 FLASK_SECRET_KEY=replace_with_at_least_32_random_characters
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5000
+REQUIRE_AUTH=True
 GUNICORN_WORKERS=2
 GUNICORN_THREADS=4
 GUNICORN_TIMEOUT=60
 GUNICORN_GRACEFUL_TIMEOUT=30
-DISABLE_STARTUP_NETWORK=True
+DISABLE_STARTUP_NETWORK=False
 OPEN_BROWSER=False
-REQUIRE_MUTATION_TOKEN=True
-DEMO_WRITE_TOKEN=replace_with_a_private_demo_token
 CONTENT_SECURITY_POLICY=default-src 'self'; frame-ancestors 'self'; base-uri 'self'
 ```
+
+For Supabase-backed production, also set the Supabase variables listed in the
+deployment steps below. Do not combine `REQUIRE_AUTH=True` with the legacy
+`REQUIRE_MUTATION_TOKEN` demo configuration.
 
 The WSGI entry point runs the Flask startup lifecycle once so readiness checks
 can verify schema availability before traffic is routed.
@@ -97,27 +108,31 @@ remains available, and the public dashboard omits portfolio data.
    REQUIRE_AUTH=True
    FLASK_SECRET_KEY=<random secret, at least 32 characters>
    SUPABASE_URL=https://<project-ref>.supabase.co
-   SUPABASE_ANON_KEY=<Supabase anon/public key>
-   SUPABASE_SERVICE_ROLE_KEY=<Supabase service-role key>
+   SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+   SUPABASE_SECRET_KEY=sb_secret_...
    CORS_ALLOWED_ORIGINS=https://<your-vercel-domain>
    SOCKETIO_CORS_ALLOWED_ORIGINS=https://<your-vercel-domain>
    ```
 
-   Keep the service-role key in Render's secret environment only. Do not copy
-   it to Vercel, browser code, Git, or chat. Do not set
+   Keep the secret key in Render's secret environment only. Do not copy it to
+   Vercel, browser code, Git, or chat. Do not set
    `REQUIRE_MUTATION_TOKEN=True` for this Supabase-authenticated API; Supabase
    authentication replaces the legacy demo write-token guard.
+
+   These are the new API keys from **Publishable and secret API keys**. The
+   application sends them in the `apikey` header; Supabase user access tokens
+   remain JWTs and are sent in the `Authorization: Bearer` header.
 6. In Vercel, set the project root to `frontend`, build command to
    `npm run build`, and output directory to `dist`. Set:
 
    ```env
    VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
    VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-   VITE_SUPABASE_ANON_KEY=<Supabase anon/public key>
+   VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
    ```
 
-   These `VITE_` values are public browser configuration; only the anon key
-   belongs here. Redeploy after setting or changing them.
+   The publishable key is public browser configuration; never put the secret
+   key here. Redeploy after setting or changing these values.
 7. Create a Render Cron Job for daily market history. Use the same backend
    runtime and server-only Supabase variables, set `DISABLE_STARTUP_NETWORK=False`,
    and run:
@@ -159,6 +174,8 @@ python -m backend.workers.scheduler_cli --once
 
 The Flask app factory does not start workers. This prevents duplicate jobs when
 Gunicorn uses multiple web workers.
+For the Render/Vercel path above, the daily Cron Job replaces this continuous
+scheduler command.
 
 ## Logs And Error Reporting
 
@@ -206,7 +223,8 @@ python scripts/sqlite_maintenance.py cleanup-report
 ```
 
 Database cleanup requires an explicit confirmation token and creates a backup
-first. Keep `data/` on a persistent volume for container deployments.
+first. These commands apply to local SQLite data, not Supabase portfolio data.
+Keep `data/` on a persistent volume for container deployments.
 
 ## Graceful Shutdown
 

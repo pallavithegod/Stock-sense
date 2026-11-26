@@ -22,24 +22,24 @@ class SupabaseDailyBarStore:
         self,
         *,
         supabase_url: str,
-        service_role_key: str,
+        secret_key: str,
         session: requests.Session | None = None,
     ):
         self.supabase_url = supabase_url.rstrip("/")
-        self.service_role_key = service_role_key
+        self.secret_key = secret_key
         self.session = session or requests.Session()
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "SupabaseDailyBarStore":
         env = os.environ if environ is None else environ
         supabase_url = env.get("SUPABASE_URL", "").strip()
-        service_role_key = env.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-        if not supabase_url or not service_role_key:
+        secret_key = env.get("SUPABASE_SECRET_KEY", "").strip()
+        if not supabase_url or not secret_key:
             raise RuntimeError(
                 "Daily market collection requires SUPABASE_URL and "
-                "SUPABASE_SERVICE_ROLE_KEY."
+                "SUPABASE_SECRET_KEY."
             )
-        return cls(supabase_url=supabase_url, service_role_key=service_role_key)
+        return cls(supabase_url=supabase_url, secret_key=secret_key)
 
     def upsert(self, rows: list[dict[str, Any]]) -> None:
         if not rows:
@@ -48,8 +48,7 @@ class SupabaseDailyBarStore:
             f"{self.supabase_url}/rest/v1/market_daily_bars",
             params={"on_conflict": "symbol,trading_date"},
             headers={
-                "apikey": self.service_role_key,
-                "Authorization": f"Bearer {self.service_role_key}",
+                "apikey": self.secret_key,
                 "Content-Type": "application/json",
                 "Prefer": "resolution=merge-duplicates,return=minimal",
             },

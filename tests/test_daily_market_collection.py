@@ -141,7 +141,7 @@ def test_supabase_store_upserts_by_symbol_and_trading_date():
     session = Session()
     store = SupabaseDailyBarStore(
         supabase_url="https://project.supabase.co/",
-        service_role_key="server-only-key",
+        secret_key="sb_secret_test",
         session=session,
     )
     row = {
@@ -162,6 +162,8 @@ def test_supabase_store_upserts_by_symbol_and_trading_date():
     url, kwargs = session.call
     assert url == "https://project.supabase.co/rest/v1/market_daily_bars"
     assert kwargs["params"] == {"on_conflict": "symbol,trading_date"}
+    assert kwargs["headers"]["apikey"] == "sb_secret_test"
+    assert "Authorization" not in kwargs["headers"]
     assert kwargs["headers"]["Prefer"] == "resolution=merge-duplicates,return=minimal"
     assert kwargs["json"] == [row]
 
@@ -169,3 +171,8 @@ def test_supabase_store_upserts_by_symbol_and_trading_date():
 def test_supabase_store_requires_server_credentials():
     with pytest.raises(RuntimeError, match="SUPABASE_URL"):
         SupabaseDailyBarStore.from_env({})
+
+
+def test_supabase_store_requires_secret_key():
+    with pytest.raises(RuntimeError, match="SUPABASE_SECRET_KEY"):
+        SupabaseDailyBarStore.from_env({"SUPABASE_URL": "https://project.supabase.co"})

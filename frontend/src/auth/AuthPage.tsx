@@ -66,7 +66,7 @@ export function AuthPage() {
 
       {!configured ? (
         <p role="alert" className="mt-5 rounded-md border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
-          Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the frontend deployment.
+          Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the frontend deployment.
         </p>
       ) : null}
       {initializationError ? (

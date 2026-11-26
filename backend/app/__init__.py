@@ -41,17 +41,17 @@ def _build_services(settings: Settings) -> AppServices:
     )
     market = MarketService(MarketUniverse(), market_data=market_data)
     supabase_auth = None
-    if settings.supabase_url and settings.supabase_anon_key:
+    if settings.supabase_url and settings.supabase_publishable_key:
         supabase_auth = SupabaseAuthClient(
             supabase_url=settings.supabase_url,
-            anon_key=settings.supabase_anon_key,
+            publishable_key=settings.supabase_publishable_key,
         )
     portfolio_repository: PortfolioRepository
     if settings.require_auth:
         portfolio_repository = SupabasePortfolioRepository(
             supabase_url=settings.supabase_url,
-            anon_key=settings.supabase_anon_key,
-            service_role_key=settings.supabase_service_role_key,
+            publishable_key=settings.supabase_publishable_key,
+            secret_key=settings.supabase_secret_key,
             local_db_path=settings.resolved_db_path(),
         )
     else:
@@ -144,13 +144,13 @@ def create_app(settings: Settings | Mapping[str, object] | None = None) -> Flask
     if resolved_settings.require_auth and not all(
         (
             resolved_settings.supabase_url,
-            resolved_settings.supabase_anon_key,
-            resolved_settings.supabase_service_role_key,
+            resolved_settings.supabase_publishable_key,
+            resolved_settings.supabase_secret_key,
         )
     ):
         raise RuntimeError(
-            "REQUIRE_AUTH needs SUPABASE_URL, SUPABASE_ANON_KEY, and "
-            "SUPABASE_SERVICE_ROLE_KEY."
+            "REQUIRE_AUTH needs SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and "
+            "SUPABASE_SECRET_KEY."
         )
 
     app = Flask(__name__, static_folder=None)

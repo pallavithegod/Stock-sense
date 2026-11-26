@@ -33,12 +33,13 @@ def test_supabase_auth_resolves_verified_user_identity():
     class FakeSession:
         def get(self, url, **kwargs):
             assert url == "https://project.supabase.co/auth/v1/user"
+            assert kwargs["headers"]["apikey"] == "sb_publishable_test"
             assert kwargs["headers"]["Authorization"] == "Bearer valid-token"
             return FakeResponse(200, {"id": user_id, "email": "user@example.com"})
 
     user = SupabaseAuthClient(
         supabase_url="https://project.supabase.co",
-        anon_key="public-anon-key",
+        publishable_key="sb_publishable_test",
         session=FakeSession(),
     ).get_user("valid-token")
 
@@ -55,7 +56,7 @@ def test_supabase_auth_distinguishes_invalid_token_from_provider_outage():
 
     auth_client = SupabaseAuthClient(
         supabase_url="https://project.supabase.co",
-        anon_key="public-anon-key",
+        publishable_key="sb_publishable_test",
         session=FakeSession(401),
     )
     with pytest.raises(InvalidAccessToken):
@@ -80,8 +81,8 @@ def test_supabase_portfolio_queries_are_scoped_to_the_verified_user(tmp_path):
     session = FakeSession()
     repository = SupabasePortfolioRepository(
         supabase_url="https://project.supabase.co",
-        anon_key="public-anon-key",
-        service_role_key="server-only-key",
+        publishable_key="sb_publishable_test",
+        secret_key="sb_secret_test",
         local_db_path=tmp_path / "stocksense.db",
         session=session,
         verify_remote_schema=False,
@@ -94,20 +95,45 @@ def test_supabase_portfolio_queries_are_scoped_to_the_verified_user(tmp_path):
     get_call, insert_call = session.calls
     assert get_call[0] == "GET"
     assert get_call[2]["params"]["user_id"] == f"eq.{user_id}"
+    assert get_call[2]["headers"]["apikey"] == "sb_publishable_test"
     assert get_call[2]["headers"]["Authorization"] == "Bearer user-access-token"
     assert insert_call[0] == "POST"
     assert insert_call[2]["json"]["user_id"] == user_id
+    assert insert_call[2]["headers"]["apikey"] == "sb_publishable_test"
     assert insert_call[2]["headers"]["Authorization"] == "Bearer user-access-token"
 
 
 def test_supabase_portfolio_repository_rejects_missing_user(tmp_path):
     repository = SupabasePortfolioRepository(
         supabase_url="https://project.supabase.co",
-        anon_key="public-anon-key",
-        service_role_key="server-only-key",
+        publishable_key="sb_publishable_test",
+        secret_key="sb_secret_test",
         local_db_path=tmp_path / "stocksense.db",
         verify_remote_schema=False,
     )
 
     with pytest.raises(RuntimeError, match="verified user"):
         repository.get_portfolio()
+
+
+def test_supabase_schema_check_uses_secret_key_only_as_apikey(tmp_path):
+    class FakeSession:
+        def __init__(self):
+            self.headers = None
+
+        def get(self, url, **kwargs):
+            self.headers = kwargs["headers"]
+            return FakeResponse(200, [])
+
+    session = FakeSession()
+    repository = SupabasePortfolioRepository(
+        supabase_url="https://project.supabase.co",
+        publishable_key="sb_publishable_test",
+        secret_key="sb_secret_test",
+        local_db_path=tmp_path / "stocksense.db",
+        session=session,
+    )
+
+    repository.ensure_schema()
+
+    assert session.headers == {"apikey": "sb_secret_test"}

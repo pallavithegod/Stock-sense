@@ -167,23 +167,24 @@ Editor. Configure these values on the API and worker servers only:
 
 ```env
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
 REQUIRE_AUTH=True
 ```
 
-Set the public Supabase URL and anon key in the frontend as `VITE_SUPABASE_URL`
-and `VITE_SUPABASE_ANON_KEY`. Never put `SUPABASE_SERVICE_ROLE_KEY` in Vercel
-or any frontend environment variables. The worker stores one upserted OHLCV
-row per symbol and trading date. Set `DISABLE_STARTUP_NETWORK=False` in the
-worker environment so its market-data provider is enabled; `True` disables
-provider requests, not just startup calls.
+Set the public Supabase URL and publishable key in the frontend as
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Never put
+`SUPABASE_SECRET_KEY` in Vercel or any frontend environment variables. The
+worker stores one upserted OHLCV row per symbol and trading date. Set
+`DISABLE_STARTUP_NETWORK=False` in the worker environment so its market-data
+provider is enabled; `True` disables provider requests, not just startup calls.
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the Supabase, Render, and
 Vercel launch sequence, including required environment variables and account
 isolation checks.
 
-For a public demo, protect write endpoints:
+For an anonymous demo that does not use Supabase Auth, write endpoints can use
+the legacy demo token:
 
 ```env
 REQUIRE_MUTATION_TOKEN=True
@@ -192,6 +193,7 @@ DEMO_WRITE_TOKEN=replace_with_a_private_demo_token
 
 Clients can provide the token with either `X-Demo-Token` or
 `Authorization: Bearer <token>`.
+Do not enable this demo-token mode alongside the Supabase-authenticated launch.
 
 ## Validation
 

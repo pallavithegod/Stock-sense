@@ -20,15 +20,15 @@ class SupabasePortfolioRepository:
         self,
         *,
         supabase_url: str,
-        anon_key: str,
-        service_role_key: str,
+        publishable_key: str,
+        secret_key: str,
         local_db_path: Path,
         session: requests.Session | None = None,
         verify_remote_schema: bool = True,
     ):
         self.supabase_url = supabase_url.rstrip("/")
-        self.anon_key = anon_key
-        self.service_role_key = service_role_key
+        self.publishable_key = publishable_key
+        self.secret_key = secret_key
         self.local_db_path = Path(local_db_path)
         self.session = session or requests.Session()
         self.verify_remote_schema = verify_remote_schema
@@ -49,8 +49,7 @@ class SupabasePortfolioRepository:
             f"{self.supabase_url}/rest/v1/portfolio_positions",
             params={"select": "id", "limit": "1"},
             headers={
-                "apikey": self.service_role_key,
-                "Authorization": f"Bearer {self.service_role_key}",
+                "apikey": self.secret_key,
             },
             timeout=10,
         )
@@ -174,7 +173,7 @@ class SupabasePortfolioRepository:
         headers: dict[str, str] | None = None,
     ) -> requests.Response:
         request_headers = {
-            "apikey": self.anon_key,
+            "apikey": self.publishable_key,
             "Authorization": f"Bearer {principal.access_token}",
             "Content-Type": "application/json",
         }

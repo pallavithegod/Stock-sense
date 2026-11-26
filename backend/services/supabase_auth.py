@@ -28,21 +28,21 @@ class SupabaseAuthClient:
         self,
         *,
         supabase_url: str,
-        anon_key: str,
+        publishable_key: str,
         session: requests.Session | None = None,
     ):
         self.supabase_url = supabase_url.rstrip("/")
-        self.anon_key = anon_key
+        self.publishable_key = publishable_key
         self.session = session or requests.Session()
 
     def get_user(self, access_token: str) -> AuthenticatedUser:
-        if not self.supabase_url or not self.anon_key:
+        if not self.supabase_url or not self.publishable_key:
             raise AuthProviderUnavailable("Supabase Auth is not configured.")
         try:
             response = self.session.get(
                 f"{self.supabase_url}/auth/v1/user",
                 headers={
-                    "apikey": self.anon_key,
+                    "apikey": self.publishable_key,
                     "Authorization": f"Bearer {access_token}",
                 },
                 timeout=5,
