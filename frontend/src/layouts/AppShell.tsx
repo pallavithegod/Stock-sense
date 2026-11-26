@@ -151,10 +151,6 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
               <span className="topbar-kicker">StockSense Terminal</span>
               <h1>{currentPageLabel}</h1>
             </div>
-            <div className="topbar-right">
-              <span className="topbar-chip">127.0.0.1:5000</span>
-              <span className="topbar-chip teal">API LINK</span>
-            </div>
           </div>
           <main className="stocksense-content">{children}</main>
         </section>

@@ -30,6 +30,6 @@ jobs:
           DISABLE_STARTUP_NETWORK: 'False'
           FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: python -m backend.workers.scheduler_cli --once --job daily_market_snapshot

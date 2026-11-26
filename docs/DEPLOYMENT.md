@@ -136,12 +136,11 @@ remains available, and the public dashboard omits portfolio data.
    key here. Redeploy after setting or changing these values.
 7. Use `.github/workflows/daily-market-snapshot.yml` for daily market history.
    Add these repository secrets under **Settings → Secrets and variables →
-   Actions**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-   and `FLASK_SECRET_KEY`. Despite the legacy GitHub secret names, put the
-   current `sb_publishable_...` key in `SUPABASE_ANON_KEY` and the current
-   `sb_secret_...` key in `SUPABASE_SERVICE_ROLE_KEY`. `FLASK_SECRET_KEY` must
+   Actions**: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+   `SUPABASE_SECRET_KEY`, and `FLASK_SECRET_KEY`. Use the current
+   `sb_publishable_...` and `sb_secret_...` API keys. `FLASK_SECRET_KEY` must
    be a random value of at least 32 characters. Never put key values in the
-   workflow file. The    workflow runs at 10:15 UTC (15:45 IST) Monday-Friday and
+   workflow file. The workflow runs at 10:15 UTC (15:45 IST) Monday-Friday and
    can also be started manually with **Run workflow**. It upserts one row per
    symbol/trading date. The current small symbol universe stores daily rather
    than intraday bars, but no retention policy is configured yet; monitor table
