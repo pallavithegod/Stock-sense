@@ -61,6 +61,7 @@ export type PortfolioMutationPayload = {
   quantity: number
   avg_price: number
   purchase_date?: string
+  idempotency_key?: string
 }
 
 export type SellSimulationPayload = {
@@ -70,6 +71,7 @@ export type SellSimulationPayload = {
   sell_date?: string
   fees?: number
   methods?: string[]
+  idempotency_key?: string
 }
 
 export type PortfolioCollection<T> = {

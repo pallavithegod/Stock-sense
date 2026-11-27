@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 import hashlib
-import uuid
 
 from backend.app.services import AppServices
 from backend.services.daily_market_collection import DailyMarketCollector, SupabaseDailyBarStore
@@ -159,12 +158,13 @@ def evaluate_prediction_models(services: AppServices) -> dict[str, Any]:
 
 
 def collect_retention_report(services: AppServices) -> dict[str, Any]:
-    services.system_cache["retention_report"] = {
-        "report_id": str(uuid.uuid4()),
-        "status": "manual_cleanup_required",
-        "collected_at": _utc_now(),
-    }
-    return {"status": "manual_cleanup_required"}
+    store = services.system_cache.get("daily_bar_store")
+    if store is None:
+        store = SupabaseDailyBarStore.from_env()
+    report = store.retention_report()
+    report["collected_at"] = _utc_now()
+    services.system_cache["retention_report"] = report
+    return report
 
 
 def _utc_now() -> str:

@@ -30,7 +30,7 @@ def test_migrations_create_authoritative_schema_and_hardened_pragmas(db_tmp_path
     result = apply_migrations(db_path)
     validation = validate_schema(db_path)
 
-    assert result.applied_versions == [1]
+    assert result.applied_versions == [1, 2]
     assert result.pending_versions == []
     assert validation["ok"] is True
     with connect(db_path) as conn:
@@ -203,4 +203,4 @@ def test_maintenance_script_check_and_status_use_migrations(db_tmp_path):
 
     assert json.loads(check.stdout)["status"] == "ok"
     assert migration_status(db_path)["pending_versions"] == []
-    assert json.loads(status.stdout)["applied_versions"] == [1]
+    assert json.loads(status.stdout)["applied_versions"] == [1, 2]

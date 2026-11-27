@@ -152,3 +152,12 @@ export async function simulatePortfolioSell(payload: SellSimulationPayload, opti
   )
   return extractData<Record<string, unknown>>(response)
 }
+
+export async function recordPortfolioSell(payload: SellSimulationPayload, options?: RequestOptions) {
+  const response = await apiClient.post<PortfolioEnvelope<Record<string, unknown>>>(
+    '/portfolio/sell',
+    { ...payload, method: 'FIFO' },
+    { timeoutMs: 20000, ...options },
+  )
+  return extractData<Record<string, unknown>>(response)
+}

@@ -16,6 +16,12 @@ class DailyBarStore(Protocol):
     def upsert(self, rows: list[dict[str, Any]]) -> None:
         ...
 
+    def retention_report(self) -> dict[str, Any]:
+        ...
+
+    def read_history(self, symbol: str, *, limit: int = 500) -> list[dict[str, Any]]:
+        ...
+
 
 class SupabaseDailyBarStore:
     def __init__(
@@ -57,6 +63,66 @@ class SupabaseDailyBarStore:
         )
         response.raise_for_status()
 
+    def retention_report(self) -> dict[str, Any]:
+        headers = {
+            "apikey": self.secret_key,
+            "Prefer": "count=exact",
+            "Range": "0-0",
+        }
+        count_response = self.session.get(
+            f"{self.supabase_url}/rest/v1/market_daily_bars",
+            params={"select": "trading_date", "order": "trading_date.asc", "limit": "1"},
+            headers=headers,
+            timeout=20,
+        )
+        count_response.raise_for_status()
+        content_range = count_response.headers.get("Content-Range", "")
+        try:
+            row_count = int(content_range.rsplit("/", 1)[1])
+        except (IndexError, ValueError) as exc:
+            raise RuntimeError("Supabase did not return an exact market-history row count.") from exc
+
+        oldest_rows = count_response.json()
+        oldest_date = oldest_rows[0].get("trading_date") if oldest_rows else None
+        newest_response = self.session.get(
+            f"{self.supabase_url}/rest/v1/market_daily_bars",
+            params={"select": "trading_date", "order": "trading_date.desc", "limit": "1"},
+            headers={"apikey": self.secret_key},
+            timeout=20,
+        )
+        newest_response.raise_for_status()
+        newest_rows = newest_response.json()
+        newest_date = newest_rows[0].get("trading_date") if newest_rows else None
+        return {
+            "policy": "retain_indefinitely_monitor_only",
+            "row_count": row_count,
+            "oldest_trading_date": oldest_date,
+            "newest_trading_date": newest_date,
+            "automatic_deletion": False,
+        }
+
+    def read_history(self, symbol: str, *, limit: int = 500) -> list[dict[str, Any]]:
+        normalized_symbol = normalize_symbol(symbol)
+        if not normalized_symbol:
+            raise ValueError("A valid symbol is required to read market history.")
+        bounded_limit = max(1, min(int(limit), 1000))
+        response = self.session.get(
+            f"{self.supabase_url}/rest/v1/market_daily_bars",
+            params={
+                "select": "symbol,trading_date,close",
+                "symbol": f"eq.{normalized_symbol}",
+                "order": "trading_date.desc",
+                "limit": str(bounded_limit),
+            },
+            headers={"apikey": self.secret_key},
+            timeout=20,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise RuntimeError("Supabase returned an invalid market-history response.")
+        return list(reversed(rows))
+
 
 class DailyMarketCollector:
     def __init__(
@@ -72,7 +138,7 @@ class DailyMarketCollector:
         self.symbols = symbols
         self.logger = logger or logging.getLogger("stocksense.daily_market_collection")
 
-    def collect(self) -> dict[str, int]:
+    def collect(self, *, period: str = "1y") -> dict[str, int]:
         collected: list[dict[str, Any]] = []
         failed_symbols = 0
         for raw_symbol in self.symbols:
@@ -82,7 +148,7 @@ class DailyMarketCollector:
                 continue
             response = self.market_data.history(
                 symbol,
-                period="5d",
+                period=period,
                 interval="1d",
                 allow_stale=False,
             )

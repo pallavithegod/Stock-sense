@@ -25,10 +25,12 @@ def main(argv: list[str] | None = None) -> int:
     scheduler = Scheduler(registry=build_default_registry(), services=services)
 
     if args.once:
+        failed = False
         for result in scheduler.run_once(args.jobs):
             status = "ok" if result.ok else f"failed: {result.error}"
             print(f"{result.job_name}: {status} attempts={result.attempts}")
-        return 0
+            failed = failed or not result.ok
+        return 1 if failed else 0
 
     scheduler.serve_forever()
     return 0

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,11 @@ import requests
 
 from backend.db import apply_migrations
 from backend.domain.portfolio.exceptions import PortfolioFeatureUnavailable
+from backend.domain.portfolio.ledger import (
+    indian_financial_year_start,
+    match_sell,
+    normalize_trade_date,
+)
 from backend.services.supabase_auth import AuthenticatedUser
 
 
@@ -78,21 +83,19 @@ class SupabasePortfolioRepository:
         avg_price: float,
         purchase_date: str | None = None,
         principal: AuthenticatedUser | None = None,
+        idempotency_key: str | None = None,
     ) -> None:
         user = self._require_user(principal)
-        body = {
-            "user_id": user.user_id,
-            "symbol": symbol.upper(),
-            "quantity": float(quantity),
-            "avg_price": float(avg_price),
-        }
-        if purchase_date:
-            body["added_date"] = _normalize_timestamp(purchase_date)
-        self._request(
-            "POST",
-            params={"on_conflict": "user_id,symbol"},
-            json=body,
-            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        self._rpc(
+            "record_portfolio_buy",
+            {
+                "p_symbol": symbol.upper(),
+                "p_quantity": float(quantity),
+                "p_price": float(avg_price),
+                "p_trade_date": normalize_trade_date(purchase_date) if purchase_date else None,
+                "p_fees": 0,
+                "p_idempotency_key": idempotency_key,
+            },
             principal=user,
         )
 
@@ -104,22 +107,16 @@ class SupabasePortfolioRepository:
         purchase_date: str | None = None,
         principal: AuthenticatedUser | None = None,
     ) -> None:
-        self.add_to_portfolio(symbol, quantity, avg_price, purchase_date, principal)
+        self._require_user(principal)
+        raise PortfolioFeatureUnavailable("Positions are updated by recording buys and sells.")
 
     def delete_portfolio_position(
         self,
         symbol: str,
         principal: AuthenticatedUser | None = None,
     ) -> None:
-        user = self._require_user(principal)
-        self._request(
-            "DELETE",
-            params={
-                "user_id": f"eq.{user.user_id}",
-                "symbol": f"eq.{symbol.upper()}",
-            },
-            principal=user,
-        )
+        self._require_user(principal)
+        raise PortfolioFeatureUnavailable("Positions are removed by recording a sell.")
 
     def get_portfolio_lots(
         self,
@@ -127,10 +124,21 @@ class SupabasePortfolioRepository:
         only_open: bool = True,
         principal: AuthenticatedUser | None = None,
     ) -> list[dict[str, Any]]:
-        self._require_user(principal)
-        raise PortfolioFeatureUnavailable(
-            "Trade-lot history is not available for aggregate portfolio positions."
-        )
+        user = self._require_user(principal)
+        params = {
+            "select": "id,symbol,buy_txn_id,buy_date,buy_price,original_quantity,remaining_quantity,original_fees,remaining_fees",
+            "user_id": f"eq.{user.user_id}",
+            "order": "buy_date.asc,id.asc",
+        }
+        if only_open:
+            params["remaining_quantity"] = "gt.0"
+        if symbol:
+            params["symbol"] = f"eq.{symbol.upper()}"
+        response = self._request("GET", params=params, principal=user, resource="portfolio_lots")
+        rows = response.json()
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise RuntimeError("Supabase returned an invalid portfolio-lots response.")
+        return [{**row, "lot_id": row["id"]} for row in rows]
 
     def get_realized_gains(
         self,
@@ -139,16 +147,67 @@ class SupabasePortfolioRepository:
         to_date: str | None = None,
         principal: AuthenticatedUser | None = None,
     ) -> list[dict[str, Any]]:
-        self._require_user(principal)
-        raise PortfolioFeatureUnavailable("Realized gains are not available without trade history.")
+        user = self._require_user(principal)
+        params = {
+            "select": "id,symbol,sell_txn_id,lot_id,quantity,buy_price,sell_price,buy_fees,sell_fees,gain,gain_percent,holding_days,gain_type,realized_at",
+            "user_id": f"eq.{user.user_id}",
+            "order": "realized_at.desc,id.desc",
+        }
+        if symbol:
+            params["symbol"] = f"eq.{symbol.upper()}"
+        if from_date and to_date:
+            params["and"] = (
+                f"(realized_at.gte.{normalize_trade_date(from_date)},"
+                f"realized_at.lte.{normalize_trade_date(to_date)})"
+            )
+        elif from_date:
+            params["realized_at"] = f"gte.{normalize_trade_date(from_date)}"
+        elif to_date:
+            params["realized_at"] = f"lte.{normalize_trade_date(to_date)}"
+        response = self._request("GET", params=params, principal=user, resource="portfolio_realized_gains")
+        rows = response.json()
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise RuntimeError("Supabase returned an invalid realized-gains response.")
+        gains = []
+        for row in rows:
+            gain = float(row["gain"])
+            gains.append(
+                {
+                    **row,
+                    "realized_gain": gain,
+                    "realized_stcg": gain if row["gain_type"] == "STCG" else 0,
+                    "realized_ltcg": gain if row["gain_type"] == "LTCG" else 0,
+                    "sell_date": row["realized_at"],
+                }
+            )
+        return gains
 
     def get_financial_year_realized_summary(
         self,
         fy_start_year: int | None = None,
         principal: AuthenticatedUser | None = None,
     ) -> dict[str, Any]:
-        self._require_user(principal)
-        raise PortfolioFeatureUnavailable("Tax summaries are not available without trade history.")
+        user = self._require_user(principal)
+        today = datetime.now(timezone.utc).date()
+        start_year = fy_start_year or indian_financial_year_start(today)
+        gains = self.get_realized_gains(
+            from_date=date(start_year, 4, 1).isoformat(),
+            to_date=date(start_year + 1, 3, 31).isoformat(),
+            principal=user,
+        )
+        stcg = sum(row["realized_gain"] for row in gains if row["gain_type"] == "STCG")
+        ltcg = sum(row["realized_gain"] for row in gains if row["gain_type"] == "LTCG")
+        return {
+            "financial_year": f"{start_year}-{str(start_year + 1)[-2:]}",
+            "fy_start_year": start_year,
+            "realized_total": round(stcg + ltcg, 6),
+            "stcg_realized": round(stcg, 6),
+            "ltcg_realized": round(ltcg, 6),
+            "transactions": len({row.get("sell_txn_id") for row in gains}),
+            "symbols": sorted({row["symbol"] for row in gains}),
+            "tax_amount": None,
+            "classification_basis": "India-listed equity: LTCG from 12-month anniversary; no tax calculation",
+        }
 
     def compare_sell_methods(
         self,
@@ -160,8 +219,74 @@ class SupabasePortfolioRepository:
         methods: list[str] | None = None,
         principal: AuthenticatedUser | None = None,
     ) -> dict[str, Any]:
-        self._require_user(principal)
-        raise PortfolioFeatureUnavailable("Sell simulation is not available without trade history.")
+        lots = self.get_portfolio_lots(symbol=symbol, principal=principal)
+        method_list = methods or ["FIFO", "LIFO", "HIFO"]
+        scenarios = []
+        for method in method_list:
+            matched = match_sell(
+                lots,
+                quantity=quantity,
+                sell_price=sell_price,
+                sell_date=normalize_trade_date(sell_date),
+                fees=fees,
+                method=method,
+            )
+            scenarios.append(
+                {
+                    "symbol": symbol.upper(),
+                    "method": method,
+                    "sold_quantity": float(quantity),
+                    "sell_price": float(sell_price),
+                    "fees": float(fees),
+                    "realized_gain": round(sum(item["realized_gain"] for item in matched), 6),
+                    "matched_lots": matched,
+                }
+            )
+        return {
+            "symbol": symbol.upper(),
+            "sell_quantity": float(quantity),
+            "sell_price": float(sell_price),
+            "scenarios": scenarios,
+            "recommended_method": "FIFO",
+        }
+
+    def record_sell(
+        self,
+        symbol: str,
+        quantity: float,
+        sell_price: float,
+        sell_date: str | None = None,
+        fees: float = 0.0,
+        method: str = "FIFO",
+        notes: str | None = None,
+        principal: AuthenticatedUser | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        user = self._require_user(principal)
+        if not idempotency_key:
+            lots = self.get_portfolio_lots(symbol=symbol, principal=user)
+            match_sell(
+                lots,
+                quantity=quantity,
+                sell_price=sell_price,
+                sell_date=normalize_trade_date(sell_date),
+                fees=fees,
+                method=method,
+            )
+        return self._rpc(
+            "record_portfolio_sell",
+            {
+                "p_symbol": symbol.upper(),
+                "p_quantity": float(quantity),
+                "p_price": float(sell_price),
+                "p_trade_date": normalize_trade_date(sell_date),
+                "p_fees": float(fees),
+                "p_method": method.upper(),
+                "p_notes": notes,
+                "p_idempotency_key": idempotency_key,
+            },
+            principal=user,
+        )
 
     def _request(
         self,
@@ -171,6 +296,7 @@ class SupabasePortfolioRepository:
         params: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        resource: str = "portfolio_positions",
     ) -> requests.Response:
         request_headers = {
             "apikey": self.publishable_key,
@@ -180,7 +306,7 @@ class SupabasePortfolioRepository:
         request_headers.update(headers or {})
         response = self.session.request(
             method,
-            f"{self.supabase_url}/rest/v1/portfolio_positions",
+            f"{self.supabase_url}/rest/v1/{resource}",
             params=params,
             json=json,
             headers=request_headers,
@@ -189,16 +315,38 @@ class SupabasePortfolioRepository:
         response.raise_for_status()
         return response
 
+    def _rpc(
+        self,
+        function: str,
+        payload: dict[str, Any],
+        *,
+        principal: AuthenticatedUser,
+    ) -> dict[str, Any]:
+        response = self.session.post(
+            f"{self.supabase_url}/rest/v1/rpc/{function}",
+            json=payload,
+            headers={
+                "apikey": self.publishable_key,
+                "Authorization": f"Bearer {principal.access_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+        if response.status_code == 400:
+            try:
+                details = response.json()
+            except ValueError:
+                details = {}
+            message = details.get("message") if isinstance(details, dict) else None
+            raise ValueError(str(message or f"Supabase rejected RPC {function}."))
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Supabase RPC {function} returned an invalid response.")
+        return result
+
     @staticmethod
     def _require_user(principal: AuthenticatedUser | None) -> AuthenticatedUser:
         if principal is None:
             raise RuntimeError("A verified user is required for portfolio access.")
         return principal
-
-
-def _normalize_timestamp(value: str) -> str:
-    normalized = value.replace("Z", "+00:00")
-    parsed = datetime.fromisoformat(normalized)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat()

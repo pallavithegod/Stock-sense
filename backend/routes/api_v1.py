@@ -288,6 +288,8 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
             return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only")
         except RequestValidationError as exc:
             return jsonify(validation_error_payload(exc)), 400
+        except ValueError as exc:
+            return jsonify(error_payload(str(exc), code="VALIDATION_ERROR")), 400
 
     @blueprint.put("/api/v1/portfolio/<symbol>")
     def update_portfolio_position(symbol: str):
@@ -297,12 +299,17 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
             return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only")
         except RequestValidationError as exc:
             return jsonify(validation_error_payload(exc)), 400
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.delete("/api/v1/portfolio/<symbol>")
     def delete_portfolio_position(symbol: str):
-        result = services.portfolio.delete_position(symbol, current_user())
-        status = 400 if result.get("status") == "error" else 200
-        return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only"), status
+        try:
+            result = services.portfolio.delete_position(symbol, current_user())
+            status = 400 if result.get("status") == "error" else 200
+            return _raw_success(result, provider=portfolio_provider, quality_status="portfolio_only"), status
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
 
     @blueprint.get("/api/v1/portfolio/lots")
     def portfolio_lots():
@@ -394,6 +401,21 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
             return jsonify(validation_error_payload(exc)), 400
         except PortfolioFeatureUnavailable as exc:
             return _portfolio_feature_unavailable_response(exc)
+        except ValueError as exc:
+            return jsonify(error_payload(str(exc), code="VALIDATION_ERROR")), 400
+
+    @blueprint.post("/api/v1/portfolio/sell")
+    def portfolio_sell():
+        try:
+            data = validate_sell_order(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+            payload = services.portfolio.record_sell(data, current_user())
+            return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
+        except RequestValidationError as exc:
+            return jsonify(validation_error_payload(exc)), 400
+        except PortfolioFeatureUnavailable as exc:
+            return _portfolio_feature_unavailable_response(exc)
+        except ValueError as exc:
+            return jsonify(error_payload(str(exc), code="VALIDATION_ERROR")), 400
 
     @blueprint.get("/api/v1/predictions")
     def predictions():
@@ -419,7 +441,11 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
     @blueprint.get("/api/v1/predictions/live/<symbol>")
     def live_prediction(symbol: str):
         payload = services.predictions.live_prediction_payload(symbol).get("data") or {}
-        return _raw_success(payload, provider="unavailable_prediction_pipeline", quality_status=_quality_from(payload))
+        return _raw_success(
+            payload,
+            provider=str(payload.get("provider") or "unavailable_prediction_pipeline"),
+            quality_status=_quality_from(payload),
+        )
 
     @blueprint.get("/api/v1/predictions/evolved/<symbol>")
     def evolved_prediction(symbol: str):

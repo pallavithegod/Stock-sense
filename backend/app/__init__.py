@@ -21,6 +21,7 @@ from backend.domain.system import SystemService
 from backend.routes.api_v1 import create_api_v1_blueprint
 from backend.routes.health import create_health_blueprint
 from backend.services.market_data import build_market_data_client
+from backend.services.daily_market_collection import SupabaseDailyBarStore
 from backend.services.news_service import NewsService
 from backend.services.observability import configure_logging, install_request_observability
 from backend.services.security import (
@@ -63,7 +64,18 @@ def _build_services(settings: Settings) -> AppServices:
         "last_update": None,
         "cognitive_state": {},
     }
-    predictions = PredictionQueryService(ai_engine_state=ai_engine_state)
+    market_history_store = (
+        SupabaseDailyBarStore(
+            supabase_url=settings.supabase_url,
+            secret_key=settings.supabase_secret_key,
+        )
+        if settings.require_auth
+        else None
+    )
+    predictions = PredictionQueryService(
+        ai_engine_state=ai_engine_state,
+        market_history_store=market_history_store,
+    )
     dashboard = DashboardService(market_service=market, portfolio_service=portfolio)
     runtime.cache_ttl = settings.cache_timeout
     system = SystemService(
@@ -119,7 +131,10 @@ def _register_core_routes(app: Flask, services: AppServices) -> None:
 
 
 def _register_blueprints(app: Flask, services: AppServices) -> None:
-    news_service = NewsService(normalize_symbol=normalize_symbol)
+    news_service = NewsService(
+        normalize_symbol=normalize_symbol,
+        api_key="" if services.settings.testing else None,
+    )
     app.register_blueprint(create_health_blueprint())
     app.register_blueprint(create_api_v1_blueprint(services=services, news_service=news_service))
 

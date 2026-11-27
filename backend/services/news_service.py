@@ -1,47 +1,130 @@
-"""News, alerts, and research read-model helpers."""
+"""GNews-backed article read models with a stale in-memory fallback."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
+import time
 from typing import Any, Callable
+
+import requests
 
 
 NormalizeSymbol = Callable[[Any], str | None]
+GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search"
+DEFAULT_CACHE_TTL_SECONDS = 300
 
 
 class NewsService:
-    """Small deterministic news service for the factory path.
-
-    Live providers are intentionally deferred to the market/news reliability
-    phases. These methods keep response shapes stable without pretending that
-    unavailable provider data is live news.
-    """
-
-    def __init__(self, *, normalize_symbol: NormalizeSymbol):
+    def __init__(
+        self,
+        *,
+        normalize_symbol: NormalizeSymbol,
+        api_key: str | None = None,
+        session: requests.Session | None = None,
+        cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
+    ):
         self._normalize_symbol = normalize_symbol
+        self._api_key = (
+            os.getenv("GNEWS_API_KEY", "").strip() if api_key is None else api_key.strip()
+        )
+        self._session = session or requests.Session()
+        self._cache_ttl_seconds = max(0, cache_ttl_seconds)
+        self._cache: dict[str, tuple[float, str, list[dict[str, Any]]]] = {}
 
     def _timestamp(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def market_news(self) -> dict[str, Any]:
+    def _fetch_articles(self, query: str) -> dict[str, Any]:
+        cache_key = query.strip().lower()
+        cached = self._cache.get(cache_key)
+        now = time.monotonic()
+        if cached and cached[0] > now:
+            return self._response(
+                articles=cached[2],
+                source="gnews_cache",
+                data_quality="cached",
+                timestamp=cached[1],
+            )
+        if not self._api_key:
+            return self._fallback(cached)
+
+        try:
+            response = self._session.get(
+                GNEWS_SEARCH_URL,
+                params={
+                    "q": query,
+                    "lang": "en",
+                    "apikey": self._api_key,
+                    "max": 10,
+                },
+                timeout=8,
+            )
+            if response.status_code == 429:
+                return self._fallback(cached)
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            return self._fallback(cached)
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("articles"), list):
+            return self._fallback(cached)
+
+        articles = [
+            normalized
+            for article in payload["articles"]
+            if (normalized := _normalize_article(article)) is not None
+        ]
+        fetched_at = self._timestamp()
+        self._cache[cache_key] = (
+            time.monotonic() + self._cache_ttl_seconds,
+            fetched_at,
+            articles,
+        )
+        return self._response(
+            articles=articles, source="gnews", data_quality="live", timestamp=fetched_at
+        )
+
+    def _fallback(self, cached: tuple[float, str, list[dict[str, Any]]] | None) -> dict[str, Any]:
+        if cached:
+            return self._response(
+                articles=cached[2],
+                source="gnews_cache",
+                data_quality="cached_stale",
+                timestamp=cached[1],
+            )
+        return self._response(articles=[], source="unavailable", data_quality="unavailable")
+
+    def _response(
+        self,
+        *,
+        articles: list[dict[str, Any]],
+        source: str,
+        data_quality: str,
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
         return {
             "success": True,
-            "articles": [],
-            "data": [],
-            "source": "unavailable",
-            "data_quality": "unavailable",
-            "timestamp": self._timestamp(),
+            "articles": articles,
+            "data": articles,
+            "source": source,
+            "data_quality": data_quality,
+            "timestamp": timestamp or self._timestamp(),
         }
 
+    def market_news(self) -> dict[str, Any]:
+        return self._fetch_articles("stock market OR finance OR economy")
+
     def symbol_news(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        if not normalized:
+            return {
+                **self._response(articles=[], source="unavailable", data_quality="unavailable"),
+                "symbol": None,
+            }
         return {
-            "success": True,
-            "symbol": self._normalize_symbol(symbol),
-            "articles": [],
-            "data": [],
-            "source": "unavailable",
-            "data_quality": "unavailable",
-            "timestamp": self._timestamp(),
+            **self._fetch_articles(f'"{normalized}" stock OR company'),
+            "symbol": normalized,
         }
 
     def alerts(self) -> dict[str, Any]:
@@ -67,3 +150,21 @@ class NewsService:
             "timestamp": self._timestamp(),
         }
 
+
+def _normalize_article(article: Any) -> dict[str, Any] | None:
+    if not isinstance(article, dict):
+        return None
+    title = article.get("title")
+    url = article.get("url")
+    if not isinstance(title, str) or not isinstance(url, str):
+        return None
+    source = article.get("source")
+    if isinstance(source, dict):
+        source = source.get("name")
+    return {
+        "title": title,
+        "summary": article.get("description"),
+        "url": url,
+        "published_at": article.get("publishedAt"),
+        "source": source if isinstance(source, str) else None,
+    }

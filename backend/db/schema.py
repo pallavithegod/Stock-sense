@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 
-LATEST_SCHEMA_VERSION = 1
+LATEST_SCHEMA_VERSION = 2
 
 AUXILIARY_DATABASE_OWNERSHIP = {
     "stocksense.db": "Authoritative application data: portfolio, predictions, model metrics, retention archives.",
@@ -268,8 +268,30 @@ def _create_core_schema(conn) -> None:
     )
 
 
+def _add_portfolio_ledger_fields(conn) -> None:
+    _add_missing_column(conn, "portfolio_transactions", "source_key", "TEXT")
+    _add_missing_column(conn, "portfolio_transactions", "lot_method", "TEXT")
+    _add_missing_column(conn, "portfolio_lots", "original_fees", "REAL NOT NULL DEFAULT 0")
+    _add_missing_column(conn, "portfolio_lots", "remaining_fees", "REAL NOT NULL DEFAULT 0")
+    _add_missing_column(conn, "portfolio_realized_gains", "buy_fees", "REAL NOT NULL DEFAULT 0")
+    _add_missing_column(conn, "portfolio_realized_gains", "sell_fees", "REAL NOT NULL DEFAULT 0")
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_txn_source_key
+        ON portfolio_transactions(source_key)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_lot_buy_txn
+        ON portfolio_lots(buy_txn_id)
+        """
+    )
+
+
 MIGRATIONS = (
     Migration(1, "core_schema_v1", _create_core_schema),
+    Migration(2, "portfolio_ledger_fees_and_idempotency", _add_portfolio_ledger_fields),
 )
 
 REQUIRED_TABLES = {
@@ -326,6 +348,7 @@ REQUIRED_COLUMNS = {
         "metrics_json",
         "updated_at",
     },
-    "portfolio_transactions": {"id", "symbol", "side", "quantity", "price", "trade_date", "fees", "created_at"},
-    "portfolio_lots": {"id", "symbol", "buy_txn_id", "buy_date", "buy_price", "original_quantity", "remaining_quantity", "created_at"},
+    "portfolio_transactions": {"id", "symbol", "side", "quantity", "price", "trade_date", "fees", "source_key", "lot_method", "created_at"},
+    "portfolio_lots": {"id", "symbol", "buy_txn_id", "buy_date", "buy_price", "original_quantity", "remaining_quantity", "original_fees", "remaining_fees", "created_at"},
+    "portfolio_realized_gains": {"id", "symbol", "sell_txn_id", "lot_id", "quantity", "buy_price", "sell_price", "buy_fees", "sell_fees", "gain", "gain_percent", "holding_days", "gain_type", "realized_at"},
 }

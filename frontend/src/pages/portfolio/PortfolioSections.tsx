@@ -1,5 +1,4 @@
 import type { FormEvent } from 'react'
-import { IconButton } from '../../components/IconButton'
 import { MetricCard } from '../../components/MetricCard'
 import { SectionHeader } from '../../components/SectionHeader'
 import { StatePanel } from '../../components/StatePanel'
@@ -76,20 +75,14 @@ export function PortfolioSummary({
 }
 
 export function HoldingsTable({
-  onDelete,
-  onEdit,
   onSelect,
   portfolio,
   positions,
-  saving,
   selectedSymbol,
 }: {
-  onDelete: (symbol: string) => void
-  onEdit: (position: PortfolioPosition) => void
   onSelect: (position: PortfolioPosition) => void
   portfolio: QueryLike<unknown>
   positions: PortfolioPosition[]
-  saving: boolean
   selectedSymbol: string
 }) {
   return (
@@ -112,7 +105,6 @@ export function HoldingsTable({
                 <th className="px-3 py-2">Value</th>
                 <th className="px-3 py-2">P&L</th>
                 <th className="px-3 py-2">Signal</th>
-                <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
@@ -142,32 +134,6 @@ export function HoldingsTable({
                         <div className="text-xs text-slate-500">{formatNumber(position.confidence)} confidence</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-2">
-                        <IconButton
-                          className="h-8 min-w-8 px-2 text-xs"
-                          label={`Edit ${position.symbol}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onEdit(position)
-                          }}
-                        >
-                          Edit
-                        </IconButton>
-                        <IconButton
-                          className="h-8 min-w-8 px-2 text-xs"
-                          disabled={saving}
-                          label={`Delete ${position.symbol}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onDelete(position.symbol)
-                          }}
-                          tone="danger"
-                        >
-                          Delete
-                        </IconButton>
-                      </div>
-                    </td>
                   </tr>
                 )
               })}
@@ -185,25 +151,21 @@ export function HoldingsTable({
 }
 
 export function PositionFormPanel({
-  editingSymbol,
   errors,
   form,
-  onCancel,
   onChange,
   onSubmit,
   saving,
 }: {
-  editingSymbol: string | null
   errors: FieldErrors<keyof PositionForm>
   form: PositionForm
-  onCancel: () => void
   onChange: (form: PositionForm) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   saving: boolean
 }) {
   return (
     <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-      <SectionHeader eyebrow={editingSymbol ? 'Edit' : 'Add'} title="Position" />
+      <SectionHeader eyebrow="Trade" title="Record buy" />
       <form className="mt-4 space-y-3" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="position-symbol">Symbol</label>
         <input
@@ -211,7 +173,6 @@ export function PositionFormPanel({
           aria-describedby={errors.symbol ? 'position-symbol-error' : undefined}
           aria-invalid={Boolean(errors.symbol)}
           className="h-10 w-full rounded-md border border-white/10 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
-          disabled={Boolean(editingSymbol)}
           onChange={(event) => onChange({ ...form, symbol: event.target.value })}
           placeholder="Symbol, e.g. INFY"
           required
@@ -245,7 +206,7 @@ export function PositionFormPanel({
               className="h-10 w-full rounded-md border border-white/10 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
               min="0"
               onChange={(event) => onChange({ ...form, avgPrice: event.target.value })}
-              placeholder="Average price"
+              placeholder="Buy price"
               required
               step="any"
               type="number"
@@ -268,13 +229,8 @@ export function PositionFormPanel({
             disabled={saving}
             type="submit"
           >
-            {editingSymbol ? 'Update' : 'Add'}
+            Record buy
           </button>
-          {editingSymbol ? (
-            <button className="rounded-md border border-white/10 px-3 py-2 text-sm text-slate-300" onClick={onCancel} type="button">
-              Cancel
-            </button>
-          ) : null}
         </div>
       </form>
     </section>
@@ -331,6 +287,7 @@ export function LotsTable({
 export function SellSimulator({
   errors,
   form,
+  onRecordSale,
   onChange,
   onSubmit,
   result,
@@ -338,6 +295,7 @@ export function SellSimulator({
 }: {
   errors: FieldErrors<keyof SellForm>
   form: SellForm
+  onRecordSale: () => void
   onChange: (form: SellForm) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   result: Record<string, unknown> | null
@@ -411,6 +369,14 @@ export function SellSimulator({
           type="submit"
         >
           Simulate FIFO/LIFO/HIFO
+        </button>
+        <button
+          className="h-10 rounded-md border border-rose-300/40 px-3 text-sm font-medium text-rose-200 disabled:opacity-50"
+          disabled={saving}
+          onClick={onRecordSale}
+          type="button"
+        >
+          Record FIFO sell
         </button>
         {errors.symbol ? <div className="text-xs text-rose-200" id="sell-symbol-error">{errors.symbol}</div> : null}
         {errors.quantity ? <div className="text-xs text-rose-200" id="sell-quantity-error">{errors.quantity}</div> : null}

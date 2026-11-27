@@ -91,7 +91,11 @@ a valid Supabase access token; Postgres row-level security and explicit
 remains available, and the public dashboard omits portfolio data.
 
 1. Create a Supabase project and open **SQL Editor**.
-2. Apply `supabase/migrations/20261125_market_data_and_portfolios.sql`.
+2. Apply `supabase/migrations/20261125_market_data_and_portfolios.sql`, then
+   `supabase/migrations/20261127_portfolio_trade_ledger.sql`. The second
+   migration creates user-scoped trade/lot/gain tables and atomically backfills
+   existing aggregate positions as opening lots at their saved quantity,
+   average price, and date. Apply it before deploying the matching backend.
 3. In **Authentication → URL Configuration**, set the Vercel URL as the Site
    URL and add the production URL plus
    `https://<your-vercel-domain>/portfolio`
@@ -111,6 +115,8 @@ remains available, and the public dashboard omits portfolio data.
    SUPABASE_URL=https://<project-ref>.supabase.co
    SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
    SUPABASE_SECRET_KEY=sb_secret_...
+   ALPHA_VANTAGE_API_KEY=<optional market-data API key>
+   FINNHUB_API_KEY=<optional market-data API key>
    CORS_ALLOWED_ORIGINS=https://<your-vercel-domain>
    SOCKETIO_CORS_ALLOWED_ORIGINS=https://<your-vercel-domain>
    ```
@@ -137,26 +143,50 @@ remains available, and the public dashboard omits portfolio data.
 7. Use `.github/workflows/daily-market-snapshot.yml` for daily market history.
    Add these repository secrets under **Settings → Secrets and variables →
    Actions**: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
-   `SUPABASE_SECRET_KEY`, and `FLASK_SECRET_KEY`. Use the current
+   `SUPABASE_SECRET_KEY`, `FLASK_SECRET_KEY`, and at least one of
+   `FINNHUB_API_KEY` or `ALPHA_VANTAGE_API_KEY`. The snapshot workflow passes
+   both market-data secrets to the collector. It also accepts GitHub secret
+   aliases `FINNHUB_KEY` and `ALPHA_VANTAGE_KEY`. In a local `.env`, these
+   aliases are accepted too. Use the current
    `sb_publishable_...` and `sb_secret_...` API keys. `FLASK_SECRET_KEY` must
    be a random value of at least 32 characters. Never put key values in the
    workflow file. The workflow runs at 10:15 UTC (15:45 IST) Monday-Friday and
    can also be started manually with **Run workflow**. It upserts one row per
-   symbol/trading date. The current small symbol universe stores daily rather
-   than intraday bars, but no retention policy is configured yet; monitor table
-   growth and provider failures.
+   symbol/trading date. It also reports the table row count and oldest/newest
+   dates. The agreed policy is to retain daily bars indefinitely; the report
+   does not delete data. No valid bars or a monitoring error fails the Actions
+   run.
+   The workflow also evaluates the experimental five-session momentum candidate
+   against a zero-return baseline. To seed enough history for evaluation, run
+   the following with the Supabase server environment and configured market
+   provider. The daily snapshot requests a rolling 1-year window; this
+   backfill command defaults to 2 years, and also supports `--period 5y` or
+   `--period max`.
+
+   ```powershell
+   python -m scripts.backfill_market_history --symbol INFY --symbol TCS --symbol SBIN --symbol RELIANCE --period 2y
+   ```
+
+   The forecast remains hidden
+   unless at least 400 daily bars are available, the chronological holdout has
+   at least 60 samples, the model improves holdout MAE by at least 5%, and
+   directional accuracy exceeds 50%. The candidate has no calibrated confidence
+   and is not a trained or investment-grade model.
 8. Verify in the deployed site: sign up with two separate email accounts,
    confirm each account, add a distinct holding under each, sign out/in between
    them, and confirm neither account can read, edit, or delete the other's
-   positions. Also test password reset, public market pages, and API health.
+   positions. Verify a recorded buy creates an open lot; simulate FIFO/LIFO/HIFO;
+   record a FIFO sell; and confirm remaining quantity, realized gain, and Indian
+   financial-year STCG/LTCG classification. Tax payable is not calculated.
+   Also test password reset, public market pages, and API health.
 
-Existing SQLite portfolio rows are intentionally not migrated because their
-owner has not been identified. The Supabase portfolio currently stores
-aggregate positions; realized-gain and tax-lot endpoints are not implemented
-for this backend, and sell simulation is disabled until real trade history
-exists. These features must not be presented as production-ready. Daily history
-collection is implemented, but a validated prediction model consuming those
-bars is still a separate, unfinished project gate.
+The Supabase portfolio now keeps transaction-level buy/sell history and lots.
+Position edits/deletes are replaced by recorded trades so the accounting ledger
+cannot silently diverge from holdings. The legacy SQLite demo database is
+separate; its temporary migration utility is not part of this deployment path.
+Realized P&L and 12-month STCG/LTCG classification are informational only; no
+tax amount is calculated. The statistical forecast is experimental and remains
+hidden until it clears the out-of-sample validation gate above.
 
 ## Workers
 

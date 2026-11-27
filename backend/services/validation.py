@@ -158,6 +158,7 @@ def validate_portfolio_create(
         "quantity": parse_number(data.get("qty", data.get("quantity")), field="quantity", min_value=0.000001),
         "avg_price": parse_number(data.get("avg_price", data.get("price")), field="avg_price", min_value=0.000001),
         "purchase_date": parse_date(data.get("purchase_date", data.get("added_date")), field="purchase_date"),
+        "idempotency_key": clean_text(data.get("idempotency_key"), field="idempotency_key", max_length=100),
     }
 
 
@@ -196,6 +197,7 @@ def validate_sell_order(payload: Any, *, normalize_symbol: Callable[[Any], str |
         "method": parse_choice(data.get("method", "FIFO"), field="method", choices={"FIFO", "LIFO", "HIFO"}),
         "fees": parse_number(data.get("fees", 0), field="fees", required=False, min_value=0, default=0.0),
         "notes": clean_text(data.get("notes"), field="notes", required=False, max_length=500),
+        "idempotency_key": clean_text(data.get("idempotency_key"), field="idempotency_key", max_length=100),
         "methods": validate_methods(data.get("methods")),
     }
 

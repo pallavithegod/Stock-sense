@@ -73,10 +73,15 @@ def test_supabase_portfolio_queries_are_scoped_to_the_verified_user(tmp_path):
     class FakeSession:
         def __init__(self):
             self.calls = []
+            self.posts = []
 
         def request(self, method, url, **kwargs):
             self.calls.append((method, url, kwargs))
             return FakeResponse(200, [])
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs))
+            return FakeResponse(200, {"status": "ok"})
 
     session = FakeSession()
     repository = SupabasePortfolioRepository(
@@ -92,15 +97,16 @@ def test_supabase_portfolio_queries_are_scoped_to_the_verified_user(tmp_path):
     repository.get_portfolio(user)
     repository.add_to_portfolio("INFY", 3, 1250, principal=user)
 
-    get_call, insert_call = session.calls
+    (get_call,) = session.calls
     assert get_call[0] == "GET"
     assert get_call[2]["params"]["user_id"] == f"eq.{user_id}"
     assert get_call[2]["headers"]["apikey"] == "sb_publishable_test"
     assert get_call[2]["headers"]["Authorization"] == "Bearer user-access-token"
-    assert insert_call[0] == "POST"
-    assert insert_call[2]["json"]["user_id"] == user_id
-    assert insert_call[2]["headers"]["apikey"] == "sb_publishable_test"
-    assert insert_call[2]["headers"]["Authorization"] == "Bearer user-access-token"
+    url, rpc_call = session.posts[0]
+    assert url.endswith("/rest/v1/rpc/record_portfolio_buy")
+    assert rpc_call["json"]["p_symbol"] == "INFY"
+    assert rpc_call["headers"]["apikey"] == "sb_publishable_test"
+    assert rpc_call["headers"]["Authorization"] == "Bearer user-access-token"
 
 
 def test_supabase_portfolio_repository_rejects_missing_user(tmp_path):

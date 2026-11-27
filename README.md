@@ -28,11 +28,13 @@ structured logs, database maintenance scripts, and repeatable tests.
 - Background worker CLI for scheduled refresh and maintenance jobs.
 - CI-friendly frontend and backend test suites, including browser smoke tests.
 
-The Supabase-backed launch path currently supports authenticated, per-user
-aggregate position read/write. Trade-lot history, sell simulation, realized
-gains, and tax summaries remain unavailable until transaction-level storage is
-implemented; daily market snapshots are collected separately from the
-unfinished prediction pipeline.
+The Supabase-backed launch path supports authenticated, per-user portfolio
+trades, open tax lots, FIFO sells, FIFO/LIFO/HIFO simulation, realized gains,
+and Indian financial-year STCG/LTCG classification (without tax calculation).
+Daily market snapshots are collected separately. An experimental five-session
+statistical forecast is hidden unless it clears a chronological out-of-sample
+test against a zero-return baseline; it has no calibrated confidence and is not
+an investment-grade model.
 
 ## Architecture
 
@@ -154,12 +156,22 @@ you want live provider-backed market, news, or model integrations:
 ```env
 ALPHA_VANTAGE_API_KEY=
 TWELVE_DATA_API_KEY=
-NEWS_API_KEY=
+GNEWS_API_KEY=
 FINNHUB_API_KEY=
 FMP_API_KEY=
 DATA_GOV_API_KEY=
 HUGGINGFACEHUB_API_TOKEN=
 ```
+
+Daily market collection tries yfinance first, including bare-symbol, NSE
+(`.NS`), and BSE (`.BO`) history lookups, then uses Finnhub and Alpha Vantage
+as fallbacks. Set their `*_API_KEY` variables locally and as GitHub Actions
+repository secrets; local `.env` also accepts `FINNHUB_KEY` and
+`ALPHA_VANTAGE_KEY`.
+
+The API news service uses `GNEWS_API_KEY` for live market and symbol articles.
+It serves cached articles when available, or an explicit empty/unavailable
+state when the key is missing or GNews cannot be reached.
 
 For Supabase-backed portfolio authentication and daily market snapshots, apply
 `supabase/migrations/20261125_market_data_and_portfolios.sql` in the Supabase SQL

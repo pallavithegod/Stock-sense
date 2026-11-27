@@ -2,9 +2,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   createPortfolioPosition,
-  deletePortfolioPosition,
+  recordPortfolioSell,
   simulatePortfolioSell,
-  updatePortfolioPosition,
 } from '../api/portfolio'
 import { IconButton } from '../components/IconButton'
 import { invalidateQueries } from '../query/useQuery'
@@ -33,9 +32,16 @@ import type {
 import { usePortfolioQueries } from './portfolio/usePortfolioQueries'
 import type { FieldErrors, PositionForm, SellForm } from './portfolio/portfolioView'
 
+function newIdempotencyKey() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export function PortfolioPage() {
   const [selectedSymbol, setSelectedSymbol] = useState('')
-  const [editingSymbol, setEditingSymbol] = useState<string | null>(null)
+  const [buyRequestKey, setBuyRequestKey] = useState(newIdempotencyKey)
+  const [sellRequestKey, setSellRequestKey] = useState(newIdempotencyKey)
   const [positionForm, setPositionForm] = useState<PositionForm>(emptyPositionForm)
   const [sellForm, setSellForm] = useState<SellForm>(emptySellForm)
   const [mutationError, setMutationError] = useState<string | null>(null)
@@ -83,35 +89,13 @@ export function PortfolioPage() {
         setPositionErrors(errors)
         throw new Error('Enter symbol, quantity, and average price.')
       }
-      if (editingSymbol) {
-        await updatePortfolioPosition(editingSymbol, payload)
-        setMutationMessage(`${editingSymbol} updated.`)
-      } else {
-        await createPortfolioPosition(payload)
-        setMutationMessage(`${payload.symbol} added.`)
-      }
-      setEditingSymbol(null)
+      await createPortfolioPosition({ ...payload, idempotency_key: buyRequestKey })
+      setMutationMessage(`BUY recorded for ${payload.symbol}.`)
+      setBuyRequestKey(newIdempotencyKey())
       setPositionForm(emptyPositionForm)
       invalidateQueries(['portfolio'])
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : 'Portfolio save failed.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function removePosition(symbol: string) {
-    if (!window.confirm(`Delete ${symbol} from the portfolio?`)) return
-    setSaving(true)
-    setMutationError(null)
-    setMutationMessage(null)
-    try {
-      await deletePortfolioPosition(symbol)
-      setMutationMessage(`${symbol} deleted.`)
-      if (selectedSymbol === symbol) setSelectedSymbol('')
-      invalidateQueries(['portfolio'])
-    } catch (error) {
-      setMutationError(error instanceof Error ? error.message : 'Delete failed.')
     } finally {
       setSaving(false)
     }
@@ -141,15 +125,31 @@ export function PortfolioPage() {
     }
   }
 
-  function startEdit(position: PortfolioPosition) {
-    const symbol = String(position.symbol || '').toUpperCase()
-    setEditingSymbol(symbol)
-    setPositionForm({
-      symbol,
-      quantity: String(positionQuantity(position) ?? ''),
-      avgPrice: String(positionAverage(position) ?? ''),
-      purchaseDate: String(position.purchase_date ?? position.added_date ?? '').slice(0, 10),
-    })
+  async function submitRecordSale() {
+    setSaving(true)
+    setMutationError(null)
+    setMutationMessage(null)
+    setSellErrors({})
+    try {
+      const payload = sellPayloadFromForm(sellForm)
+      const errors: FieldErrors<keyof SellForm> = {}
+      if (!payload.symbol) errors.symbol = 'Symbol is required.'
+      if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) errors.quantity = 'Quantity must be greater than zero.'
+      if (!Number.isFinite(payload.sell_price) || payload.sell_price <= 0) errors.sellPrice = 'Sell price must be greater than zero.'
+      if (Object.keys(errors).length) {
+        setSellErrors(errors)
+        throw new Error('Enter symbol, sell quantity, and sell price.')
+      }
+      await recordPortfolioSell({ ...payload, idempotency_key: sellRequestKey })
+      setMutationMessage(`FIFO SELL recorded for ${payload.symbol}.`)
+      setSellRequestKey(newIdempotencyKey())
+      setSellResult(null)
+      invalidateQueries(['portfolio'])
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Sell could not be recorded.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   function syncSellPosition(position: PortfolioPosition) {
@@ -200,22 +200,14 @@ export function PortfolioPage() {
 
       <div className="mt-5 grid gap-4 xl:grid-cols-[1.5fr_0.9fr]">
         <HoldingsTable
-          onDelete={(symbol) => void removePosition(symbol)}
-          onEdit={startEdit}
           onSelect={syncSellPosition}
           portfolio={portfolio}
           positions={positions}
-          saving={saving}
           selectedSymbol={selectedSymbol}
         />
         <PositionFormPanel
-          editingSymbol={editingSymbol}
           errors={positionErrors}
           form={positionForm}
-          onCancel={() => {
-            setEditingSymbol(null)
-            setPositionForm(emptyPositionForm)
-          }}
           onChange={setPositionForm}
           onSubmit={(event) => void submitPosition(event)}
           saving={saving}
@@ -227,6 +219,7 @@ export function PortfolioPage() {
         <SellSimulator
           errors={sellErrors}
           form={sellForm}
+          onRecordSale={() => void submitRecordSale()}
           onChange={setSellForm}
           onSubmit={(event) => void submitSellSimulation(event)}
           result={sellResult}

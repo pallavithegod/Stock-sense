@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from backend.domain.market import normalize_symbol
+from backend.services.news_service import GNEWS_SEARCH_URL, NewsService
+
 
 def test_market_news_returns_explicit_unavailable_state(client):
     response = client.get("/api/v1/news/market")
@@ -18,6 +21,115 @@ def test_symbol_news_normalizes_symbol(client):
     assert payload["success"] is True
     assert payload["symbol"] == "INFY"
     assert payload["articles"] == []
+
+
+def test_gnews_fetch_normalizes_article_and_uses_configured_search_params():
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "articles": [
+                    {
+                        "title": "Company update",
+                        "description": "A concise summary",
+                        "url": "https://example.test/article",
+                        "publishedAt": "2026-11-27T12:00:00Z",
+                        "source": {"name": "Example News"},
+                    }
+                ]
+            }
+
+    class FakeSession:
+        def __init__(self):
+            self.call = None
+
+        def get(self, url, **kwargs):
+            self.call = (url, kwargs)
+            return FakeResponse()
+
+    session = FakeSession()
+    service = NewsService(
+        normalize_symbol=normalize_symbol,
+        api_key="test-key",
+        session=session,
+    )
+
+    payload = service.symbol_news("infy.ns")
+
+    assert session.call[0] == GNEWS_SEARCH_URL
+    assert session.call[1]["params"] == {
+        "q": '"INFY" stock OR company',
+        "lang": "en",
+        "apikey": "test-key",
+        "max": 10,
+    }
+    assert payload["data_quality"] == "live"
+    assert payload["symbol"] == "INFY"
+    assert payload["articles"] == [
+        {
+            "title": "Company update",
+            "summary": "A concise summary",
+            "url": "https://example.test/article",
+            "published_at": "2026-11-27T12:00:00Z",
+            "source": "Example News",
+        }
+    ]
+
+
+def test_gnews_rate_limit_falls_back_to_cached_articles():
+    class FakeResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeSession:
+        def __init__(self):
+            self.responses = [
+                FakeResponse(
+                    200, {"articles": [{"title": "Cached story", "url": "https://example.test"}]}
+                ),
+                FakeResponse(429),
+            ]
+
+        def get(self, url, **kwargs):
+            return self.responses.pop(0)
+
+    service = NewsService(
+        normalize_symbol=normalize_symbol,
+        api_key="test-key",
+        session=FakeSession(),
+        cache_ttl_seconds=0,
+    )
+
+    initial = service.market_news()
+    limited = service.market_news()
+
+    assert initial["data_quality"] == "live"
+    assert limited["data_quality"] == "cached_stale"
+    assert limited["articles"][0]["title"] == "Cached story"
+
+
+def test_gnews_without_key_returns_empty_unavailable_state():
+    class FakeSession:
+        def get(self, url, **kwargs):
+            raise AssertionError("GNews should not be called without a key")
+
+    service = NewsService(normalize_symbol=normalize_symbol, api_key="", session=FakeSession())
+
+    payload = service.market_news()
+
+    assert payload["articles"] == []
+    assert payload["data_quality"] == "unavailable"
 
 
 def test_research_payload_matches_frontend_shape(client):

@@ -41,7 +41,6 @@ export function PredictionsPage() {
     confidenceRows.length > 0
       ? confidenceRows.reduce((sum, row) => sum + Number(row.confidence), 0) / confidenceRows.length
       : undefined
-  const hasFallbackRows = rows.some((row) => row.dataQuality !== undefined && row.dataQuality !== 'live')
   const sourceLabel = rows.find((row) => row.sourceType)?.sourceType ?? (primary.error ? 'fallback' : 'unavailable')
 
   return (
@@ -131,12 +130,6 @@ export function PredictionsPage() {
                 ))}
               </tbody>
             </table>
-            {hasFallbackRows ? (
-              <div className="border-t border-white/10 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
-                Prediction pipeline data is unavailable. WATCH rows are based on saved portfolio or market-universe
-                entries, not model predictions.
-              </div>
-            ) : null}
           </div>
         ) : (
           <div className="mt-5">

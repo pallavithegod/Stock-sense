@@ -3,9 +3,11 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import pandas as pd
 import pytest
 
 from backend.services.market_data import (
+    ApiKeyMarketDataProvider,
     FakeMarketDataProvider,
     MarketDataRequest,
     ProviderPolicy,
@@ -113,6 +115,175 @@ def test_yfinance_history_includes_validated_daily_ohlcv_rows():
     ]
 
 
+def test_yfinance_history_parses_multiindex_timezone_aware_dataframe(monkeypatch):
+    frame = pd.DataFrame(
+        [
+            [100, 110, 95, 108, 1234],
+            [float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
+        ],
+        index=pd.DatetimeIndex(
+            ["2026-11-25 00:00:00+05:30", "2026-11-26 00:00:00+05:30"]
+        ),
+        columns=pd.MultiIndex.from_product(
+            [["Open", "High", "Low", "Close", "Volume"], ["INFY.NS"]]
+        ),
+    )
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, *, period, interval):
+            calls.append((self.symbol, period, interval))
+            return frame if self.symbol == "INFY.NS" else pd.DataFrame()
+
+    class FakeYFinance:
+        @staticmethod
+        def Ticker(symbol):
+            return FakeTicker(symbol)
+
+    adapter = YFinanceMarketDataProvider()
+    monkeypatch.setattr(adapter, "_yf", lambda: FakeYFinance)
+
+    response = adapter.history("INFY", period="1y", interval="1d")
+
+    assert calls == [("INFY.NS", "1y", "1d")]
+    assert response.state == "live"
+    assert response.data["prices"] == [
+        {
+            "timestamp": "2026-11-25T00:00:00+05:30",
+            "open": 100.0,
+            "high": 110.0,
+            "low": 95.0,
+            "close": 108.0,
+            "volume": 1234,
+        }
+    ]
+
+
+def test_yfinance_history_retries_bse_when_nse_lookup_raises(monkeypatch, caplog):
+    class HistoryFrame:
+        empty = False
+        columns = ["Open", "High", "Low", "Close", "Volume"]
+
+        def tail(self, count):
+            return self
+
+        def iterrows(self):
+            return iter(
+                [
+                    (
+                        "2026-11-25 00:00:00+05:30",
+                        {"Open": 100, "High": 110, "Low": 95, "Close": 108, "Volume": 1234},
+                    )
+                ]
+            )
+
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, *, period, interval):
+            calls.append(self.symbol)
+            if self.symbol == "INFY.NS":
+                raise RuntimeError("Authorization=unit-test-secret")
+            return HistoryFrame()
+
+    class FakeYFinance:
+        @staticmethod
+        def Ticker(symbol):
+            return FakeTicker(symbol)
+
+    adapter = YFinanceMarketDataProvider()
+    monkeypatch.setattr(adapter, "_yf", lambda: FakeYFinance)
+
+    response = adapter.history("INFY", period="5d", interval="1d")
+
+    assert calls == ["INFY.NS", "INFY.BO"]
+    assert response.state == "live"
+    assert response.data["prices"][0]["close"] == 108
+    assert "Authorization=[REDACTED]" in caplog.text
+    assert "unit-test-secret" not in caplog.text
+
+
+def test_yfinance_history_tries_bse_when_nse_returns_empty_frame(monkeypatch):
+    class EmptyFrame:
+        empty = True
+
+    class HistoryFrame:
+        empty = False
+        columns = ["Open", "High", "Low", "Close", "Volume"]
+
+        def tail(self, count):
+            return self
+
+        def iterrows(self):
+            return iter(
+                [
+                    (
+                        "2026-11-25 00:00:00+05:30",
+                        {"Open": 100, "High": 110, "Low": 95, "Close": 108, "Volume": 1234},
+                    )
+                ]
+            )
+
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, *, period, interval):
+            calls.append(self.symbol)
+            return EmptyFrame() if self.symbol == "RELIANCE.NS" else HistoryFrame()
+
+    class FakeYFinance:
+        @staticmethod
+        def Ticker(symbol):
+            return FakeTicker(symbol)
+
+    adapter = YFinanceMarketDataProvider()
+    monkeypatch.setattr(adapter, "_yf", lambda: FakeYFinance)
+
+    response = adapter.history("RELIANCE", period="5d", interval="1d")
+
+    assert calls == ["RELIANCE.NS", "RELIANCE.BO"]
+    assert response.state == "live"
+    assert response.data["prices"][0]["close"] == 108
+
+
+def test_yfinance_history_tries_nse_and_bse_after_all_empty_frames(monkeypatch):
+    class EmptyFrame:
+        empty = True
+
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, *, period, interval):
+            calls.append(self.symbol)
+            return EmptyFrame()
+
+    class FakeYFinance:
+        @staticmethod
+        def Ticker(symbol):
+            return FakeTicker(symbol)
+
+    adapter = YFinanceMarketDataProvider()
+    monkeypatch.setattr(adapter, "_yf", lambda: FakeYFinance)
+
+    response = adapter.history("SBIN", period="5d", interval="1d")
+
+    assert calls == ["SBIN.NS", "SBIN.BO", "SBIN"]
+    assert response.state == "unavailable"
+    assert response.error_code == "EMPTY_RESPONSE"
+
+
 def test_stale_while_revalidate_returns_cached_stale_during_provider_outage():
     provider = FakeMarketDataProvider(quotes={"INFY": {"price": 100, "current_price": 100}})
     client = _client(provider, cache_ttl_seconds=0.01, stale_ttl_seconds=60)
@@ -148,6 +319,122 @@ def test_exchange_candidates_try_nse_before_bse_and_yfinance_falls_back(monkeypa
     assert response.state == "live"
     assert response.data["display"] == "INFY.BO"
     assert response.data["price"] == 123.45
+
+
+def test_finnhub_history_uses_alias_key_and_maps_daily_candles(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "s": "ok",
+                "t": [1795478400],
+                "o": [100],
+                "h": [110],
+                "l": [95],
+                "c": [108],
+                "v": [1234],
+            }
+
+    class FakeSession:
+        def __init__(self):
+            self.call = None
+
+        def get(self, url, **kwargs):
+            self.call = (url, kwargs)
+            return FakeResponse()
+
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.setenv("FINNHUB_KEY", "rotated-test-key")
+    session = FakeSession()
+    provider = ApiKeyMarketDataProvider(
+        name="finnhub",
+        api_key_env="FINNHUB_API_KEY",
+        api_key_aliases=("FINNHUB_KEY",),
+        session=session,
+    )
+
+    result = provider.history("INFY", period="5d", interval="1d")
+
+    assert provider.health() == {
+        "configured": True,
+        "status": "configured",
+        "api_key_env": "FINNHUB_KEY",
+    }
+    assert session.call[0].endswith("/stock/candle")
+    assert session.call[1]["params"]["symbol"] == "NSE:INFY"
+    assert session.call[1]["params"]["token"] == "rotated-test-key"
+    assert result.state == "live"
+    assert result.data["prices"][0]["close"] == 108
+
+
+def test_alpha_vantage_history_falls_back_to_compact_for_free_key(monkeypatch):
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append(kwargs["params"])
+            if kwargs["params"]["outputsize"] == "full":
+                return FakeResponse({"Information": "Full outputsize is a premium endpoint"})
+            return FakeResponse(
+                {
+                    "Time Series (Daily)": {
+                        "2026-11-26": {
+                            "1. open": "100",
+                            "2. high": "110",
+                            "3. low": "95",
+                            "4. close": "108",
+                            "5. volume": "1234",
+                        }
+                    }
+                }
+            )
+
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    monkeypatch.setenv("ALPHA_VANTAGE_KEY", "alpha-test-key")
+    session = FakeSession()
+    provider = ApiKeyMarketDataProvider(
+        name="alpha_vantage",
+        api_key_env="ALPHA_VANTAGE_API_KEY",
+        api_key_aliases=("ALPHA_VANTAGE_KEY",),
+        session=session,
+    )
+
+    result = provider.history("INFY", period="5d", interval="1d")
+
+    assert [call["outputsize"] for call in session.calls] == ["full", "compact"]
+    assert result.state == "live"
+    assert result.data["prices"][0]["close"] == 108
+
+
+def test_twelve_data_legacy_alias_is_detected_but_provider_is_not_implemented(monkeypatch):
+    monkeypatch.delenv("TWELVE_DATA_API_KEY", raising=False)
+    monkeypatch.setenv("TWELVE_DATA_KEY", "twelve-test-key")
+    provider = ApiKeyMarketDataProvider(
+        name="twelve_data",
+        api_key_env="TWELVE_DATA_API_KEY",
+        api_key_aliases=("TWELVE_DATA_KEY",),
+    )
+
+    assert provider.health() == {
+        "configured": True,
+        "status": "configured",
+        "api_key_env": "TWELVE_DATA_KEY",
+    }
+    response = provider.history("INFY", period="5d", interval="1d")
+    assert response.error_code == "PROVIDER_NOT_IMPLEMENTED"
 
 
 def test_cache_key_includes_provider_symbol_interval_and_period():

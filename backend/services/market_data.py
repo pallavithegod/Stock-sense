@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import random
+import re
 import time
-import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol
+
+import requests
 
 
 DataState = Literal["live", "cached_stale", "demo", "unavailable"]
@@ -51,6 +55,39 @@ def exchange_candidates(symbol: str, *, default_exchange: str = ".NS") -> list[s
 def to_yfinance_symbol(symbol: str, *, default_exchange: str = ".NS") -> str:
     candidates = exchange_candidates(symbol, default_exchange=default_exchange)
     return candidates[0] if candidates else str(symbol or "").upper().strip()
+
+
+def _history_exchange_candidates(symbol: str, *, default_exchange: str = ".NS") -> list[str]:
+    cleaned = str(symbol or "").strip().upper()
+    if not cleaned:
+        return []
+    if cleaned.startswith("^"):
+        return [cleaned]
+    if cleaned.endswith(".NS"):
+        base = cleaned[:-3]
+        return [cleaned, f"{base}.BO", base]
+    if cleaned.endswith(".BO"):
+        base = cleaned[:-3]
+        return [cleaned, f"{base}.NS", base]
+    other_exchange = ".BO" if default_exchange == ".NS" else ".NS"
+    return [
+        f"{cleaned}{default_exchange}",
+        f"{cleaned}{other_exchange}",
+        cleaned,
+    ]
+
+
+_EXCEPTION_SECRET_RE = re.compile(
+    r"""(?i)(["']?(?:api[_-]?key|token|secret|password|authorization)["']?\s*[=:]\s*["']?)[^"'&,\s}]+(["']?)"""
+)
+_URL_QUERY_RE = re.compile(r"(?i)(https?://[^\s?]+)\?[^\s]+")
+
+
+def _sanitized_exception_message(error: Exception) -> str:
+    message = " ".join(str(error).split())
+    message = _EXCEPTION_SECRET_RE.sub(r"\1[REDACTED]\2", message)
+    message = _URL_QUERY_RE.sub(r"\1?[REDACTED]", message)
+    return message[:240] or type(error).__name__
 
 
 @dataclass(frozen=True)
@@ -220,12 +257,29 @@ class UnavailableMarketDataProvider:
 
 
 class ApiKeyMarketDataProvider:
-    """Secondary provider shell that owns API-key configuration without exposing secrets."""
+    """API-key provider for daily history, with other capabilities left explicit."""
 
-    def __init__(self, *, name: str, api_key_env: str):
+    def __init__(
+        self,
+        *,
+        name: str,
+        api_key_env: str,
+        api_key_aliases: tuple[str, ...] = (),
+        session: requests.Session | None = None,
+    ):
         self.name = name
         self.api_key_env = api_key_env
-        self._configured = bool(os.getenv(api_key_env))
+        self.api_key_envs = (api_key_env, *api_key_aliases)
+        self.api_key = ""
+        self.configured_env = None
+        for key in self.api_key_envs:
+            value = os.getenv(key, "").strip()
+            if value:
+                self.api_key = value
+                self.configured_env = key
+                break
+        self._configured = bool(self.api_key)
+        self.session = session or requests.Session()
 
     def _response(self) -> ProviderResponse:
         code = "PROVIDER_NOT_IMPLEMENTED" if self._configured else "PROVIDER_NOT_CONFIGURED"
@@ -235,6 +289,14 @@ class ApiKeyMarketDataProvider:
         return self._response()
 
     def history(self, symbol: str, *, period: str, interval: str) -> ProviderResponse:
+        if not self._configured:
+            return ProviderResponse.unavailable(self.name, error_code="PROVIDER_NOT_CONFIGURED", data=[])
+        if interval != "1d":
+            return ProviderResponse.unavailable(self.name, error_code="UNSUPPORTED_INTERVAL", data=[])
+        if self.name == "finnhub":
+            return self._finnhub_history(symbol, period)
+        if self.name == "alpha_vantage":
+            return self._alpha_vantage_history(symbol, period)
         return self._response()
 
     def search(self, query: str, *, limit: int) -> ProviderResponse:
@@ -245,7 +307,231 @@ class ApiKeyMarketDataProvider:
 
     def health(self) -> dict[str, Any]:
         status = "configured" if self._configured else "missing_key"
-        return {"configured": self._configured, "status": status, "api_key_env": self.api_key_env}
+        result = {"configured": self._configured, "status": status}
+        if self.configured_env:
+            result["api_key_env"] = self.configured_env
+        return result
+
+    def _finnhub_history(self, symbol: str, period: str) -> ProviderResponse:
+        start, end = _period_epoch_range(period)
+        base_symbol = normalize_symbol(symbol)
+        if not base_symbol:
+            return ProviderResponse.unavailable(self.name, error_code="INVALID_SYMBOL", data=[])
+        for candidate in (f"NSE:{base_symbol}", f"BSE:{base_symbol}", f"{base_symbol}.NS", f"{base_symbol}.BO"):
+            try:
+                response = self.session.get(
+                    "https://finnhub.io/api/v1/stock/candle",
+                    params={
+                        "symbol": candidate,
+                        "resolution": "D",
+                        "from": start,
+                        "to": end,
+                        "token": self.api_key,
+                    },
+                    timeout=10,
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except requests.HTTPError as exc:
+                return ProviderResponse.unavailable(
+                    self.name,
+                    error_code=_request_error_code(exc),
+                    data=[],
+                )
+            except requests.RequestException:
+                return ProviderResponse.unavailable(self.name, error_code="API_REQUEST_FAILED", data=[])
+            except ValueError:
+                return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
+            if not isinstance(payload, dict):
+                return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
+            if payload.get("s") == "no_data":
+                continue
+            if payload.get("s") != "ok":
+                return ProviderResponse.unavailable(self.name, error_code="API_ERROR_RESPONSE", data=[])
+            rows = _finnhub_bar_rows(payload)
+            if rows:
+                return ProviderResponse.live(self.name, {"symbol": base_symbol, "prices": rows})
+        return ProviderResponse.unavailable(self.name, error_code="EMPTY_RESPONSE", data=[])
+
+    def _alpha_vantage_history(self, symbol: str, period: str) -> ProviderResponse:
+        base_symbol = normalize_symbol(symbol)
+        if not base_symbol:
+            return ProviderResponse.unavailable(self.name, error_code="INVALID_SYMBOL", data=[])
+        start_date, _ = _period_date_range(period)
+        last_error = "EMPTY_RESPONSE"
+        for candidate in (f"{base_symbol}.BSE", f"{base_symbol}.NSE", base_symbol):
+            try:
+                response = self.session.get(
+                    "https://www.alphavantage.co/query",
+                    params={
+                        "function": "TIME_SERIES_DAILY",
+                        "symbol": candidate,
+                        "outputsize": "full",
+                        "apikey": self.api_key,
+                    },
+                    timeout=15,
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except requests.HTTPError as exc:
+                return ProviderResponse.unavailable(
+                    self.name,
+                    error_code=_request_error_code(exc),
+                    data=[],
+                )
+            except requests.RequestException:
+                return ProviderResponse.unavailable(self.name, error_code="API_REQUEST_FAILED", data=[])
+            except ValueError:
+                return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
+            if not isinstance(payload, dict):
+                return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
+            series_key = next((key for key in payload if key.startswith("Time Series (")), None)
+            if not series_key:
+                note = " ".join(str(payload.get(key, "")).lower() for key in ("Note", "Information", "Error Message"))
+                last_error = "API_LIMIT_OR_SYMBOL_UNAVAILABLE" if note else "EMPTY_RESPONSE"
+                if "symbol" in note or "invalid" in note:
+                    continue
+                if "premium" in note or "outputsize" in note:
+                    try:
+                        compact_response = self.session.get(
+                            "https://www.alphavantage.co/query",
+                            params={
+                                "function": "TIME_SERIES_DAILY",
+                                "symbol": candidate,
+                                "outputsize": "compact",
+                                "apikey": self.api_key,
+                            },
+                            timeout=15,
+                        )
+                        compact_response.raise_for_status()
+                        compact_payload = compact_response.json()
+                    except requests.HTTPError as exc:
+                        return ProviderResponse.unavailable(
+                            self.name,
+                            error_code=_request_error_code(exc),
+                            data=[],
+                        )
+                    except requests.RequestException:
+                        return ProviderResponse.unavailable(self.name, error_code="API_REQUEST_FAILED", data=[])
+                    except ValueError:
+                        return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
+                    if isinstance(compact_payload, dict):
+                        compact_key = next(
+                            (key for key in compact_payload if key.startswith("Time Series (")),
+                            None,
+                        )
+                        if compact_key:
+                            rows = _alpha_vantage_bar_rows(compact_payload[compact_key], start_date)
+                            if rows:
+                                return ProviderResponse.live(
+                                    self.name,
+                                    {"symbol": base_symbol, "prices": rows},
+                                )
+                return ProviderResponse.unavailable(self.name, error_code=last_error, data=[])
+            rows = _alpha_vantage_bar_rows(payload[series_key], start_date)
+            if rows:
+                return ProviderResponse.live(self.name, {"symbol": base_symbol, "prices": rows})
+        return ProviderResponse.unavailable(self.name, error_code=last_error, data=[])
+
+
+def _period_date_range(period: str, *, today: date | None = None) -> tuple[date, date]:
+    end = today or datetime.now(timezone.utc).date()
+    normalized = period.strip().lower()
+    if normalized == "max":
+        return date(1970, 1, 1), end
+    if normalized.endswith("d"):
+        days = int(normalized[:-1])
+        return end - timedelta(days=days), end
+    if normalized.endswith("mo"):
+        months = int(normalized[:-2])
+        return end - timedelta(days=months * 31), end
+    if normalized.endswith("y"):
+        years = int(normalized[:-1])
+        try:
+            start = end.replace(year=end.year - years)
+        except ValueError:
+            start = end.replace(year=end.year - years, day=28)
+        return start, end
+    raise ValueError(f"Unsupported history period: {period}")
+
+
+def _period_epoch_range(period: str, *, today: date | None = None) -> tuple[int, int]:
+    start, end = _period_date_range(period, today=today)
+    return int(datetime.combine(start, datetime.min.time(), timezone.utc).timestamp()), int(
+        datetime.combine(end, datetime.max.time(), timezone.utc).timestamp()
+    )
+
+
+def _request_error_code(exc: requests.HTTPError) -> str:
+    status_code = exc.response.status_code if exc.response is not None else None
+    if status_code in {401, 403}:
+        return "API_AUTH_REJECTED"
+    if status_code == 429:
+        return "API_RATE_LIMITED"
+    if status_code is not None and status_code >= 500:
+        return "API_UNAVAILABLE"
+    return "API_REQUEST_FAILED"
+
+
+def _finnhub_bar_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    try:
+        timestamps = payload["t"]
+        opens, highs, lows = payload["o"], payload["h"], payload["l"]
+        closes, volumes = payload["c"], payload["v"]
+        if not all(len(values) == len(timestamps) for values in (opens, highs, lows, closes, volumes)):
+            return []
+    except (KeyError, TypeError):
+        return []
+    rows = []
+    for index, timestamp in enumerate(timestamps):
+        try:
+            row = {
+                "timestamp": datetime.fromtimestamp(int(timestamp), timezone.utc).isoformat(),
+                "open": float(opens[index]),
+                "high": float(highs[index]),
+                "low": float(lows[index]),
+                "close": float(closes[index]),
+                "volume": int(volumes[index]),
+            }
+        except (OverflowError, TypeError, ValueError):
+            continue
+        if (
+            min(row["open"], row["high"], row["low"], row["close"]) > 0
+            and row["high"] >= max(row["open"], row["low"], row["close"])
+            and row["low"] <= min(row["open"], row["high"], row["close"])
+            and row["volume"] >= 0
+        ):
+            rows.append(row)
+    return rows
+
+
+def _alpha_vantage_bar_rows(series: Any, start_date: date) -> list[dict[str, Any]]:
+    if not isinstance(series, dict):
+        return []
+    rows = []
+    for day, values in series.items():
+        try:
+            trading_date = date.fromisoformat(str(day))
+            if trading_date < start_date or not isinstance(values, dict):
+                continue
+            row = {
+                "timestamp": trading_date.isoformat(),
+                "open": float(values["1. open"]),
+                "high": float(values["2. high"]),
+                "low": float(values["3. low"]),
+                "close": float(values["4. close"]),
+                "volume": int(float(values["5. volume"])),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (
+            min(row["open"], row["high"], row["low"], row["close"]) > 0
+            and row["high"] >= max(row["open"], row["low"], row["close"])
+            and row["low"] <= min(row["open"], row["high"], row["close"])
+            and row["volume"] >= 0
+        ):
+            rows.append(row)
+    return sorted(rows, key=lambda row: row["timestamp"])
 
 
 class YFinanceMarketDataProvider:
@@ -289,24 +575,46 @@ class YFinanceMarketDataProvider:
             },
         )
 
-    def _history_payload_from_frame(self, symbol: str, frame: Any) -> ProviderResponse:
+    def _history_payload_from_frame(
+        self, symbol: str, frame: Any, *, max_rows: int | None = 250
+    ) -> ProviderResponse:
         if frame is None or getattr(frame, "empty", False):
             return ProviderResponse.unavailable(self.name, error_code="EMPTY_RESPONSE", data=[])
-        required = {"Open", "High", "Low", "Close", "Volume"}
-        columns = set(getattr(frame, "columns", []) or [])
-        if not required.issubset(columns):
+        required = {"open", "high", "low", "close", "volume"}
+        columns = getattr(frame, "columns", None)
+        if columns is None:
+            return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
+        column_map: dict[str, Any] = {}
+        for column in columns:
+            parts = column if isinstance(column, tuple) else (column,)
+            for part in parts:
+                field_name = str(part).strip().lower()
+                if field_name in required:
+                    column_map.setdefault(field_name, column)
+        if not required.issubset(column_map):
             return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
         rows = []
-        for timestamp, row in frame.tail(250).iterrows():
+        history_frame = frame if max_rows is None else frame.tail(max_rows)
+        for timestamp, row in history_frame.iterrows():
             try:
-                values = {
-                    "open": float(row.get("Open")),
-                    "high": float(row.get("High")),
-                    "low": float(row.get("Low")),
-                    "close": float(row.get("Close")),
-                    "volume": int(row.get("Volume")),
+                raw_values = {
+                    field_name: float(row.get(column_map[field_name]))
+                    for field_name in ("open", "high", "low", "close", "volume")
                 }
-            except (TypeError, ValueError):
+                if not all(math.isfinite(value) for value in raw_values.values()):
+                    continue
+                timestamp_value = (
+                    timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp)
+                )
+                date.fromisoformat(timestamp_value[:10])
+                values = {
+                    "open": raw_values["open"],
+                    "high": raw_values["high"],
+                    "low": raw_values["low"],
+                    "close": raw_values["close"],
+                    "volume": int(raw_values["volume"]),
+                }
+            except (TypeError, ValueError, OverflowError):
                 continue
             if (
                 min(values["open"], values["high"], values["low"], values["close"]) <= 0
@@ -315,7 +623,7 @@ class YFinanceMarketDataProvider:
                 or values["volume"] < 0
             ):
                 continue
-            rows.append({"timestamp": str(timestamp), **values})
+            rows.append({"timestamp": timestamp_value, **values})
         if not rows:
             return ProviderResponse.unavailable(self.name, error_code="MALFORMED_RESPONSE", data=[])
         return ProviderResponse.live(self.name, {"symbol": normalize_symbol(symbol), "prices": rows})
@@ -335,12 +643,38 @@ class YFinanceMarketDataProvider:
 
     def history(self, symbol: str, *, period: str, interval: str) -> ProviderResponse:
         yf = self._yf()
-        for candidate in exchange_candidates(symbol, default_exchange=self.default_exchange):
-            frame = yf.Ticker(candidate).history(period=period, interval=interval)
-            response = self._history_payload_from_frame(symbol, frame)
+        period_rows = {
+            "1d": 5,
+            "5d": 10,
+            "1mo": 35,
+            "3mo": 100,
+            "6mo": 200,
+            "1y": 300,
+            "2y": 600,
+            "5y": 1500,
+            "10y": 3000,
+            "ytd": 300,
+            "max": None,
+        }
+        max_rows = period_rows.get(period.strip().lower())
+        last_error = "EMPTY_RESPONSE"
+        for candidate in _history_exchange_candidates(symbol, default_exchange=self.default_exchange):
+            try:
+                frame = yf.Ticker(candidate).history(period=period, interval=interval)
+                response = self._history_payload_from_frame(symbol, frame, max_rows=max_rows)
+            except Exception as exc:
+                last_error = "PROVIDER_ERROR"
+                logging.getLogger("stocksense.market_data").warning(
+                    "yfinance_history_candidate_failed symbol=%s error_type=%s error=%s",
+                    candidate,
+                    type(exc).__name__,
+                    _sanitized_exception_message(exc),
+                )
+                continue
             if response.state == "live":
                 return response
-        return ProviderResponse.unavailable(self.name, error_code="EMPTY_RESPONSE", data=[])
+            last_error = response.error_code or last_error
+        return ProviderResponse.unavailable(self.name, error_code=last_error, data=[])
 
     def search(self, query: str, *, limit: int) -> ProviderResponse:
         return ProviderResponse.unavailable(self.name, error_code="SEARCH_NOT_SUPPORTED", data=[])
@@ -500,6 +834,7 @@ class ResilientMarketDataClient:
         request_started = time.perf_counter()
         now = time.monotonic()
         stale_candidates: list[ProviderResponse] = []
+        provider_failures: list[dict[str, str]] = []
         for provider in self.providers:
             key = request.cache_key(provider.name)
             cached = self.cache.get(key, now=now, allow_stale=allow_stale)
@@ -518,6 +853,9 @@ class ResilientMarketDataClient:
 
             breaker = self._breakers[provider.name]
             if not breaker.allows_request(now):
+                provider_failures.append(
+                    {"provider": provider.name, "error_code": breaker.last_error_code or "CIRCUIT_OPEN"}
+                )
                 continue
 
             response = self._call(provider, request)
@@ -533,6 +871,9 @@ class ResilientMarketDataClient:
                 )
                 return response
             breaker.record_failure(now=time.monotonic(), error_code=response.error_code)
+            provider_failures.append(
+                {"provider": provider.name, "error_code": response.error_code or "PROVIDER_UNAVAILABLE"}
+            )
             if allow_stale:
                 cached_stale = self.cache.get(key, now=time.monotonic(), allow_stale=True)
                 if cached_stale and cached_stale.state == "cached_stale":
@@ -553,6 +894,7 @@ class ResilientMarketDataClient:
             state="unavailable",
             cache_outcome="miss",
             started_at=request_started,
+            provider_failures=provider_failures,
         )
         return ProviderResponse.unavailable("none", error_code="ALL_PROVIDERS_UNAVAILABLE")
 
@@ -564,6 +906,7 @@ class ResilientMarketDataClient:
         state: DataState,
         cache_outcome: str,
         started_at: float,
+        provider_failures: list[dict[str, str]] | None = None,
     ) -> None:
         try:
             from backend.services.observability import log_event
@@ -576,6 +919,7 @@ class ResilientMarketDataClient:
                 state=state,
                 cache_outcome=cache_outcome,
                 latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
+                provider_failures=provider_failures,
             )
         except Exception:
             self.logger.debug("market_data_observability_failed", exc_info=True)
@@ -610,10 +954,28 @@ def build_market_data_client(*, disabled: bool, timeout_seconds: int, cache_ttl_
     policy = ProviderPolicy(timeout_seconds=float(timeout_seconds), cache_ttl_seconds=float(cache_ttl_seconds))
     if disabled:
         return ResilientMarketDataClient([UnavailableMarketDataProvider()], policy=policy)
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
+    except ImportError:
+        pass
     providers: list[MarketDataProvider] = [
         YFinanceMarketDataProvider(),
-        ApiKeyMarketDataProvider(name="alpha_vantage", api_key_env="ALPHA_VANTAGE_API_KEY"),
-        ApiKeyMarketDataProvider(name="twelve_data", api_key_env="TWELVE_DATA_API_KEY"),
-        ApiKeyMarketDataProvider(name="finnhub", api_key_env="FINNHUB_API_KEY"),
+        ApiKeyMarketDataProvider(
+            name="alpha_vantage",
+            api_key_env="ALPHA_VANTAGE_API_KEY",
+            api_key_aliases=("ALPHA_VANTAGE_KEY",),
+        ),
+        ApiKeyMarketDataProvider(
+            name="twelve_data",
+            api_key_env="TWELVE_DATA_API_KEY",
+            api_key_aliases=("TWELVE_DATA_KEY",),
+        ),
+        ApiKeyMarketDataProvider(
+            name="finnhub",
+            api_key_env="FINNHUB_API_KEY",
+            api_key_aliases=("FINNHUB_KEY",),
+        ),
     ]
     return ResilientMarketDataClient(providers, policy=policy)

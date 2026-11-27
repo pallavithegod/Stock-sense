@@ -73,7 +73,7 @@ def test_daily_collector_persists_only_live_valid_bars():
 
     result = collector.collect()
 
-    assert market_data.requests == [("INFY", "5d", "1d", False)]
+    assert market_data.requests == [("INFY", "1y", "1d", False)]
     assert result == {"symbols_requested": 1, "symbols_failed": 0, "bars_upserted": 1}
     assert store.rows == [
         {
@@ -176,3 +176,75 @@ def test_supabase_store_requires_server_credentials():
 def test_supabase_store_requires_secret_key():
     with pytest.raises(RuntimeError, match="SUPABASE_SECRET_KEY"):
         SupabaseDailyBarStore.from_env({"SUPABASE_URL": "https://project.supabase.co"})
+
+
+def test_supabase_retention_report_monitors_without_deleting_rows():
+    class Response:
+        def __init__(self, data, content_range=""):
+            self.data = data
+            self.headers = {"Content-Range": content_range}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.data
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            if len(self.calls) == 1:
+                return Response([{"trading_date": "2021-01-04"}], "0-0/245")
+            return Response([{"trading_date": "2026-11-25"}])
+
+    session = Session()
+    store = SupabaseDailyBarStore(
+        supabase_url="https://project.supabase.co",
+        secret_key="sb_secret_test",
+        session=session,
+    )
+
+    report = store.retention_report()
+
+    assert report == {
+        "policy": "retain_indefinitely_monitor_only",
+        "row_count": 245,
+        "oldest_trading_date": "2021-01-04",
+        "newest_trading_date": "2026-11-25",
+        "automatic_deletion": False,
+    }
+    assert len(session.calls) == 2
+    assert all(call[1]["headers"]["apikey"] == "sb_secret_test" for call in session.calls)
+
+
+def test_supabase_history_read_returns_oldest_first_and_bounds_rows():
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {"symbol": "INFY", "trading_date": "2026-11-25", "close": 120},
+                {"symbol": "INFY", "trading_date": "2026-11-24", "close": 110},
+            ]
+
+    class Session:
+        def get(self, url, **kwargs):
+            self.call = (url, kwargs)
+            return Response()
+
+    session = Session()
+    store = SupabaseDailyBarStore(
+        supabase_url="https://project.supabase.co",
+        secret_key="sb_secret_test",
+        session=session,
+    )
+
+    rows = store.read_history("infy.ns", limit=5000)
+
+    assert [row["trading_date"] for row in rows] == ["2026-11-24", "2026-11-25"]
+    assert session.call[1]["params"]["limit"] == "1000"
+    assert session.call[1]["params"]["symbol"] == "eq.INFY"

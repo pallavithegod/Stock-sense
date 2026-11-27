@@ -6,12 +6,20 @@ from typing import Any
 
 from backend.domain.market import normalize_symbol
 from backend.domain.predictions.entities import canonicalize_predictions, summarize_evaluations
+from backend.domain.predictions.market_model import evaluate_momentum_model, forecast_if_validated
 from backend.domain.predictions.pipeline import PredictionPersistence, UnavailablePredictionPipeline
+from backend.services.daily_market_collection import DailyBarStore
 
 
 class PredictionQueryService:
-    def __init__(self, *, ai_engine_state: dict[str, Any]):
+    def __init__(
+        self,
+        *,
+        ai_engine_state: dict[str, Any],
+        market_history_store: DailyBarStore | None = None,
+    ):
         self.ai_engine_state = ai_engine_state
+        self.market_history_store = market_history_store
         self.persistence = PredictionPersistence()
         self.pipeline = UnavailablePredictionPipeline()
 
@@ -42,6 +50,59 @@ class PredictionQueryService:
 
     def live_prediction_payload(self, symbol: str) -> dict[str, Any]:
         base_symbol = normalize_symbol(symbol) or str(symbol).upper()
+        if self.market_history_store is not None:
+            bars = self.market_history_store.read_history(base_symbol, limit=1000)
+            evaluation = evaluate_momentum_model(bars)
+            prediction = forecast_if_validated(base_symbol, bars)
+            if prediction is not None:
+                payload = prediction.to_dict()
+                return {
+                    "success": True,
+                    "data": {
+                        "symbol": base_symbol,
+                        "current_price": prediction.current_price,
+                        "predictions": {
+                            prediction.horizon: {
+                                "target_price": prediction.target_price,
+                                "return_percent": prediction.expected_return,
+                                "signal": prediction.signal,
+                            }
+                        },
+                        "market_conditions": {"status": "validated", "validation": evaluation},
+                        "data_quality": prediction.provenance.data_quality,
+                        "source_type": prediction.source_type,
+                        "provider": prediction.provenance.provider,
+                        "model_version": prediction.model_version,
+                        "feature_version": prediction.provenance.feature_version,
+                        "as_of": prediction.as_of,
+                        "signal": prediction.signal,
+                        "expected_return": prediction.expected_return,
+                        "confidence": None,
+                        "is_synthetic": False,
+                        "is_demo": False,
+                        "fingerprint": payload["fingerprint"],
+                    },
+                }
+            return {
+                "success": True,
+                "data": {
+                    "symbol": base_symbol,
+                    "current_price": bars[-1].get("close") if bars else None,
+                    "predictions": {},
+                    "confidences": {},
+                    "market_conditions": {
+                        "status": evaluation["status"],
+                        "validation": evaluation,
+                    },
+                    "data_quality": "unavailable",
+                    "source_type": "unavailable",
+                    "provider": "stocksense_validated_momentum",
+                    "model_version": None,
+                    "feature_version": None,
+                    "is_synthetic": False,
+                    "is_demo": False,
+                },
+            }
         return {
             "success": True,
             "data": {

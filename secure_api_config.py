@@ -49,6 +49,7 @@ class SecureAPIConfig:
                 'twelve_data': 'TWELVE_DATA_API_KEY',
                 'data_gov': 'DATA_GOV_API_KEY', 
                 'news_api': 'NEWS_API_KEY',
+                'gnews': 'GNEWS_API_KEY',
                 'finnhub': 'FINNHUB_API_KEY',
                 'fmp': 'FMP_API_KEY',
                 'huggingface': 'HUGGINGFACEHUB_API_TOKEN'
@@ -66,7 +67,7 @@ class SecureAPIConfig:
         services = []
         service_list = [
             'alpha_vantage', 'twelve_data', 'data_gov', 
-            'news_api', 'finnhub', 'fmp', 'huggingface'
+            'news_api', 'gnews', 'finnhub', 'fmp', 'huggingface'
         ]
         
         for service in service_list:
@@ -107,6 +108,11 @@ class SecureAPIConfig:
                 'supports': ['news', 'headlines', 'sources'],
                 'free_tier': True,
                 'description': 'Real-time news and headlines'
+            },
+            'gnews': {
+                'base_url': 'https://gnews.io/api/v4',
+                'supports': ['news', 'headlines', 'search'],
+                'description': 'GNews news and headline API'
             },
             'finnhub': {
                 'base_url': 'https://finnhub.io/api/v1',
