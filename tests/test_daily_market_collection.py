@@ -320,6 +320,194 @@ def test_supabase_retention_report_monitors_without_deleting_rows():
     assert all(call[1]["headers"]["apikey"] == "sb_secret_test" for call in session.calls)
 
 
+def _ist(year, month, day, hour, minute=0):
+    from datetime import datetime, timedelta, timezone
+
+    return datetime(year, month, day, hour, minute, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+@pytest.mark.parametrize(
+    ("now", "expected"),
+    [
+        (_ist(2026, 11, 27, 17), "2026-11-27"),  # Friday after data is ready
+        (_ist(2026, 11, 27, 15, 45), "2026-11-26"),  # Friday before 16:00: today's bar not expected yet
+        (_ist(2026, 11, 28, 12), "2026-11-27"),  # Saturday -> Friday
+        (_ist(2026, 11, 29, 20), "2026-11-27"),  # Sunday -> Friday
+        (_ist(2026, 11, 30, 9), "2026-11-27"),  # Monday morning -> Friday
+        (_ist(2026, 11, 30, 17), "2026-11-30"),  # Monday evening
+    ],
+)
+def test_latest_expected_session_is_weekday_and_ist_aware(now, expected):
+    from backend.services.daily_market_collection import latest_expected_session
+
+    assert latest_expected_session(now).isoformat() == expected
+
+
+def test_trading_day_lag_counts_only_weekdays():
+    from datetime import date
+
+    from backend.services.daily_market_collection import trading_day_lag
+
+    friday_evening = _ist(2026, 11, 27, 17)
+    assert trading_day_lag(date(2026, 11, 27), friday_evening) == 0
+    assert trading_day_lag(date(2026, 11, 26), friday_evening) == 1
+    assert trading_day_lag(date(2026, 11, 20), friday_evening) == 5  # one full week
+    # Saturday/Sunday add no lag: Friday's bar is current on a weekend.
+    assert trading_day_lag(date(2026, 11, 27), _ist(2026, 11, 29, 20)) == 0
+    # A bar newer than the expected session is never negative.
+    assert trading_day_lag(date(2026, 11, 27), _ist(2026, 11, 27, 10)) == 0
+
+
+def test_assess_symbol_coverage_flags_missing_and_stale_but_tolerates_one_holiday():
+    from backend.services.daily_market_collection import assess_symbol_coverage
+
+    now = _ist(2026, 11, 27, 17)
+    coverage = {
+        "INFY": {"row_count": 496, "newest_trading_date": "2026-11-27"},
+        "TCS": {"row_count": 496, "newest_trading_date": "2026-11-25"},  # lag 2: tolerated
+        "SBIN": {"row_count": 496, "newest_trading_date": "2026-11-24"},  # lag 3: stale
+        "RELIANCE": {"row_count": 0, "newest_trading_date": None},
+    }
+
+    result = assess_symbol_coverage(coverage, ["INFY", "TCS", "SBIN", "RELIANCE", "WIPRO"], now=now)
+
+    assert {symbol: info["status"] for symbol, info in result.items()} == {
+        "INFY": "fresh",
+        "TCS": "fresh",
+        "SBIN": "stale",
+        "RELIANCE": "missing",
+        "WIPRO": "missing",  # absent from the store entirely
+    }
+    assert result["SBIN"]["lag_trading_days"] == 3
+    assert result["SBIN"]["newest_trading_date"] == "2026-11-24"
+
+
+class CoverageResponse:
+    def __init__(self, rows, content_range):
+        self.rows = rows
+        self.headers = {"Content-Range": content_range}
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.rows
+
+
+class ReadOnlySession:
+    """Serves GETs and fails the test on any write or delete."""
+
+    def __init__(self, data):
+        self.data = data
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        symbol = kwargs["params"]["symbol"].removeprefix("eq.")
+        rows, total = self.data.get(symbol, ([], 0))
+        return CoverageResponse(rows, f"0-0/{total}" if rows else "*/0")
+
+    def post(self, *args, **kwargs):
+        raise AssertionError("monitoring must not write")
+
+    def delete(self, *args, **kwargs):
+        raise AssertionError("monitoring must never delete market history")
+
+    patch = put = delete
+
+
+def test_supabase_symbol_coverage_reads_count_and_newest_date_per_symbol():
+    session = ReadOnlySession(
+        {"INFY": ([{"trading_date": "2026-11-27"}], 496), "TCS": ([{"trading_date": "2026-11-26"}], 247)}
+    )
+    store = SupabaseDailyBarStore(
+        supabase_url="https://project.supabase.co", secret_key="sb_secret_test", session=session
+    )
+
+    coverage = store.symbol_coverage(["infy.ns", "TCS", "SBIN", ""])
+
+    assert coverage == {
+        "INFY": {"row_count": 496, "newest_trading_date": "2026-11-27"},
+        "TCS": {"row_count": 247, "newest_trading_date": "2026-11-26"},
+        "SBIN": {"row_count": 0, "newest_trading_date": None},
+    }
+    assert len(session.calls) == 3
+    for _, kwargs in session.calls:
+        assert kwargs["headers"]["Prefer"] == "count=exact"
+        assert kwargs["params"]["order"] == "trading_date.desc"
+        assert kwargs["params"]["limit"] == "1"
+
+
+def _retention_job_store(rows_by_symbol):
+    session = ReadOnlySession(rows_by_symbol)
+    return SupabaseDailyBarStore(
+        supabase_url="https://project.supabase.co", secret_key="sb_secret_test", session=session
+    ), session
+
+
+def _stub_retention_report(monkeypatch, store):
+    monkeypatch.setattr(
+        store,
+        "retention_report",
+        lambda: {
+            "policy": "retain_indefinitely_monitor_only",
+            "row_count": 1984,
+            "oldest_trading_date": "2024-11-27",
+            "newest_trading_date": "2026-11-27",
+            "automatic_deletion": False,
+        },
+    )
+
+
+FRESH = {
+    symbol: ([{"trading_date": "2026-11-27"}], 496) for symbol in ("INFY", "RELIANCE", "SBIN", "TCS")
+}
+
+
+@pytest.mark.parametrize(
+    ("data", "expected_exit", "expected_text", "expected_unhealthy"),
+    [
+        (FRESH, 0, "retention_report: ok", []),
+        (
+            {**FRESH, "TCS": ([{"trading_date": "2026-11-18"}], 490)},
+            1,
+            "TCS=stale(newest 2026-11-18, 7 trading days behind)",
+            ["TCS"],
+        ),
+        ({**FRESH, "SBIN": ([], 0)}, 1, "SBIN=missing", ["SBIN"]),
+    ],
+    ids=["healthy", "stale-symbol", "missing-symbol"],
+)
+def test_retention_report_job_fails_run_for_stale_or_missing_symbols(
+    app_module, monkeypatch, capsys, data, expected_exit, expected_text, expected_unhealthy
+):
+    from backend.workers import jobs, scheduler_cli
+
+    services = app_module.services
+    store, session = _retention_job_store(data)
+    _stub_retention_report(monkeypatch, store)
+    monkeypatch.setitem(services.system_cache, "daily_bar_store", store)
+    monkeypatch.setattr(jobs, "_now", lambda: _ist(2026, 11, 27, 17))
+
+    class App:
+        extensions = {"stocksense_services": services}
+
+    monkeypatch.setattr(scheduler_cli, "create_app", lambda settings: App())
+    monkeypatch.setattr(scheduler_cli, "startup", lambda app: None)
+
+    exit_code = scheduler_cli.main(["--once", "--job", "retention_report"])
+
+    output = capsys.readouterr().out
+    assert exit_code == expected_exit
+    assert expected_text in output
+    report = services.system_cache["retention_report"]
+    assert report["automatic_deletion"] is False
+    assert set(report["symbols"]) == {"INFY", "RELIANCE", "SBIN", "TCS"}
+    assert report["unhealthy_symbols"] == expected_unhealthy
+    # Only reads happened (ReadOnlySession fails the test on any write or delete).
+    assert all("market_daily_bars" in url for url, _ in session.calls)
+
+
 def test_supabase_history_read_returns_oldest_first_and_bounds_rows():
     class Response:
         def raise_for_status(self):

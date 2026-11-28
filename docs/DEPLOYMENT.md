@@ -169,8 +169,19 @@ remains available, and the public dashboard omits portfolio data.
    can also be started manually with **Run workflow**. It upserts one row per
    symbol/trading date. It also reports the table row count and oldest/newest
    dates. The agreed policy is to retain daily bars indefinitely; the report
-   does not delete data. No valid bars or a monitoring error fails the Actions
-   run.
+   does not delete data. The Actions run fails when:
+   - no symbol returns valid bars, or any configured symbol returns none (the
+     valid ones are still saved; the failing symbols and error codes are in the
+     step log);
+   - the retention report finds a configured symbol with no stored bars
+     (`missing`), or whose newest bar trails the latest expected session by
+     more than 2 weekdays (`stale`). Sessions are judged in IST and a day's bar
+     is expected from 16:00 IST. There is no exchange-holiday calendar, so one
+     holiday is tolerated by the 2-weekday allowance and longer closures can
+     raise a false alarm that clears on the next collection.
+   The monitoring steps use `if: !cancelled()`, so they still run, and still
+   report, when the collection step fails. Row-count regressions are not
+   detected, because no previous count is stored.
    The workflow also evaluates the experimental five-session momentum candidate
    against a zero-return baseline. To seed enough history for evaluation, run
    the following with the Supabase server environment and configured market

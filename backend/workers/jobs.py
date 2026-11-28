@@ -8,7 +8,12 @@ from typing import Any, Callable
 import hashlib
 
 from backend.app.services import AppServices
-from backend.services.daily_market_collection import DailyMarketCollector, SupabaseDailyBarStore
+from backend.services.daily_market_collection import (
+    DailyMarketCollector,
+    StaleMarketHistoryError,
+    SupabaseDailyBarStore,
+    assess_symbol_coverage,
+)
 
 JobFunction = Callable[[AppServices], dict[str, Any] | None]
 
@@ -93,7 +98,7 @@ def build_default_registry() -> JobRegistry:
             JobDefinition(
                 name="retention_report",
                 interval_seconds=3600,
-                timeout_seconds=30,
+                timeout_seconds=90,
                 max_retries=0,
                 run=collect_retention_report,
             ),
@@ -158,14 +163,31 @@ def evaluate_prediction_models(services: AppServices) -> dict[str, Any]:
 
 
 def collect_retention_report(services: AppServices) -> dict[str, Any]:
+    """Report history size and per-symbol freshness; fail the job if a symbol is missing or stale.
+
+    Read-only: bars are retained indefinitely and never deleted by this job.
+    """
     store = services.system_cache.get("daily_bar_store")
     if store is None:
         store = SupabaseDailyBarStore.from_env()
     report = store.retention_report()
-    report["collected_at"] = _utc_now()
+    symbols = sorted(services.market.symbols)
+    now = _now()
+    assessed = assess_symbol_coverage(store.symbol_coverage(symbols), symbols, now=now)
+    unhealthy = {symbol: info for symbol, info in assessed.items() if info["status"] != "fresh"}
+    report["collected_at"] = now.isoformat()
+    report["symbols"] = assessed
+    report["unhealthy_symbols"] = sorted(unhealthy)
     services.system_cache["retention_report"] = report
+    services.logger.info("market_history_report %s", report)
+    if unhealthy:
+        raise StaleMarketHistoryError(unhealthy)
     return report
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _now().isoformat()

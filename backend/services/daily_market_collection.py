@@ -2,14 +2,92 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 import logging
 import os
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 
 import requests
 
 from backend.services.market_data import ProviderResponse, ResilientMarketDataClient, normalize_symbol
+
+INDIA_TZ = timezone(timedelta(hours=5, minutes=30))
+# The snapshot runs after the 15:30 IST close; before this time today's bar is not expected yet.
+SESSION_DATA_READY_IST = time(16, 0)
+# Weekdays a symbol's newest bar may trail the latest expected session before it is
+# reported stale. Two tolerates one exchange holiday without a holiday calendar.
+MAX_STALE_TRADING_DAYS = 2
+
+
+class StaleMarketHistoryError(RuntimeError):
+    """A configured symbol has no stored bars or its newest bar is too old."""
+
+    def __init__(self, unhealthy: dict[str, dict[str, Any]]):
+        self.unhealthy = unhealthy
+        detail = ", ".join(
+            f"{symbol}={info['status']}"
+            + (
+                f"(newest {info['newest_trading_date']}, {info['lag_trading_days']} trading days behind)"
+                if info["status"] == "stale"
+                else ""
+            )
+            for symbol, info in sorted(unhealthy.items())
+        )
+        super().__init__(f"Market history is unhealthy for {len(unhealthy)} symbol(s): {detail}")
+
+
+def latest_expected_session(now: datetime) -> date:
+    """Most recent weekday whose daily bar should already be stored (IST, weekday-only)."""
+    now_ist = now.astimezone(INDIA_TZ)
+    day = now_ist.date()
+    if now_ist.time() < SESSION_DATA_READY_IST:
+        day -= timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
+def trading_day_lag(newest: date, now: datetime) -> int:
+    """Weekdays between the newest stored bar and the latest expected session."""
+    expected = latest_expected_session(now)
+    lag = 0
+    day = newest
+    while day < expected:
+        day += timedelta(days=1)
+        if day.weekday() < 5:
+            lag += 1
+    return lag
+
+
+def assess_symbol_coverage(
+    coverage: dict[str, dict[str, Any]],
+    symbols: Iterable[str],
+    *,
+    now: datetime,
+    max_stale_trading_days: int = MAX_STALE_TRADING_DAYS,
+) -> dict[str, dict[str, Any]]:
+    """Classify each configured symbol as fresh, stale or missing. Read-only."""
+    result: dict[str, dict[str, Any]] = {}
+    for symbol in symbols:
+        info = coverage.get(symbol) or {}
+        row_count = int(info.get("row_count") or 0)
+        newest_raw = info.get("newest_trading_date")
+        if row_count == 0 or not newest_raw:
+            result[symbol] = {
+                "status": "missing",
+                "row_count": row_count,
+                "newest_trading_date": None,
+                "lag_trading_days": None,
+            }
+            continue
+        lag = trading_day_lag(date.fromisoformat(str(newest_raw)[:10]), now)
+        result[symbol] = {
+            "status": "stale" if lag > max_stale_trading_days else "fresh",
+            "row_count": row_count,
+            "newest_trading_date": str(newest_raw)[:10],
+            "lag_trading_days": lag,
+        }
+    return result
 
 
 class DailyBarStore(Protocol):
@@ -17,6 +95,9 @@ class DailyBarStore(Protocol):
         ...
 
     def retention_report(self) -> dict[str, Any]:
+        ...
+
+    def symbol_coverage(self, symbols: Iterable[str]) -> dict[str, dict[str, Any]]:
         ...
 
     def read_history(self, symbol: str, *, limit: int = 500) -> list[dict[str, Any]]:
@@ -100,6 +181,39 @@ class SupabaseDailyBarStore:
             "newest_trading_date": newest_date,
             "automatic_deletion": False,
         }
+
+    def symbol_coverage(self, symbols: Iterable[str]) -> dict[str, dict[str, Any]]:
+        """Read-only per-symbol row count and newest trading date (two cheap GETs total per symbol)."""
+        coverage: dict[str, dict[str, Any]] = {}
+        for raw_symbol in symbols:
+            symbol = normalize_symbol(raw_symbol)
+            if not symbol:
+                continue
+            response = self.session.get(
+                f"{self.supabase_url}/rest/v1/market_daily_bars",
+                params={
+                    "select": "trading_date",
+                    "symbol": f"eq.{symbol}",
+                    "order": "trading_date.desc",
+                    "limit": "1",
+                },
+                headers={"apikey": self.secret_key, "Prefer": "count=exact", "Range": "0-0"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            content_range = response.headers.get("Content-Range", "")
+            try:
+                row_count = int(content_range.rsplit("/", 1)[1])
+            except (IndexError, ValueError) as exc:
+                raise RuntimeError("Supabase did not return an exact market-history row count.") from exc
+            rows = response.json()
+            if not isinstance(rows, list):
+                raise RuntimeError("Supabase returned an invalid market-history response.")
+            coverage[symbol] = {
+                "row_count": row_count,
+                "newest_trading_date": rows[0].get("trading_date") if rows else None,
+            }
+        return coverage
 
     def read_history(self, symbol: str, *, limit: int = 500) -> list[dict[str, Any]]:
         normalized_symbol = normalize_symbol(symbol)
