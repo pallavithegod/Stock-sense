@@ -25,11 +25,8 @@ def collect_startup_checks(
     env_keys = [
         "FLASK_SECRET_KEY",
         "GNEWS_API_KEY",
-        "NEWS_API_KEY",
         "ALPHA_VANTAGE_API_KEY",
         "ALPHA_VANTAGE_KEY",
-        "TWELVE_DATA_API_KEY",
-        "TWELVE_DATA_KEY",
         "FINNHUB_API_KEY",
         "FINNHUB_KEY",
     ]

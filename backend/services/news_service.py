@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import os
 import time
 from typing import Any, Callable
@@ -11,6 +12,7 @@ import requests
 
 
 NormalizeSymbol = Callable[[Any], str | None]
+logger = logging.getLogger("stocksense.news")
 GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search"
 DEFAULT_CACHE_TTL_SECONDS = 300
 
@@ -31,6 +33,8 @@ class NewsService:
         self._session = session or requests.Session()
         self._cache_ttl_seconds = max(0, cache_ttl_seconds)
         self._cache: dict[str, tuple[float, str, list[dict[str, Any]]]] = {}
+        # Reason for the most recent fallback; None after a live success.
+        self.last_error_code: str | None = None
 
     def _timestamp(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -47,7 +51,7 @@ class NewsService:
                 timestamp=cached[1],
             )
         if not self._api_key:
-            return self._fallback(cached)
+            return self._fallback(cached, error_code="KEY_MISSING")
 
         try:
             response = self._session.get(
@@ -61,14 +65,22 @@ class NewsService:
                 timeout=8,
             )
             if response.status_code == 429:
-                return self._fallback(cached)
+                return self._fallback(cached, error_code="RATE_LIMITED")
+            if response.status_code in (401, 403):
+                return self._fallback(cached, error_code="KEY_REJECTED")
             response.raise_for_status()
             payload = response.json()
-        except (requests.RequestException, ValueError):
-            return self._fallback(cached)
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            return self._fallback(cached, error_code=f"HTTP_{status}" if status else "HTTP_ERROR")
+        except requests.RequestException as exc:
+            return self._fallback(cached, error_code=f"REQUEST_{type(exc).__name__.upper()}")
+        except ValueError:
+            return self._fallback(cached, error_code="MALFORMED_RESPONSE")
 
         if not isinstance(payload, dict) or not isinstance(payload.get("articles"), list):
-            return self._fallback(cached)
+            return self._fallback(cached, error_code="MALFORMED_RESPONSE")
+        self.last_error_code = None
 
         articles = [
             normalized
@@ -85,7 +97,15 @@ class NewsService:
             articles=articles, source="gnews", data_quality="live", timestamp=fetched_at
         )
 
-    def _fallback(self, cached: tuple[float, str, list[dict[str, Any]]] | None) -> dict[str, Any]:
+    def _fallback(
+        self,
+        cached: tuple[float, str, list[dict[str, Any]]] | None,
+        *,
+        error_code: str,
+    ) -> dict[str, Any]:
+        # Log only a reason code: never the key, URL, or provider response body.
+        self.last_error_code = error_code
+        logger.warning("news_provider_fallback error_code=%s has_cache=%s", error_code, bool(cached))
         if cached:
             return self._response(
                 articles=cached[2],

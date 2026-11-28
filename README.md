@@ -128,9 +128,16 @@ Collect daily market history after the market closes:
 ```
 
 For production, use `.github/workflows/daily-market-snapshot.yml` to run the
-one-shot command after the relevant exchange closes. The job requests the most
-recent five daily bars for each configured market-universe symbol and upserts
-them by symbol/date, so retries do not create duplicate days.
+one-shot command after the relevant exchange closes. The job requests one year
+of daily bars for each configured market-universe symbol and upserts them by
+symbol/date, so retries do not create duplicate days. If any symbol yields no
+valid bars, the valid ones are still saved but the job exits non-zero and names
+the failed symbols. Run a 2-year backfill once before expecting forecasts:
+```powershell
+.\.venv\Scripts\python.exe -m scripts.backfill_market_history --symbol INFY --symbol RELIANCE --symbol SBIN --symbol TCS --period 2y
+```
+Forecasts stay hidden until a symbol has at least 400 daily bars and passes the
+validation gate against a zero-return baseline.
 
 ## Configuration
 
@@ -155,23 +162,25 @@ you want live provider-backed market, news, or model integrations:
 
 ```env
 ALPHA_VANTAGE_API_KEY=
-TWELVE_DATA_API_KEY=
 GNEWS_API_KEY=
 FINNHUB_API_KEY=
-FMP_API_KEY=
-DATA_GOV_API_KEY=
-HUGGINGFACEHUB_API_TOKEN=
 ```
 
-Daily market collection tries yfinance first, including bare-symbol, NSE
-(`.NS`), and BSE (`.BO`) history lookups, then uses Finnhub and Alpha Vantage
-as fallbacks. Set their `*_API_KEY` variables locally and as GitHub Actions
-repository secrets; local `.env` also accepts `FINNHUB_KEY` and
-`ALPHA_VANTAGE_KEY`.
+Market history is fetched from yfinance first (no key needed), trying NSE
+(`.NS`) and then BSE (`.BO`) listings. A bare ticker is never used, because
+Yahoo resolves names such as `INFY` to US-listed USD securities, and any
+listing whose reported currency is not INR is rejected. Alpha Vantage and
+Finnhub are optional fallbacks, in that order. Set their `*_API_KEY`
+variables locally and as GitHub Actions repository secrets; local `.env` also
+accepts `FINNHUB_KEY` and `ALPHA_VANTAGE_KEY`.
 
 The API news service uses `GNEWS_API_KEY` for live market and symbol articles.
 It serves cached articles when available, or an explicit empty/unavailable
-state when the key is missing or GNews cannot be reached.
+state when the key is missing or GNews cannot be reached. The reason for each
+fallback (`KEY_MISSING`, `KEY_REJECTED`, `RATE_LIMITED`, `HTTP_<status>`,
+`MALFORMED_RESPONSE`, or a request error) is logged as
+`news_provider_fallback error_code=...`. To check GNews live without printing
+any secret, run `.\.venv\Scripts\python.exe -m scripts.check_news_provider`.
 
 For Supabase-backed portfolio authentication and daily market snapshots, apply
 `supabase/migrations/20261125_market_data_and_portfolios.sql` in the Supabase SQL

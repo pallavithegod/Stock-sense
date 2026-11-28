@@ -1004,11 +1004,8 @@ def build_market_data_client(*, disabled: bool, timeout_seconds: int, cache_ttl_
             api_key_env="ALPHA_VANTAGE_API_KEY",
             api_key_aliases=("ALPHA_VANTAGE_KEY",),
         ),
-        ApiKeyMarketDataProvider(
-            name="twelve_data",
-            api_key_env="TWELVE_DATA_API_KEY",
-            api_key_aliases=("TWELVE_DATA_KEY",),
-        ),
+        # Twelve Data is intentionally not in the chain: it has no history
+        # implementation, so every call would only trip its circuit breaker.
         ApiKeyMarketDataProvider(
             name="finnhub",
             api_key_env="FINNHUB_API_KEY",

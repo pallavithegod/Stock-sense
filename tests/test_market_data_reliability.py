@@ -392,6 +392,16 @@ def test_stale_while_revalidate_returns_cached_stale_during_provider_outage():
     assert stale.stale is True
 
 
+def test_provider_chain_excludes_unimplemented_twelve_data(monkeypatch):
+    from backend.services.market_data import build_market_data_client
+
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
+    client = build_market_data_client(disabled=False, timeout_seconds=5, cache_ttl_seconds=1)
+
+    assert [provider.name for provider in client.providers] == ["yfinance", "alpha_vantage", "finnhub"]
+    assert "twelve_data" not in client.health()
+
+
 def test_exchange_candidates_try_nse_before_bse_and_yfinance_falls_back(monkeypatch):
     class FakeTicker:
         def __init__(self, symbol: str):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from backend.domain.market import normalize_symbol
 from backend.services.news_service import GNEWS_SEARCH_URL, NewsService
 
@@ -130,6 +132,74 @@ def test_gnews_without_key_returns_empty_unavailable_state():
 
     assert payload["articles"] == []
     assert payload["data_quality"] == "unavailable"
+
+
+def _news_service_with(response_or_exc, *, api_key="test-key"):
+    import requests
+
+    class FakeResponse:
+        def __init__(self, status_code, payload=None, raise_error=False):
+            self.status_code = status_code
+            self.payload = payload
+            self.raise_error = raise_error
+
+        def raise_for_status(self):
+            if self.raise_error:
+                raise requests.HTTPError("boom", response=self)
+
+        def json(self):
+            if isinstance(self.payload, Exception):
+                raise self.payload
+            return self.payload
+
+    class FakeSession:
+        def get(self, url, **kwargs):
+            if isinstance(response_or_exc, Exception):
+                raise response_or_exc
+            return response_or_exc(FakeResponse)
+
+    return NewsService(normalize_symbol=normalize_symbol, api_key=api_key, session=FakeSession())
+
+
+@pytest.mark.parametrize(
+    ("make_response", "expected_code"),
+    [
+        (lambda R: R(429), "RATE_LIMITED"),
+        (lambda R: R(401), "KEY_REJECTED"),
+        (lambda R: R(403), "KEY_REJECTED"),
+        (lambda R: R(500, raise_error=True), "HTTP_500"),
+        (lambda R: R(200, payload=ValueError("bad json")), "MALFORMED_RESPONSE"),
+        (lambda R: R(200, payload={"articles": "nope"}), "MALFORMED_RESPONSE"),
+        (lambda R: R(200, payload=["not", "a", "dict"]), "MALFORMED_RESPONSE"),
+    ],
+)
+def test_gnews_failures_report_distinct_reason_without_leaking_key(make_response, expected_code, caplog):
+    service = _news_service_with(make_response)
+
+    payload = service.market_news()
+
+    assert payload["articles"] == []
+    assert payload["data_quality"] == "unavailable"
+    assert service.last_error_code == expected_code
+    assert f"news_provider_fallback error_code={expected_code}" in caplog.text
+    assert "test-key" not in caplog.text
+
+
+def test_gnews_network_error_and_missing_key_reasons_and_success_resets():
+    import requests
+
+    network = _news_service_with(requests.ConnectionError("down"))
+    network.market_news()
+    assert network.last_error_code == "REQUEST_CONNECTIONERROR"
+
+    missing = _news_service_with(lambda R: R(200, payload={"articles": []}), api_key="")
+    missing.market_news()
+    assert missing.last_error_code == "KEY_MISSING"
+
+    ok = _news_service_with(lambda R: R(200, payload={"articles": []}))
+    ok.last_error_code = "RATE_LIMITED"
+    assert ok.market_news()["data_quality"] == "live"
+    assert ok.last_error_code is None
 
 
 def test_research_payload_matches_frontend_shape(client):
