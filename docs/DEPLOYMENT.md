@@ -42,6 +42,12 @@ Gunicorn binds `FLASK_HOST` (default `0.0.0.0`) on the first port it finds in
 to it, so do not set `FLASK_PORT` on Render. Do not set `PORT` yourself unless
 you also change the service's port in Render.
 
+The worker count is `GUNICORN_WORKERS`, else `WEB_CONCURRENCY` (Render sets it
+from the instance size), else half the CPUs with a minimum of two. Each worker
+is a separate process with its own caches and rate-limit counters. SQLite
+migrations at startup are serialized across workers with a lock file
+(`<db>.migrate-lock` next to the database).
+
 For Supabase-backed production, also set the Supabase variables listed in the
 deployment steps below. Do not combine `REQUIRE_AUTH=True` with the legacy
 `REQUIRE_MUTATION_TOKEN` demo configuration.

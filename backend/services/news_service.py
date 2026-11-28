@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 import os
+import threading
 import time
 from typing import Any, Callable
 
@@ -15,6 +16,7 @@ NormalizeSymbol = Callable[[Any], str | None]
 logger = logging.getLogger("stocksense.news")
 GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search"
 DEFAULT_CACHE_TTL_SECONDS = 300
+DEFAULT_MIN_INTERVAL_SECONDS = 1.1
 
 
 class NewsService:
@@ -25,8 +27,14 @@ class NewsService:
         api_key: str | None = None,
         session: requests.Session | None = None,
         cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
+        min_interval_seconds: float = DEFAULT_MIN_INTERVAL_SECONDS,
     ):
         self._normalize_symbol = normalize_symbol
+        # GNews limits request rate (free plans allow about one request per
+        # second), so upstream calls from this process are spaced out.
+        self._min_interval_seconds = max(0.0, min_interval_seconds)
+        self._upstream_lock = threading.Lock()
+        self._last_upstream_call: float | None = None
         self._api_key = (
             os.getenv("GNEWS_API_KEY", "").strip() if api_key is None else api_key.strip()
         )
@@ -54,16 +62,10 @@ class NewsService:
             return self._fallback(cached, error_code="KEY_MISSING")
 
         try:
-            response = self._session.get(
-                GNEWS_SEARCH_URL,
-                params={
-                    "q": query,
-                    "lang": "en",
-                    "apikey": self._api_key,
-                    "max": 10,
-                },
-                timeout=8,
-            )
+            response = self._throttled_get(query)
+            if response.status_code == 429:
+                # One retry after the spacing interval covers a per-second limit.
+                response = self._throttled_get(query)
             if response.status_code == 429:
                 return self._fallback(cached, error_code="RATE_LIMITED")
             if response.status_code in (401, 403):
@@ -96,6 +98,26 @@ class NewsService:
         return self._response(
             articles=articles, source="gnews", data_quality="live", timestamp=fetched_at
         )
+
+    def _throttled_get(self, query: str) -> Any:
+        with self._upstream_lock:
+            if self._last_upstream_call is not None and self._min_interval_seconds > 0:
+                wait = self._min_interval_seconds - (time.monotonic() - self._last_upstream_call)
+                if wait > 0:
+                    time.sleep(wait)
+            try:
+                return self._session.get(
+                    GNEWS_SEARCH_URL,
+                    params={
+                        "q": query,
+                        "lang": "en",
+                        "apikey": self._api_key,
+                        "max": 10,
+                    },
+                    timeout=8,
+                )
+            finally:
+                self._last_upstream_call = time.monotonic()
 
     def _fallback(
         self,

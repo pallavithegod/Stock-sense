@@ -58,6 +58,7 @@ def test_gnews_fetch_normalizes_article_and_uses_configured_search_params():
         normalize_symbol=normalize_symbol,
         api_key="test-key",
         session=session,
+        min_interval_seconds=0,
     )
 
     payload = service.symbol_news("infy.ns")
@@ -101,6 +102,7 @@ def test_gnews_rate_limit_falls_back_to_cached_articles():
                     200, {"articles": [{"title": "Cached story", "url": "https://example.test"}]}
                 ),
                 FakeResponse(429),
+                FakeResponse(429),  # the single retry is also limited
             ]
 
         def get(self, url, **kwargs):
@@ -111,6 +113,7 @@ def test_gnews_rate_limit_falls_back_to_cached_articles():
         api_key="test-key",
         session=FakeSession(),
         cache_ttl_seconds=0,
+        min_interval_seconds=0,
     )
 
     initial = service.market_news()
@@ -158,7 +161,12 @@ def _news_service_with(response_or_exc, *, api_key="test-key"):
                 raise response_or_exc
             return response_or_exc(FakeResponse)
 
-    return NewsService(normalize_symbol=normalize_symbol, api_key=api_key, session=FakeSession())
+    return NewsService(
+        normalize_symbol=normalize_symbol,
+        api_key=api_key,
+        session=FakeSession(),
+        min_interval_seconds=0,
+    )
 
 
 @pytest.mark.parametrize(
@@ -183,6 +191,90 @@ def test_gnews_failures_report_distinct_reason_without_leaking_key(make_response
     assert service.last_error_code == expected_code
     assert f"news_provider_fallback error_code={expected_code}" in caplog.text
     assert "test-key" not in caplog.text
+
+
+def test_gnews_retries_once_after_per_second_rate_limit_and_succeeds():
+    class FakeResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return FakeResponse(429)
+            return FakeResponse(200, {"articles": [{"title": "Retry story", "url": "https://example.test"}]})
+
+    session = FakeSession()
+    service = NewsService(
+        normalize_symbol=normalize_symbol, api_key="test-key", session=session, min_interval_seconds=0
+    )
+
+    payload = service.symbol_news("INFY")
+
+    assert session.calls == 2
+    assert payload["data_quality"] == "live"
+    assert payload["articles"][0]["title"] == "Retry story"
+    assert service.last_error_code is None
+
+
+def test_gnews_upstream_calls_are_spaced_by_the_minimum_interval(monkeypatch):
+    from backend.services import news_service
+
+    now = [100.0]
+    sleeps: list[float] = []
+
+    class Clock:
+        @staticmethod
+        def monotonic():
+            return now[0]
+
+        @staticmethod
+        def sleep(seconds):
+            sleeps.append(round(seconds, 3))
+            now[0] += seconds
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"articles": []}
+
+    class FakeSession:
+        def get(self, url, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(news_service, "time", Clock)
+    service = NewsService(
+        normalize_symbol=normalize_symbol,
+        api_key="test-key",
+        session=FakeSession(),
+        cache_ttl_seconds=0,
+        min_interval_seconds=1.0,
+    )
+
+    service.market_news()
+    now[0] += 0.25
+    service.symbol_news("INFY")
+    now[0] += 5
+    service.symbol_news("TCS")
+
+    # First call is immediate, the second waits out the remaining 0.75s, the
+    # third is already more than one interval later and does not wait.
+    assert sleeps == [0.75]
 
 
 def test_gnews_network_error_and_missing_key_reasons_and_success_resets():

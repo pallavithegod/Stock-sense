@@ -39,6 +39,27 @@ def test_bind_rejects_invalid_port(gunicorn_conf, port):
         gunicorn_conf.resolve_bind({"PORT": port})
 
 
+@pytest.mark.parametrize(
+    ("environ", "cpus", "expected"),
+    [
+        ({}, 8, 4),
+        ({}, 2, 2),
+        ({}, 1, 2),
+        ({"WEB_CONCURRENCY": "1"}, 8, 1),
+        ({"GUNICORN_WORKERS": "3", "WEB_CONCURRENCY": "1"}, 8, 3),
+        ({"GUNICORN_WORKERS": " ", "WEB_CONCURRENCY": "2"}, 8, 2),
+    ],
+)
+def test_workers_honor_platform_concurrency(gunicorn_conf, environ, cpus, expected):
+    assert gunicorn_conf.resolve_workers(environ, cpu_count=cpus) == expected
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "two", "1.5"])
+def test_workers_reject_invalid_values(gunicorn_conf, value):
+    with pytest.raises(ValueError, match="positive integer"):
+        gunicorn_conf.resolve_workers({"WEB_CONCURRENCY": value})
+
+
 def test_module_level_bind_uses_process_environment(monkeypatch):
     monkeypatch.setenv("PORT", "12345")
     monkeypatch.delenv("FLASK_HOST", raising=False)

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from backend.db.connection import connect
 from backend.db.schema import LATEST_SCHEMA_VERSION, MIGRATIONS, REQUIRED_COLUMNS, REQUIRED_TABLES
@@ -80,7 +82,44 @@ def migration_status(db_path: str | Path) -> dict[str, Any]:
     }
 
 
+@contextmanager
+def _migration_lock(db_path: Path, *, timeout: float = 60.0) -> Iterator[None]:
+    """Serialize migrations across processes (e.g. Gunicorn workers booting together).
+
+    A SQLite transaction on the main database cannot do this: the migrations use
+    ``executescript()``, which commits and drops the write lock mid-migration.
+    A separate lock database held with ``BEGIN EXCLUSIVE`` works on Windows and
+    Linux with no extra dependency. Waiting processes block on the busy timeout,
+    then see every migration already applied and do nothing.
+    """
+    if db_path.name == ":memory:":
+        yield
+        return
+    lock_conn = sqlite3.connect(
+        db_path.with_name(db_path.name + ".migrate-lock"),
+        timeout=timeout,
+        isolation_level=None,
+    )
+    try:
+        lock_conn.execute("BEGIN EXCLUSIVE")
+        yield
+    finally:
+        lock_conn.close()
+
+
 def apply_migrations(
+    db_path: str | Path,
+    *,
+    backup: bool = True,
+    backup_dir: str | Path | None = None,
+) -> MigrationResult:
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _migration_lock(path):
+        return _apply_migrations_unlocked(path, backup=backup, backup_dir=backup_dir)
+
+
+def _apply_migrations_unlocked(
     db_path: str | Path,
     *,
     backup: bool = True,
@@ -101,7 +140,11 @@ def apply_migrations(
     applied_now: list[int] = []
     with connect(path) as conn:
         try:
-            conn.execute("BEGIN")
+            # IMMEDIATE takes the write lock up front, so concurrent processes
+            # (for example several Gunicorn workers booting together) queue on
+            # the busy timeout instead of failing with "database is locked".
+            # Applied versions are re-read below, inside the lock.
+            conn.execute("BEGIN IMMEDIATE")
             for migration in MIGRATIONS:
                 if migration.version in _applied_versions(conn):
                     continue

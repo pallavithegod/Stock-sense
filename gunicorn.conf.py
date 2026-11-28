@@ -21,7 +21,23 @@ def resolve_bind(environ: dict[str, str] | None = None) -> str:
 
 
 bind = resolve_bind()
-workers = int(os.getenv("GUNICORN_WORKERS", str(max(2, multiprocessing.cpu_count() // 2))))
+def resolve_workers(environ: dict[str, str] | None = None, *, cpu_count: int | None = None) -> int:
+    """Worker count: GUNICORN_WORKERS > WEB_CONCURRENCY (set by Render) > CPU-based default.
+
+    Each worker is a separate process with its own in-memory caches and rate-limit
+    counters, so honoring the platform's sizing avoids exhausting a small instance.
+    """
+    env = os.environ if environ is None else environ
+    for name in ("GUNICORN_WORKERS", "WEB_CONCURRENCY"):
+        raw = env.get(name, "").strip()
+        if raw:
+            if not raw.isdigit() or int(raw) < 1:
+                raise ValueError(f"{name} must be a positive integer.")
+            return int(raw)
+    return max(2, (cpu_count or multiprocessing.cpu_count()) // 2)
+
+
+workers = resolve_workers()
 threads = int(os.getenv("GUNICORN_THREADS", "4"))
 timeout = int(os.getenv("GUNICORN_TIMEOUT", "60"))
 graceful_timeout = int(os.getenv("GUNICORN_GRACEFUL_TIMEOUT", "30"))
