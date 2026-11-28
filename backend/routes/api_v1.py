@@ -34,6 +34,7 @@ from backend.services.validation import (
     ValidationError as RequestValidationError,
     validate_portfolio_create,
     validate_portfolio_update,
+    validate_recorded_sell,
     validate_sell_order,
     validation_error_payload,
 )
@@ -407,7 +408,7 @@ def create_api_v1_blueprint(*, services: AppServices, news_service: NewsService)
     @blueprint.post("/api/v1/portfolio/sell")
     def portfolio_sell():
         try:
-            data = validate_sell_order(request.get_json(silent=True), normalize_symbol=normalize_symbol)
+            data = validate_recorded_sell(request.get_json(silent=True), normalize_symbol=normalize_symbol)
             payload = services.portfolio.record_sell(data, current_user())
             return _raw_success(payload, provider=portfolio_provider, quality_status="portfolio_only")
         except RequestValidationError as exc:

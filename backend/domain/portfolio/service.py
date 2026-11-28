@@ -687,6 +687,9 @@ class PortfolioService:
         data: dict[str, Any],
         principal: AuthenticatedUser | None = None,
     ) -> dict[str, Any]:
+        # Locked product decision: actual sells consume lots FIFO only.
+        if str(data.get("method") or "FIFO").upper() != "FIFO":
+            raise ValueError("Recorded sells must use FIFO; LIFO and HIFO are simulation-only.")
         result = self.repository.record_sell(
             data["symbol"],
             data["quantity"],

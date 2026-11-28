@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 from backend.domain.market import normalize_symbol
 from backend.domain.predictions.market_model import evaluate_momentum_model
 from backend.domain.market.service import MarketUniverse
 from backend.services.daily_market_collection import SupabaseDailyBarStore
+
+
+def _load_local_env() -> None:
+    """Load ./.env for local runs; never overrides variables already set (CI, Render)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     symbols = list(dict.fromkeys(filter(None, (normalize_symbol(item) for item in raw_symbols))))
     if not symbols:
         parser.error("Provide --symbol or --all-universe.")
+    _load_local_env()
     store = SupabaseDailyBarStore.from_env()
     results = {
         symbol: evaluate_momentum_model(store.read_history(symbol, limit=args.limit))

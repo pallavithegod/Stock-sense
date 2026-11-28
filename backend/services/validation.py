@@ -187,6 +187,20 @@ def validate_lot_update(payload: Any) -> dict[str, Any]:
     return {"quantity": quantity, "buy_price": buy_price, "buy_date": buy_date}
 
 
+RECORDED_SELL_METHOD = "FIFO"
+
+
+def validate_recorded_sell(payload: Any, *, normalize_symbol: Callable[[Any], str | None]) -> dict[str, Any]:
+    """Validate an actual (persisted) sell. Only FIFO is allowed; LIFO/HIFO are simulation-only."""
+    data = validate_sell_order(payload, normalize_symbol=normalize_symbol)
+    if data["method"] != RECORDED_SELL_METHOD:
+        raise ValidationError(
+            "Recorded sells must use FIFO; LIFO and HIFO are available for simulation only.",
+            field="method",
+        )
+    return data
+
+
 def validate_sell_order(payload: Any, *, normalize_symbol: Callable[[Any], str | None]) -> dict[str, Any]:
     data = require_object(payload)
     return {
