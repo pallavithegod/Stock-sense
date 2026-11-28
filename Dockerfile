@@ -31,6 +31,6 @@ EXPOSE 5000
 VOLUME ["/app/data", "/app/logs", "/app/cache", "/app/models"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health/live', timeout=3).read()"
+  CMD python -c "import os, urllib.request; port = os.environ.get('PORT') or os.environ.get('FLASK_PORT') or '5000'; urllib.request.urlopen(f'http://127.0.0.1:{port}/health/live', timeout=3).read()"
 
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "backend.wsgi:app"]

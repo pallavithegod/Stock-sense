@@ -37,6 +37,11 @@ OPEN_BROWSER=False
 CONTENT_SECURITY_POLICY=default-src 'self'; frame-ancestors 'self'; base-uri 'self'
 ```
 
+Gunicorn binds `FLASK_HOST` (default `0.0.0.0`) on the first port it finds in
+`PORT`, then `FLASK_PORT`, then `5000`. Render injects `PORT` and routes traffic
+to it, so do not set `FLASK_PORT` on Render. Do not set `PORT` yourself unless
+you also change the service's port in Render.
+
 For Supabase-backed production, also set the Supabase variables listed in the
 deployment steps below. Do not combine `REQUIRE_AUTH=True` with the legacy
 `REQUIRE_MUTATION_TOKEN` demo configuration.
@@ -92,10 +97,13 @@ remains available, and the public dashboard omits portfolio data.
 
 1. Create a Supabase project and open **SQL Editor**.
 2. Apply `supabase/migrations/20261125_market_data_and_portfolios.sql`, then
-   `supabase/migrations/20261127_portfolio_trade_ledger.sql`. The second
+   `supabase/migrations/20261127_portfolio_trade_ledger.sql`, then
+   `supabase/migrations/20261128_enforce_fifo_recorded_sells.sql`. The second
    migration creates user-scoped trade/lot/gain tables and atomically backfills
    existing aggregate positions as opening lots at their saved quantity,
-   average price, and date. Apply it before deploying the matching backend.
+   average price, and date. The third makes the sell RPC reject LIFO/HIFO:
+   recorded sells are FIFO-only, while LIFO/HIFO remain simulation-only.
+   Apply them before deploying the matching backend.
 3. In **Authentication → URL Configuration**, set the Vercel URL as the Site
    URL and add the production URL plus
    `https://<your-vercel-domain>/portfolio`
@@ -105,7 +113,8 @@ remains available, and the public dashboard omits portfolio data.
    inviting real users.
 4. Create a Render web service from the repository. Set its root directory to
    the repository root, build command to `pip install -e .`, and start command
-   to `gunicorn -c gunicorn.conf.py backend.wsgi:app`.
+   to `gunicorn -c gunicorn.conf.py backend.wsgi:app`. Set the health check
+   path to `/health/ready`. Gunicorn binds Render's `PORT` automatically.
 5. Set these Render API environment variables:
 
    ```env
