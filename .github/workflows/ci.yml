@@ -44,9 +44,6 @@ jobs:
           backend/services/market_data.py
           backend/services/news_service.py
           backend/services/observability.py
-          backend/services/prediction_presenter.py
-          backend/services/prediction_service.py
-          backend/services/portfolio_service.py
           backend/services/research_service.py
           backend/services/security.py
           backend/services/startup_checks.py

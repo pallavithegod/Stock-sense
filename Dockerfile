@@ -14,10 +14,9 @@ RUN addgroup --system stocksense \
     && adduser --system --ingroup stocksense --home /app stocksense
 
 COPY pyproject.toml README.md gunicorn.conf.py ./
-COPY app.py database.py ./
+COPY app.py ./
 COPY backend ./backend
 COPY scripts ./scripts
-COPY utils ./utils
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir .

@@ -15,8 +15,9 @@ structured logs, database maintenance scripts, and repeatable tests.
 
 - Live-style market dashboard with indices, opportunity signals, alerts, and
   news feed panels.
-- Portfolio desk with holdings, add/edit/delete flows, open lots, sell
-  simulation, realized gains, and tax-intelligence views.
+- Portfolio desk with buy/sell trade entry, open lots, sell simulation,
+  realized gains, and tax-classification views. Holdings are derived from
+  trades; aggregate positions are not edited or deleted directly.
 - Prediction console with signal, price, target, expected return, confidence,
   allocation, risk, and provenance fields.
 - Research and news workspaces for market reports, sentiment, symbol-focused
@@ -47,8 +48,11 @@ backend/
   Flask application factory
   versioned API routes, domain services, providers, workers, health checks
 
+supabase/migrations/
+  SQL for the production Postgres schema (apply in order, see docs/DEPLOYMENT.md)
+
 data/
-  SQLite databases and audit/runtime files
+  local SQLite databases and runtime files (development / worker use)
 
 tests/
   backend unit/integration tests, database hardening tests, frontend unit tests,
@@ -61,7 +65,10 @@ proxies `/api` requests to Flask.
 ## Tech Stack
 
 - Frontend: React, TypeScript, Vite, Tailwind CSS, Vitest, Playwright.
-- Backend: Python, Flask, Flask-SocketIO, Pydantic contracts, SQLite.
+- Backend: Python, Flask, Flask-SocketIO, Pydantic contracts, SQLite for local
+  development.
+- Production: Supabase (Auth, Postgres, row-level security), Render (API),
+  Vercel (frontend), GitHub Actions (daily market snapshot).
 - Tooling: Ruff, mypy, pytest, pre-commit, GitHub Actions, Docker, Gunicorn.
 
 ## Quick Start
@@ -152,9 +159,6 @@ OPEN_BROWSER=False
 DISABLE_STARTUP_NETWORK=True
 
 STOCKSENSE_DB_PATH=data/stocksense.db
-STOCKSENSE_MARKET_DB_PATH=data/market_intelligence.db
-STOCKSENSE_ADAPTIVE_DB_PATH=data/adaptive_thresholds.db
-STOCKSENSE_AUDIT_LOG_PATH=data/prediction_audit.jsonl
 ```
 
 External provider keys are optional for local development. Add them only when
@@ -221,7 +225,7 @@ Do not enable this demo-token mode alongside the Supabase-authenticated launch.
 Backend checks:
 
 ```powershell
-.\.venv\Scripts\python.exe -m compileall -q app.py backend scripts utils
+.\.venv\Scripts\python.exe -m compileall -q app.py backend scripts
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m pytest tests\integration\db -q
 ```
@@ -289,6 +293,9 @@ Gunicorn:
 gunicorn -c gunicorn.conf.py backend.wsgi:app
 ```
 
+Gunicorn binds `PORT` (set by Render), else `FLASK_PORT`, else 5000, and uses
+`GUNICORN_WORKERS`, else `WEB_CONCURRENCY`, for the worker count.
+
 Docker:
 
 ```powershell
@@ -309,11 +316,23 @@ Health endpoints:
 ## Project Layout
 
 ```text
+app.py             compatibility launcher for the Flask app
+gunicorn.conf.py   production server settings
 backend/
   app/             application factory, config, extensions, contracts
-  domain/          market, portfolio, prediction, news, and system services
-  routes/          HTTP route modules
-  workers/         scheduler and background job runtime
+  db/              local SQLite schema, migrations, retention helpers
+  domain/          dashboard, market, portfolio, prediction, and system services
+  routes/          HTTP route modules and health checks
+  services/        market-data providers, daily collection, news, auth, security
+  workers/         scheduler and background job runtime (CLI entry point)
+
+supabase/
+  migrations/      production Postgres schema, RLS, and trade/lot RPCs
+
+docs/
+  DEPLOYMENT.md    Supabase + Render + Vercel launch runbook
+
+.github/workflows/ CI and the scheduled daily market snapshot
 
 frontend/
   src/api/         typed endpoint modules
@@ -324,7 +343,8 @@ frontend/
   tests/           unit and browser workflow tests
 
 scripts/
-  database maintenance and deterministic data seeding
+  market-history backfill, forecast evaluation, GNews check, SQLite
+  maintenance, and deterministic demo seeding
 
 tests/
   backend smoke, contract, security, worker, and database checks
@@ -332,9 +352,9 @@ tests/
 
 ## Dependency Files
 
-- `pyproject.toml` defines Python runtime, development, and optional ML
-  dependency groups.
+- `pyproject.toml` defines the Python runtime and development dependencies,
+  plus an optional `ml` group. The running app does not import anything from
+  the `ml` group.
 - `requirements.txt`, `requirements-dev.txt`, and `requirements-ml.txt` are
   compatibility installers for those groups.
-- `requirements-lock.txt` records the current Python environment.
 - `frontend/package-lock.json` locks the frontend dependency tree.
