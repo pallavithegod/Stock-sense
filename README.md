@@ -352,9 +352,9 @@ tests/
 
 ## Dependency Files
 
-- `pyproject.toml` defines the Python runtime and development dependencies,
-  plus an optional `ml` group. The running app does not import anything from
-  the `ml` group.
-- `requirements.txt`, `requirements-dev.txt`, and `requirements-ml.txt` are
-  compatibility installers for those groups.
+- `pyproject.toml` defines the Python runtime and development dependencies.
+  Runtime dependencies are limited to what the app imports, plus packages
+  that yfinance and pandas require.
+- `requirements.txt` and `requirements-dev.txt` are compatibility installers
+  for those groups.
 - `frontend/package-lock.json` locks the frontend dependency tree.

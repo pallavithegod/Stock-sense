@@ -89,7 +89,7 @@ def _build_services(settings: Settings) -> AppServices:
         },
         runtime=runtime,
         provider_health=market_data.health,
-        optional_modules=["yfinance", "pandas", "numpy", "sklearn", "tensorflow", "feedparser", "flask_socketio"],
+        optional_modules=["yfinance", "pandas", "numpy", "flask_socketio"],
     )
     return AppServices(
         settings=settings,
