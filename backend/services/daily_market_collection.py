@@ -124,6 +124,20 @@ class SupabaseDailyBarStore:
         return list(reversed(rows))
 
 
+class PartialCollectionError(RuntimeError):
+    """Some symbols yielded no valid bars; the valid bars were still upserted."""
+
+    def __init__(self, *, result: dict[str, int], failures: list[dict[str, str]]):
+        self.result = result
+        self.failures = failures
+        detail = ", ".join(f"{item['symbol']}={item['error_code']}" for item in failures)
+        super().__init__(
+            f"Daily market collection incomplete: {len(failures)} of "
+            f"{result['symbols_requested']} symbols failed ({detail}); "
+            f"{result['bars_upserted']} bars upserted for the rest."
+        )
+
+
 class DailyMarketCollector:
     def __init__(
         self,
@@ -139,12 +153,18 @@ class DailyMarketCollector:
         self.logger = logger or logging.getLogger("stocksense.daily_market_collection")
 
     def collect(self, *, period: str = "1y") -> dict[str, int]:
+        """Collect and upsert daily bars for every configured symbol.
+
+        Valid bars are always persisted. If any symbol yields no valid bars the
+        run raises ``PartialCollectionError`` after the upsert, so schedulers
+        and CLIs report failure instead of a success-shaped partial snapshot.
+        """
         collected: list[dict[str, Any]] = []
-        failed_symbols = 0
+        failures: list[dict[str, str]] = []
         for raw_symbol in self.symbols:
             symbol = normalize_symbol(raw_symbol)
             if not symbol:
-                failed_symbols += 1
+                failures.append({"symbol": str(raw_symbol), "error_code": "INVALID_SYMBOL"})
                 continue
             response = self.market_data.history(
                 symbol,
@@ -154,7 +174,7 @@ class DailyMarketCollector:
             )
             bars = _daily_bar_rows(symbol, response)
             if not bars:
-                failed_symbols += 1
+                failures.append({"symbol": symbol, "error_code": response.error_code or "NO_VALID_BARS"})
                 self.logger.warning(
                     "daily_market_collection_symbol_unavailable symbol=%s provider=%s error_code=%s",
                     symbol,
@@ -168,11 +188,14 @@ class DailyMarketCollector:
             raise RuntimeError("Daily market collection returned no valid live bars.")
 
         self.store.upsert(collected)
-        return {
+        result = {
             "symbols_requested": len(self.symbols),
-            "symbols_failed": failed_symbols,
+            "symbols_failed": len(failures),
             "bars_upserted": len(collected),
         }
+        if failures:
+            raise PartialCollectionError(result=result, failures=failures)
+        return result
 
 
 def _daily_bar_rows(symbol: str, response: ProviderResponse) -> list[dict[str, Any]]:

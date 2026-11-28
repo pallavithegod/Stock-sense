@@ -6,6 +6,7 @@ import pytest
 
 from backend.services.daily_market_collection import (
     DailyMarketCollector,
+    PartialCollectionError,
     SupabaseDailyBarStore,
 )
 from backend.services.market_data import ProviderResponse
@@ -123,6 +124,105 @@ def test_daily_collector_does_not_store_unavailable_or_demo_prices(response):
         collector.collect()
 
     assert store.rows == []
+
+
+class PerSymbolMarketData:
+    def __init__(self, responses: dict[str, ProviderResponse]):
+        self.responses = responses
+
+    def history(self, symbol: str, *, period: str, interval: str, allow_stale: bool = False):
+        return self.responses[symbol]
+
+
+def _live_bar(close: float = 108) -> ProviderResponse:
+    return ProviderResponse.live(
+        "fixture",
+        {
+            "prices": [
+                {
+                    "timestamp": "2026-11-24",
+                    "open": 100,
+                    "high": 110,
+                    "low": 95,
+                    "close": close,
+                    "volume": 1234,
+                }
+            ]
+        },
+        fetched_at="2026-11-25T10:00:00+00:00",
+    )
+
+
+def test_daily_collector_partial_failure_persists_valid_bars_then_raises():
+    store = FakeStore()
+    collector = DailyMarketCollector(
+        market_data=PerSymbolMarketData(
+            {
+                "INFY": _live_bar(),
+                "RELIANCE": ProviderResponse.unavailable("none", error_code="ALL_PROVIDERS_UNAVAILABLE"),
+                "SBIN": _live_bar(),
+                "TCS": ProviderResponse.unavailable("yfinance", error_code="CURRENCY_MISMATCH"),
+            }
+        ),
+        store=store,
+        symbols=["INFY", "RELIANCE", "SBIN", "TCS"],
+    )
+
+    with pytest.raises(PartialCollectionError) as raised:
+        collector.collect()
+
+    assert sorted(row["symbol"] for row in store.rows) == ["INFY", "SBIN"]
+    assert raised.value.result == {"symbols_requested": 4, "symbols_failed": 2, "bars_upserted": 2}
+    assert raised.value.failures == [
+        {"symbol": "RELIANCE", "error_code": "ALL_PROVIDERS_UNAVAILABLE"},
+        {"symbol": "TCS", "error_code": "CURRENCY_MISMATCH"},
+    ]
+    assert "RELIANCE=ALL_PROVIDERS_UNAVAILABLE" in str(raised.value)
+    assert "TCS=CURRENCY_MISMATCH" in str(raised.value)
+
+
+def _universe_market_data(*, failing: dict[str, str]) -> PerSymbolMarketData:
+    return PerSymbolMarketData(
+        {
+            symbol: (
+                ProviderResponse.unavailable("none", error_code=failing[symbol])
+                if symbol in failing
+                else _live_bar()
+            )
+            for symbol in ("INFY", "RELIANCE", "SBIN", "TCS")
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("failing", "expected_exit"),
+    [({"TCS": "EMPTY_RESPONSE"}, 1), ({}, 0)],
+    ids=["partial-failure", "complete"],
+)
+def test_daily_snapshot_cli_exit_code_reflects_partial_failure(app_module, monkeypatch, capsys, failing, expected_exit):
+    from backend.workers import scheduler_cli
+
+    services = app_module.services
+    store = FakeStore()
+    monkeypatch.setattr(services, "market_data", _universe_market_data(failing=failing))
+    monkeypatch.setitem(services.system_cache, "daily_bar_store", store)
+
+    class App:
+        extensions = {"stocksense_services": services}
+
+    monkeypatch.setattr(scheduler_cli, "create_app", lambda settings: App())
+    monkeypatch.setattr(scheduler_cli, "startup", lambda app: None)
+
+    exit_code = scheduler_cli.main(["--once", "--job", "daily_market_snapshot"])
+
+    output = capsys.readouterr().out
+    assert exit_code == expected_exit
+    assert {row["symbol"] for row in store.rows} == {"INFY", "RELIANCE", "SBIN", "TCS"} - set(failing)
+    if failing:
+        assert "daily_market_snapshot: failed:" in output
+        assert "TCS=EMPTY_RESPONSE" in output
+    else:
+        assert "daily_market_snapshot: ok" in output
 
 
 def test_supabase_store_upserts_by_symbol_and_trading_date():

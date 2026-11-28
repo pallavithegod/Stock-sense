@@ -255,7 +255,9 @@ def test_yfinance_history_tries_bse_when_nse_returns_empty_frame(monkeypatch):
     assert response.data["prices"][0]["close"] == 108
 
 
-def test_yfinance_history_tries_nse_and_bse_after_all_empty_frames(monkeypatch):
+def test_yfinance_history_never_falls_back_to_bare_ticker(monkeypatch):
+    # The bare "INFY" ticker resolves to the USD NYSE ADR on Yahoo; it must
+    # never be requested for an Indian symbol.
     class EmptyFrame:
         empty = True
 
@@ -278,10 +280,101 @@ def test_yfinance_history_tries_nse_and_bse_after_all_empty_frames(monkeypatch):
     monkeypatch.setattr(adapter, "_yf", lambda: FakeYFinance)
 
     response = adapter.history("SBIN", period="5d", interval="1d")
+    explicit = adapter.history("INFY.NS", period="5d", interval="1d")
 
-    assert calls == ["SBIN.NS", "SBIN.BO", "SBIN"]
+    assert calls == ["SBIN.NS", "SBIN.BO", "INFY.NS", "INFY.BO"]
     assert response.state == "unavailable"
     assert response.error_code == "EMPTY_RESPONSE"
+    assert explicit.state == "unavailable"
+
+
+def _one_bar_frame():
+    class HistoryFrame:
+        empty = False
+        columns = ["Open", "High", "Low", "Close", "Volume"]
+
+        def tail(self, count):
+            return self
+
+        def iterrows(self):
+            return iter(
+                [
+                    (
+                        "2026-11-25 00:00:00+05:30",
+                        {"Open": 100, "High": 110, "Low": 95, "Close": 108, "Volume": 1234},
+                    )
+                ]
+            )
+
+    return HistoryFrame()
+
+
+def _currency_yfinance(currencies: dict[str, Any], calls: list[str]):
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, *, period, interval):
+            calls.append(self.symbol)
+            return _one_bar_frame()
+
+        def get_history_metadata(self):
+            value = currencies.get(self.symbol)
+            if isinstance(value, Exception):
+                raise value
+            return {} if value is None else {"currency": value}
+
+    class FakeYFinance:
+        @staticmethod
+        def Ticker(symbol):
+            return FakeTicker(symbol)
+
+    return FakeYFinance
+
+
+def test_yfinance_history_rejects_non_inr_listing_and_tries_next_exchange(monkeypatch, caplog):
+    calls: list[str] = []
+    adapter = YFinanceMarketDataProvider()
+    fake = _currency_yfinance({"INFY.NS": "USD", "INFY.BO": "INR"}, calls)
+    monkeypatch.setattr(adapter, "_yf", lambda: fake)
+
+    response = adapter.history("INFY", period="5d", interval="1d")
+
+    assert calls == ["INFY.NS", "INFY.BO"]
+    assert response.state == "live"
+    assert "yfinance_history_currency_mismatch symbol=INFY.NS currency=USD" in caplog.text
+
+
+def test_yfinance_history_unavailable_when_every_listing_is_non_inr(monkeypatch):
+    calls: list[str] = []
+    adapter = YFinanceMarketDataProvider()
+    fake = _currency_yfinance({"TCS.NS": "USD", "TCS.BO": "usd"}, calls)
+    monkeypatch.setattr(adapter, "_yf", lambda: fake)
+
+    response = adapter.history("TCS", period="1y", interval="1d")
+
+    assert calls == ["TCS.NS", "TCS.BO"]
+    assert response.state == "unavailable"
+    assert response.error_code == "CURRENCY_MISMATCH"
+
+
+@pytest.mark.parametrize(
+    "metadata_currency",
+    [None, RuntimeError("Authorization=unit-test-secret")],
+    ids=["missing", "metadata-error"],
+)
+def test_yfinance_history_accepts_pinned_listing_when_currency_unknown(monkeypatch, caplog, metadata_currency):
+    calls: list[str] = []
+    adapter = YFinanceMarketDataProvider()
+    fake = _currency_yfinance({"SBIN.NS": metadata_currency}, calls)
+    monkeypatch.setattr(adapter, "_yf", lambda: fake)
+
+    response = adapter.history("SBIN", period="5d", interval="1d")
+
+    assert calls == ["SBIN.NS"]
+    assert response.state == "live"
+    assert "yfinance_history_currency_unknown symbol=SBIN.NS" in caplog.text
+    assert "unit-test-secret" not in caplog.text
 
 
 def test_stale_while_revalidate_returns_cached_stale_during_provider_outage():

@@ -58,23 +58,19 @@ def to_yfinance_symbol(symbol: str, *, default_exchange: str = ".NS") -> str:
 
 
 def _history_exchange_candidates(symbol: str, *, default_exchange: str = ".NS") -> list[str]:
+    # Never fall back to the bare ticker: Yahoo resolves bare names such as
+    # "INFY" to US listings (USD ADRs), which would corrupt INR history.
     cleaned = str(symbol or "").strip().upper()
     if not cleaned:
         return []
     if cleaned.startswith("^"):
         return [cleaned]
     if cleaned.endswith(".NS"):
-        base = cleaned[:-3]
-        return [cleaned, f"{base}.BO", base]
+        return [cleaned, f"{cleaned[:-3]}.BO"]
     if cleaned.endswith(".BO"):
-        base = cleaned[:-3]
-        return [cleaned, f"{base}.NS", base]
+        return [cleaned, f"{cleaned[:-3]}.NS"]
     other_exchange = ".BO" if default_exchange == ".NS" else ".NS"
-    return [
-        f"{cleaned}{default_exchange}",
-        f"{cleaned}{other_exchange}",
-        cleaned,
-    ]
+    return [f"{cleaned}{default_exchange}", f"{cleaned}{other_exchange}"]
 
 
 _EXCEPTION_SECRET_RE = re.compile(
@@ -537,8 +533,9 @@ def _alpha_vantage_bar_rows(series: Any, start_date: date) -> list[dict[str, Any
 class YFinanceMarketDataProvider:
     name = "yfinance"
 
-    def __init__(self, *, default_exchange: str = ".NS"):
+    def __init__(self, *, default_exchange: str = ".NS", expected_currency: str = "INR"):
         self.default_exchange = default_exchange
+        self.expected_currency = expected_currency.upper()
 
     def _yf(self):
         import yfinance as yf
@@ -660,8 +657,20 @@ class YFinanceMarketDataProvider:
         last_error = "EMPTY_RESPONSE"
         for candidate in _history_exchange_candidates(symbol, default_exchange=self.default_exchange):
             try:
-                frame = yf.Ticker(candidate).history(period=period, interval=interval)
+                ticker = yf.Ticker(candidate)
+                frame = ticker.history(period=period, interval=interval)
                 response = self._history_payload_from_frame(symbol, frame, max_rows=max_rows)
+                if response.state == "live":
+                    currency = self._history_currency(ticker, candidate)
+                    if currency is not None and currency != self.expected_currency:
+                        logging.getLogger("stocksense.market_data").warning(
+                            "yfinance_history_currency_mismatch symbol=%s currency=%s expected=%s",
+                            candidate,
+                            currency,
+                            self.expected_currency,
+                        )
+                        last_error = "CURRENCY_MISMATCH"
+                        continue
             except Exception as exc:
                 last_error = "PROVIDER_ERROR"
                 logging.getLogger("stocksense.market_data").warning(
@@ -675,6 +684,34 @@ class YFinanceMarketDataProvider:
                 return response
             last_error = response.error_code or last_error
         return ProviderResponse.unavailable(self.name, error_code=last_error, data=[])
+
+    @staticmethod
+    def _history_currency(ticker: Any, candidate: str) -> str | None:
+        """Return the listing currency reported by Yahoo, or None when unknown.
+
+        Unknown currency is accepted because candidates are always pinned to an
+        Indian exchange suffix or index; a known non-INR currency is rejected.
+        """
+        getter = getattr(ticker, "get_history_metadata", None)
+        if not callable(getter):
+            return None
+        try:
+            metadata = getter()
+        except Exception as exc:
+            logging.getLogger("stocksense.market_data").warning(
+                "yfinance_history_currency_unknown symbol=%s error_type=%s error=%s",
+                candidate,
+                type(exc).__name__,
+                _sanitized_exception_message(exc),
+            )
+            return None
+        currency = metadata.get("currency") if isinstance(metadata, dict) else None
+        if not isinstance(currency, str) or not currency.strip():
+            logging.getLogger("stocksense.market_data").warning(
+                "yfinance_history_currency_unknown symbol=%s error_type=MissingCurrency", candidate
+            )
+            return None
+        return currency.strip().upper()
 
     def search(self, query: str, *, limit: int) -> ProviderResponse:
         return ProviderResponse.unavailable(self.name, error_code="SEARCH_NOT_SUPPORTED", data=[])

@@ -6,7 +6,11 @@ import argparse
 import json
 import logging
 
-from backend.services.daily_market_collection import DailyMarketCollector, SupabaseDailyBarStore
+from backend.services.daily_market_collection import (
+    DailyMarketCollector,
+    PartialCollectionError,
+    SupabaseDailyBarStore,
+)
 from backend.services.market_data import build_market_data_client, normalize_symbol
 
 
@@ -26,9 +30,13 @@ def main(argv: list[str] | None = None) -> int:
         store=SupabaseDailyBarStore.from_env(),
         symbols=symbols,
     )
-    result = collector.collect(period=args.period)
+    try:
+        result = collector.collect(period=args.period)
+    except PartialCollectionError as exc:
+        print(json.dumps({"period": args.period, **exc.result, "failures": exc.failures}, sort_keys=True))
+        return 1
     print(json.dumps({"period": args.period, **result}, sort_keys=True))
-    return 1 if result["symbols_failed"] else 0
+    return 0
 
 
 if __name__ == "__main__":

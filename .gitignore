@@ -62,3 +62,5 @@ Thumbs.db
 
 docs/
 temporary_migrate_legacy_portfolio.py
+HANDOFF_TO_KIRO.md
+.kiro/
