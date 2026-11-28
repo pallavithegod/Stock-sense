@@ -51,26 +51,19 @@ test('prediction rows render model fields and unavailable states', async ({ page
   await expect(page.getByText('fixture_provider')).toBeVisible()
 })
 
-test('portfolio add, sell simulation, and delete confirmation use mocked APIs', async ({ page }) => {
+test('portfolio buy, sell simulation, and FIFO sell use mocked APIs', async ({ page }) => {
   await mockApis(page)
-  page.on('dialog', (dialog) => dialog.accept())
 
   await page.goto('/portfolio')
   await page.getByLabel('Symbol', { exact: true }).fill('TEST')
   await page.getByLabel('Quantity', { exact: true }).fill('2')
   await page.getByLabel('Average price').fill('100')
-  await page.getByRole('button', { name: 'Add' }).click()
+  await page.getByRole('button', { name: 'Record buy' }).click()
 
-  await expect(page.getByText('TEST added.')).toBeVisible()
+  await expect(page.getByText('BUY recorded for TEST.')).toBeVisible()
   const holdingsTable = page.locator('table', { hasText: 'Open portfolio positions' })
   await expect(holdingsTable.getByRole('cell', { name: 'TEST', exact: true })).toBeVisible()
   await expect(holdingsTable.getByRole('cell', { name: 'INFY', exact: true })).toBeVisible()
-
-  await page.getByRole('button', { name: 'Edit TEST' }).focus()
-  await page.keyboard.press('Enter')
-  await page.getByLabel('Average price').fill('110')
-  await page.getByRole('button', { name: 'Update' }).click()
-  await expect(page.getByText('TEST updated.')).toBeVisible()
 
   await page.getByLabel('Sell symbol').fill('TEST')
   await page.getByLabel('Sell quantity').fill('1')
@@ -79,9 +72,13 @@ test('portfolio add, sell simulation, and delete confirmation use mocked APIs', 
   await expect(page.getByText('Recommended')).toBeVisible()
   await expect(page.getByRole('cell', { name: 'FIFO' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Delete TEST' }).focus()
-  await page.keyboard.press('Enter')
-  await expect(page.getByText('TEST deleted.')).toBeVisible()
+  // Recorded sells are FIFO-only; the backend rejects any other method.
+  const sellRequest = page.waitForRequest(
+    (request) => request.url().endsWith('/api/v1/portfolio/sell') && request.method() === 'POST',
+  )
+  await page.getByRole('button', { name: 'Record FIFO sell' }).click()
+  await expect(page.getByText('FIFO SELL recorded for TEST.')).toBeVisible()
+  expect((await sellRequest).postDataJSON()).toMatchObject({ symbol: 'TEST', method: 'FIFO' })
 })
 
 test('primary pages expose labels, captions, and responsive navigation', async ({ page, isMobile }) => {
@@ -295,6 +292,11 @@ async function mockApis(page: Page, options: MockOptions = {}) {
           governance: { status: 'OK', alerts: [] },
         },
       })
+      return
+    }
+
+    if (path === '/portfolio/sell' && request.method() === 'POST') {
+      await json(route, { status: 'ok', data: { status: 'ok', method: 'FIFO', realized_gain: 20 } })
       return
     }
 

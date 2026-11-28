@@ -2,6 +2,7 @@ FROM python:3.13-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PIP_ROOT_USER_ACTION=ignore \
     APP_ENV=production \
     FLASK_HOST=0.0.0.0 \
     FLASK_PORT=5000 \

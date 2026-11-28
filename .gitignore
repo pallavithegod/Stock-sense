@@ -59,8 +59,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 .vscode/
-
-docs/
+DEPLOYMENT.md
 temporary_migrate_legacy_portfolio.py
 HANDOFF_TO_KIRO.md
 .kiro/
